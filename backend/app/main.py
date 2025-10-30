@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import close_db, init_db
-from app.routes import auth, company, interviews, logs, scores, users
+from app.routes import auth, company, interviews, logs, roles, scores, users
 from app.utils.redis_client import redis_client
 
 
@@ -54,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(company.router)
     app.include_router(users.router)
+    app.include_router(roles.router)
     app.include_router(interviews.router)
     app.include_router(scores.router)
     app.include_router(logs.router)

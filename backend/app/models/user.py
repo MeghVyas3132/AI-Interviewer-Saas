@@ -12,6 +12,10 @@ from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.role import Role
 
 
 class UserRole(str, Enum):
@@ -34,6 +38,7 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(SQLEnum(UserRole), nullable=False, index=True)
+    custom_role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=True, index=True)
     manager_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id"),
@@ -51,6 +56,12 @@ class User(Base):
         remote_side=[id],
         foreign_keys=[manager_id],
         backref="subordinates",
+        uselist=False,
+    )
+    custom_role = relationship(
+        "Role",
+        back_populates="users",
+        foreign_keys=[custom_role_id],
         uselist=False,
     )
 

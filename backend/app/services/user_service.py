@@ -102,6 +102,7 @@ class UserService:
         skip: int = 0,
         limit: int = 20,
         role: Optional[UserRole] = None,
+        custom_role_id: Optional[UUID] = None,
     ) -> List[User]:
         """
         Get users for a company.
@@ -111,7 +112,8 @@ class UserService:
             company_id: Company ID
             skip: Number of records to skip
             limit: Maximum number of records to return
-            role: Optional role filter
+            role: Optional system role filter (HR, TEAM_LEAD, etc.)
+            custom_role_id: Optional custom role ID filter
 
         Returns:
             List of users
@@ -120,6 +122,9 @@ class UserService:
 
         if role:
             query = query.where(User.role == role)
+
+        if custom_role_id:
+            query = query.where(User.custom_role_id == custom_role_id)
 
         query = query.offset(skip).limit(limit)
 

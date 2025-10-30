@@ -2,7 +2,7 @@
 User management routes.
 """
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -78,7 +78,8 @@ async def list_users(
     session: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    role: UserRole | None = None,
+    role: Optional[UserRole] = None,
+    custom_role_id: Optional[UUID] = None,
 ) -> List[UserListResponse]:
     """
     List users in the company (Team Lead and above).
@@ -88,7 +89,8 @@ async def list_users(
         session: Database session
         skip: Number of records to skip
         limit: Maximum number of records
-        role: Optional role filter
+        role: Optional system role filter (HR, TEAM_LEAD, EMPLOYEE, CANDIDATE)
+        custom_role_id: Optional custom role ID filter
 
     Returns:
         List of users
@@ -99,6 +101,7 @@ async def list_users(
         skip=skip,
         limit=limit,
         role=role,
+        custom_role_id=custom_role_id,
     )
 
     return users
