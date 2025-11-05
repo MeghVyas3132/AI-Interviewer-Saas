@@ -24,9 +24,3 @@ class RefreshTokenRequest(BaseModel):
     """Schema for refresh token request."""
 
     refresh_token: str
-
-
-class LogoutRequest(BaseModel):
-    """Schema for logout request."""
-
-    pass

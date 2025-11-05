@@ -18,13 +18,69 @@ class AuthService:
     """Service for authentication operations."""
 
     @staticmethod
+    async def check_email_exists(
+        session: AsyncSession,
+        email: str,
+    ) -> Optional[User]:
+        """
+        Check if email exists in database.
+
+        Login Flow Step 1: Email check
+
+        Args:
+            session: Database session
+            email: User email to check
+
+        Returns:
+            User object if found, None otherwise
+        """
+        result = await session.execute(
+            select(User).where(User.email == email),
+        )
+        return result.scalars().first()
+
+    @staticmethod
+    async def check_password(
+        session: AsyncSession,
+        email: str,
+        password: str,
+    ) -> bool:
+        """
+        Check if password is correct for the email.
+
+        Login Flow Step 2: Password check
+
+        Args:
+            session: Database session
+            email: User email
+            password: Plain text password to verify
+
+        Returns:
+            True if password is correct, False otherwise
+        """
+        result = await session.execute(
+            select(User).where(User.email == email),
+        )
+        user = result.scalars().first()
+
+        if not user:
+            return False
+
+        return verify_password(password, user.password_hash)
+
+    @staticmethod
     async def authenticate_user(
         session: AsyncSession,
         email: str,
         password: str,
     ) -> Optional[User]:
         """
-        Authenticate user by email and password.
+        Authenticate user by email and password following the login flow.
+
+        Login Flow Steps:
+        1. Email check - Verify email exists in database
+        2. Password check - Verify password matches hash
+        3. Return user if authentication successful
 
         Args:
             session: Database session
@@ -34,6 +90,7 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
+        # Step 1: Email check
         result = await session.execute(
             select(User).where(User.email == email),
         )
@@ -42,15 +99,19 @@ class AuthService:
         if not user or not user.is_active:
             return None
 
+        # Step 2: Password check
         if not verify_password(password, user.password_hash):
             return None
 
+        # Step 3: Authentication successful
         return user
 
     @staticmethod
     def create_tokens(user_id: UUID, company_id: UUID) -> TokenResponse:
         """
         Create access and refresh tokens for user.
+
+        Login Flow Step 3: JWT generation
 
         Args:
             user_id: User ID

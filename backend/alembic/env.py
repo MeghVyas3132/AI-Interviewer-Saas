@@ -3,6 +3,8 @@
 Alembic environment configuration.
 """
 
+import logging.config
+
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
@@ -15,8 +17,6 @@ config = context.config
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
-    import logging
-
     logging.config.fileConfig(config.config_file_name)
 
 # add your model's MetaData object here
@@ -28,7 +28,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
+    url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     context.configure(
         url=url,
@@ -45,8 +45,8 @@ def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = settings.database_url.replace(
-        "postgresql://",
         "postgresql+asyncpg://",
+        "postgresql://",
     )
 
     connectable = engine_from_config(

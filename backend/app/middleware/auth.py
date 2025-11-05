@@ -1,5 +1,12 @@
 """
-Security middleware for authentication and authorization.
+Security middleware for authentication and authorization implementing login flow.
+
+Login Flow:
+1. User provides email and password to /auth/login
+2. Service validates email and password
+3. JWT tokens generated
+4. Refresh token set in HTTP-only cookie
+5. Access token returned in response
 """
 
 from typing import Optional
@@ -25,6 +32,12 @@ async def get_current_user(
     """
     Get current authenticated user from JWT token.
 
+    Checks for JWT token in:
+    1. Authorization header (Bearer token) - for API calls
+    2. refresh_token cookie - for browser-based requests
+
+    After login, backend validates the cookie and allows access to /dashboard.
+
     Args:
         request: HTTP request
         session: Database session
@@ -33,23 +46,31 @@ async def get_current_user(
         Current user
 
     Raises:
-        HTTPException: If token is invalid
+        HTTPException: If token is invalid or user not found
     """
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    token = None
+
+    # Check Authorization header first
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # Remove "Bearer " prefix
+    else:
+        # Check for refresh_token in cookie
+        token = request.cookies.get("refresh_token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authorization header",
+            detail="Missing authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = auth_header[7:]  # Remove "Bearer " prefix
     payload = verify_token(token)
 
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

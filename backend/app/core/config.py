@@ -29,9 +29,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
-    # CORS
+    # CORS (Backend only)
     cors_origins: List[str] = [
-        "http://localhost:3000",
         "http://localhost:8000",
     ]
 
