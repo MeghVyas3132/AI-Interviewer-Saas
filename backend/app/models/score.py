@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
 
 from app.core.database import Base
 import uuid
@@ -24,8 +25,8 @@ class Score(Base):
     overall = Column(Float, nullable=True)
     pass_recommendation = Column(Boolean, nullable=True)
     evaluator_notes = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     def __repr__(self) -> str:
         """String representation of Score."""

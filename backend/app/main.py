@@ -5,15 +5,23 @@ Backend-only API application for AI Interviewer Platform.
 """
 
 from contextlib import asynccontextmanager
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import close_db, init_db
+from app.core.database import close_db, init_db, AsyncSessionLocal
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.logging import RequestLoggingMiddleware
 from app.routes import auth, company, interviews, logs, roles, scores, users
 from app.utils.redis_client import redis_client
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -44,6 +52,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Add request logging middleware (after security but before other middleware)
+    app.add_middleware(RequestLoggingMiddleware)
+
+    # Add security headers middleware (must be before CORS)
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Add rate limiting middleware (must be before CORS)
+    app.add_middleware(RateLimitMiddleware)
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -63,9 +80,76 @@ def create_app() -> FastAPI:
     app.include_router(logs.router)
 
     @app.get("/health")
-    async def health_check() -> dict:
-        """Health check endpoint."""
-        return {"status": "healthy"}
+    async def health_check():
+        """
+        Comprehensive health check endpoint.
+
+        Checks:
+        1. API is running (always passes)
+        2. PostgreSQL database connectivity
+        3. Redis connectivity
+
+        Returns:
+            {
+                "status": "healthy" | "degraded" | "unhealthy",
+                "database": "healthy" | "unhealthy",
+                "redis": "healthy" | "unhealthy",
+                "timestamp": "2024-01-15T10:30:45Z"
+            }
+
+        Status Codes:
+        - 200: Fully healthy (all services up)
+        - 503: Degraded or unhealthy (one or more services down)
+        """
+        from datetime import datetime, timezone
+
+        db_status = "unhealthy"
+        redis_status = "unhealthy"
+        overall_status = "healthy"
+
+        # Check database connectivity
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+            db_status = "healthy"
+            logger.debug("Database health check: OK")
+        except Exception as e:
+            db_status = "unhealthy"
+            overall_status = "degraded"
+            logger.error(f"Database health check failed: {str(e)}")
+
+        # Check Redis connectivity
+        try:
+            await redis_client.ping()
+            redis_status = "healthy"
+            logger.debug("Redis health check: OK")
+        except Exception as e:
+            redis_status = "unhealthy"
+            overall_status = "degraded"
+            logger.error(f"Redis health check failed: {str(e)}")
+
+        # If both are down, mark as unhealthy
+        if db_status == "unhealthy" and redis_status == "unhealthy":
+            overall_status = "unhealthy"
+
+        response_data = {
+            "status": overall_status,
+            "database": db_status,
+            "redis": redis_status,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Return 503 if not fully healthy
+        if overall_status != "healthy":
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=response_data,
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=response_data,
+        )
 
     # Add OpenAPI security scheme for Swagger UI
     def custom_openapi():

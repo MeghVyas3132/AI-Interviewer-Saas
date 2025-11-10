@@ -8,6 +8,7 @@ from sqlalchemy import Boolean, Column, DateTime, String, Text
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.core.database import Base
 import uuid
@@ -27,8 +28,8 @@ class Role(Base):
     description = Column(Text, nullable=True)
     permissions = Column(String(1000), nullable=True)  # Comma-separated or JSON string
     is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationships
     users = relationship(

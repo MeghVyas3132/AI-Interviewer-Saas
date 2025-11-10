@@ -8,7 +8,7 @@ Login Flow:
 4. Cookie setting - Send refresh token via secure HTTP-only cookie
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -16,6 +16,7 @@ from app.middleware.auth import get_current_user
 from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResponse
 from app.services.auth_service import AuthService
 from app.services.audit_log_service import AuditLogService
+from app.services.token_blacklist_service import TokenBlacklistService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -122,14 +123,16 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     current_user=Depends(get_current_user),
     response: Response = Response(),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Logout user and clear refresh token cookie.
+    Logout user, revoke tokens, and clear refresh token cookie.
 
     Args:
+        request: HTTP request
         current_user: Current authenticated user
         response: HTTP response to clear cookie
         session: Database session
@@ -137,6 +140,14 @@ async def logout(
     Returns:
         Success message
     """
+    # Get access token from request to add to blacklist
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        # Add token to blacklist (immediate revocation)
+        blacklist_service = TokenBlacklistService()
+        await blacklist_service.add_to_blacklist(token)
+
     # Clear refresh token cookie
     response.delete_cookie(
         key="refresh_token",

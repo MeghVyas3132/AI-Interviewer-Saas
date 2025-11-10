@@ -91,6 +91,48 @@ class RedisClient:
         result = await self.client.exists(key)
         return result > 0
 
+    async def ping(self) -> bool:
+        """
+        Ping Redis to check connectivity.
+
+        Returns:
+            True if Redis is responding
+        """
+        if not self.client:
+            raise RuntimeError("Redis client not connected")
+        response = await self.client.ping()
+        return response == True or response == b"PONG"
+
+    async def incr(self, key: str) -> int:
+        """
+        Increment a counter in Redis.
+
+        Args:
+            key: Redis key
+
+        Returns:
+            New counter value
+        """
+        if not self.client:
+            raise RuntimeError("Redis client not connected")
+        return await self.client.incr(key)
+
+    async def expire(self, key: str, time: int) -> bool:
+        """
+        Set expiration time on a key.
+
+        Args:
+            key: Redis key
+            time: Expiration time in seconds
+
+        Returns:
+            True if expiration was set
+        """
+        if not self.client:
+            raise RuntimeError("Redis client not connected")
+        result = await self.client.expire(key, time)
+        return result > 0
+
 
 # Global Redis client instance
 redis_client = RedisClient()

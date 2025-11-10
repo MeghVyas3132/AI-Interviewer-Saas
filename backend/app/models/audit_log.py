@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy.sql import func
 
 from app.core.database import Base
 import uuid
@@ -25,7 +26,7 @@ class AuditLog(Base):
     details = Column(JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False, index=True)
 
     def __repr__(self) -> str:
         """String representation of AuditLog."""

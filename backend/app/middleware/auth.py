@@ -9,6 +9,7 @@ Login Flow:
 5. Access token returned in response
 """
 
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -20,8 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.services.user_service import UserService
+from app.services.token_blacklist_service import TokenBlacklistService
 from app.utils.jwt_helper import verify_token
 
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
 
@@ -36,7 +39,7 @@ async def get_current_user(
     1. Authorization header (Bearer token) - for API calls
     2. refresh_token cookie - for browser-based requests
 
-    After login, backend validates the cookie and allows access to /dashboard.
+    Validates token signature, expiration, and blacklist status.
 
     Args:
         request: HTTP request
@@ -46,7 +49,7 @@ async def get_current_user(
         Current user
 
     Raises:
-        HTTPException: If token is invalid or user not found
+        HTTPException: If token is invalid, blacklisted, or user not found
     """
     auth_header = request.headers.get("Authorization")
     token = None
@@ -71,6 +74,16 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if token is blacklisted (revoked by logout)
+    blacklist_service = TokenBlacklistService()
+    if await blacklist_service.is_blacklisted(token):
+        logger.warning(f"Attempt to use blacklisted token: {payload.get('sub')}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

@@ -2,13 +2,52 @@
 User schemas for request/response validation.
 """
 
+import re
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import UserRole
+
+
+def validate_password_complexity(password: str) -> str:
+    """
+    Validate password meets complexity requirements.
+
+    Requirements:
+    - Minimum 8 characters
+    - At least one uppercase letter (A-Z)
+    - At least one lowercase letter (a-z)
+    - At least one digit (0-9)
+    - At least one special character (!@#$%^&*)
+
+    Args:
+        password: Password to validate
+
+    Returns:
+        Password if valid
+
+    Raises:
+        ValueError: If password doesn't meet requirements
+    """
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+
+    if not re.search(r"[A-Z]", password):
+        raise ValueError("Password must contain at least one uppercase letter")
+
+    if not re.search(r"[a-z]", password):
+        raise ValueError("Password must contain at least one lowercase letter")
+
+    if not re.search(r"\d", password):
+        raise ValueError("Password must contain at least one digit")
+
+    if not re.search(r"[!@#$%^&*()_+\-=\[\]{};:',.<>?/\\|`~]", password):
+        raise ValueError("Password must contain at least one special character (!@#$%^&* etc.)")
+
+    return password
 
 
 class UserBase(BaseModel):
@@ -25,6 +64,12 @@ class UserCreate(UserBase):
 
     password: str = Field(..., min_length=8, max_length=255)
     manager_id: Optional[UUID] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password complexity."""
+        return validate_password_complexity(v)
 
 
 class UserUpdate(BaseModel):
@@ -75,3 +120,9 @@ class ChangePasswordRequest(BaseModel):
 
     old_password: str = Field(..., min_length=8)
     new_password: str = Field(..., min_length=8, max_length=255)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password complexity."""
+        return validate_password_complexity(v)
