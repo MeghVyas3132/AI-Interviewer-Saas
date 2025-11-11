@@ -1,42 +1,25 @@
 # AI Interviewer Platform - Backend
 
-**Version:** 1.0.0  
-**Status:** ✅ Production Ready  
+**Version:** 1.0.0
+**Status:** Production Ready
 **Last Updated:** November 5, 2025
 
 ---
 
-## 📋 Overview
+## Overview
 
-AI Interviewer Platform is a comprehensive backend system for managing interviews, candidates, and interview scores. The system features a production-ready authentication system with JWT tokens, secure session management, and role-based access control.
+This repository contains the backend system for the AI Interviewer Platform. It is a comprehensive set of services for managing interviews, candidates, and interview scores. The system features a production-ready authentication service with JWT tokens, secure cookies, role-based access control, and comprehensive audit logging.
 
 ### Key Features
 
-✅ **Secure Authentication**
-- Email/password login with bcrypt hashing
-- JWT token-based sessions (15-minute access tokens)
-- Refresh token mechanism (7-day validity)
-- HTTP-only secure cookies
-
-✅ **Role-Based Access Control**
-- Employee, Team Lead, HR, and Admin roles
-- Granular permission management
-- Protected API endpoints
-
-✅ **Comprehensive Audit Logging**
-- All authentication events tracked
-- User activity monitoring
-- Compliance-ready audit trails
-
-✅ **Production-Ready**
-- Docker containerized deployment
-- PostgreSQL database with migrations
-- Redis cache integration
-- Error handling and validation
+- **Secure Authentication**: Email/password login with bcrypt hashing, JWT token-based sessions (15-minute access tokens), and a refresh token mechanism (7-day validity) using HTTP-only secure cookies.
+- **Role-Based Access Control**: Granular permission management for Employee, Team Lead, HR, and Admin roles, with protected API endpoints.
+- **Comprehensive Audit Logging**: All authentication and key user activities are tracked for compliance and monitoring.
+- **Production-Ready**: The system is containerized with Docker, uses a PostgreSQL database with Alembic for migrations, and integrates a Redis cache. It includes robust error handling and input validation.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -48,23 +31,23 @@ AI Interviewer Platform is a comprehensive backend system for managing interview
 ### Installation
 
 #### 1. Clone Repository
-
 ```bash
-cd /Users/meghvyas/Desktop/AI_Interviewer
+git clone <repository-url>
+cd MicroServices_AI_Interviewer
 ```
 
 #### 2. Install Dependencies
-
 ```bash
 cd backend
 python3 -m pip install -r requirements.txt --upgrade
 ```
 
 #### 3. Setup Environment
-
+Create a `.env` file from the example and edit it with your configuration.
 ```bash
+cd backend
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your database credentials and secret key
 ```
 
 **Environment Variables:**
@@ -87,211 +70,112 @@ APP_VERSION=1.0.0
 DEBUG=False
 LOG_LEVEL=INFO
 
-# CORS (Backend only)
-CORS_ORIGINS=["http://localhost:8000"]
+# CORS
+CORS_ORIGINS=["http://localhost:3000", "http://localhost:8000"]
 ```
 
 #### 4. Start with Docker
-
 ```bash
-# Start all services
+# Start all services in detached mode
 docker-compose up -d
 
-# View logs
+# View logs for the backend service
 docker-compose logs -f backend
 
-# Stop services
+# Stop all services
 docker-compose down
 ```
 
 #### 5. Initialize Database
-
 ```bash
-# Apply migrations
-cd backend
+# Enter the running backend container
+docker-compose exec backend bash
+
+# Apply database migrations
 alembic upgrade head
 
 # Seed sample data (optional)
 python3 scripts/seed_demo.py
+exit
 ```
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # FastAPI application
+│   ├── main.py                 # FastAPI application entrypoint
 │   ├── core/
-│   │   ├── config.py          # Configuration settings
-│   │   └── database.py        # Database connection
+│   │   ├── config.py           # Configuration settings
+│   │   └── database.py         # Database session management
 │   ├── middleware/
-│   │   └── auth.py            # Authentication middleware
-│   ├── models/                # SQLAlchemy models
-│   │   ├── user.py
-│   │   ├── company.py
-│   │   ├── interview.py
-│   │   ├── score.py
-│   │   ├── role.py
-│   │   └── audit_log.py
-│   ├── routes/                # API endpoints
-│   │   ├── auth.py            # Authentication routes
-│   │   ├── users.py
-│   │   ├── interviews.py
-│   │   ├── scores.py
-│   │   ├── roles.py
-│   │   ├── company.py
-│   │   └── logs.py
-│   ├── schemas/               # Pydantic models
-│   │   ├── auth_schema.py
-│   │   └── [other schemas]
-│   ├── services/              # Business logic
-│   │   ├── auth_service.py    # Login logic
-│   │   ├── user_service.py
-│   │   ├── audit_log_service.py
-│   │   └── [other services]
-│   └── utils/                 # Utilities
-│       ├── jwt_helper.py      # JWT token creation
-│       ├── password_hashing.py
-│       └── redis_client.py
-├── tests/                     # Unit & integration tests
-├── alembic/                   # Database migrations
-├── requirements.txt           # Python dependencies
-├── setup.py                   # Package setup
-├── Dockerfile                 # Container configuration
-├── pytest.ini                 # Testing configuration
-└── .env.example              # Environment template
+│   │   └── auth.py             # Authentication middleware
+│   ├── models/                 # SQLAlchemy ORM models
+│   ├── routes/                 # API endpoints (routers)
+│   ├── schemas/                # Pydantic data models
+│   ├── services/               # Business logic layer
+│   └── utils/                  # Utility functions
+├── tests/                      # Unit & integration tests
+├── alembic/                    # Database migrations
+├── requirements.txt            # Python dependencies
+├── setup.py                    # Package setup
+├── Dockerfile                  # Container configuration
+├── pytest.ini                  # Testing configuration
+└── .env.example                # Environment variable template
 ```
 
 ---
 
-## 🔐 Authentication Flow
+## Authentication Flow
 
 ### Login Sequence
-
-```
-1. Email Check
-   └─ Verify email exists in database
-   
-2. Password Check  
-   └─ Verify password matches bcrypt hash
-   
-3. JWT Generation
-   ├─ Create access token (15 minutes)
-   └─ Create refresh token (7 days)
-   
-4. Cookie Setting
-   └─ Set HTTP-only secure cookie with refresh token
-   
-5. Response
-   └─ Return access_token in body for immediate use
-```
+1.  **Email Check**: Verify the email exists in the database.
+2.  **Password Check**: Verify the provided password matches its bcrypt hash.
+3.  **JWT Generation**: Create a short-lived access token (15 minutes) and a long-lived refresh token (7 days).
+4.  **Cookie Setting**: Set an HTTP-only, secure cookie containing the refresh token.
+5.  **Response**: Return the access token in the response body for immediate use by the client.
 
 ### API Endpoints
 
 #### Login
-
-```bash
-POST /api/v1/auth/login
-
-Body:
-{
-  "email": "user@company.com",
-  "password": "SecurePassword123!"
-}
-
-Response (200 OK):
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-
-Headers:
-Set-Cookie: refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
-```
+`POST /api/v1/auth/login`
+-   **Body**: `{ "email": "user@company.com", "password": "SecurePassword123!" }`
+-   **Success Response (200 OK)**: Returns access and refresh tokens. Sets `refresh_token` cookie.
 
 #### Refresh Token
-
-```bash
-POST /api/v1/auth/refresh
-
-Body:
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-
-Response (200 OK):
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-```
+`POST /api/v1/auth/refresh`
+-   **Body**: `{ "refresh_token": "your-refresh-token" }`
+-   **Success Response (200 OK)**: Returns a new set of access and refresh tokens.
 
 #### Logout
-
-```bash
-POST /api/v1/auth/logout
-
-Headers:
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-Response (200 OK):
-{
-  "message": "Logged out successfully"
-}
-
-Headers:
-Set-Cookie: refresh_token=; Max-Age=0
-```
+`POST /api/v1/auth/logout`
+-   **Headers**: `Authorization: Bearer <access_token>`
+-   **Success Response (200 OK)**: Clears the session and expires the refresh token cookie.
 
 #### Protected Endpoint Example
-
-```bash
-GET /api/v1/users/me
-
-Headers:
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-Response (200 OK):
-{
-  "id": "uuid",
-  "email": "user@company.com",
-  "first_name": "John",
-  "last_name": "Doe",
-  "role": "employee",
-  "company_id": "uuid"
-}
-```
+`GET /api/v1/users/me`
+-   **Headers**: `Authorization: Bearer <access_token>`
+-   **Success Response (200 OK)**: Returns the profile of the authenticated user.
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Run All Tests
-
 ```bash
 cd backend
 pytest
 ```
 
-### Run Specific Test File
-
-```bash
-pytest tests/test_auth.py -v
-```
-
 ### Run with Coverage
-
 ```bash
 pytest --cov=app --cov-report=html
 ```
 
 ### Test Coverage
-
 ```
 Name                  Stmts   Miss  Cover
 app/services          200     5    97.5%
@@ -304,10 +188,9 @@ TOTAL                 570     20   96.5%
 
 ---
 
-## 📊 Database Schema
+## Database Schema
 
 ### Users Table
-
 ```sql
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -325,7 +208,6 @@ CREATE TABLE users (
 ```
 
 ### Audit Logs Table
-
 ```sql
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY,
@@ -343,10 +225,9 @@ CREATE TABLE audit_logs (
 
 ---
 
-## � Docker Deployment
+## Docker Deployment
 
 ### Using Docker Compose
-
 ```bash
 # Build and start all services
 docker-compose up -d
@@ -360,277 +241,74 @@ docker-compose logs -f backend
 # Stop all services
 docker-compose down
 
-# Remove all data (fresh start)
+# Remove all data (including database volumes) for a fresh start
 docker-compose down -v
 ```
 
-### Environment Variables for Docker
-
-```yaml
-services:
-  backend:
-    environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/db
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your-secret-key
-      - DEBUG=False
-```
-
 ### Production Deployment
-
-```bash
-# Build production image
-docker build -t ai-interviewer-backend:latest ./backend
-
-# Push to registry
-docker push your-registry/ai-interviewer-backend:latest
-
-# Deploy with Docker
-docker run -d \
-  --name backend \
-  -p 8000:8000 \
-  -e DATABASE_URL=postgresql://... \
-  -e REDIS_URL=redis://... \
-  -e SECRET_KEY=... \
-  your-registry/ai-interviewer-backend:latest
-```
+For production, build the image and push it to a container registry. Deploy using your preferred orchestration tool (e.g., Kubernetes, Docker Swarm) or a standalone Docker host, ensuring all environment variables are securely managed.
 
 ---
 
-## 🔒 Security
+## Security
 
 ### Best Practices Implemented
-
-✅ **Password Security**
-- bcrypt hashing (12 rounds)
-- 8+ character minimum
-- Never stored in plain text
-- Constant-time comparison
-
-✅ **Token Security**
-- HS256 algorithm (HMAC SHA256)
-- 256-bit secret key
-- Automatic expiration
-- Algorithm verification
-
-✅ **Cookie Security**
-- HttpOnly flag (prevents XSS)
-- Secure flag (HTTPS only)
-- SameSite=strict (prevents CSRF)
-- 7-day max age
-
-✅ **CORS Policy**
-- Restricted to backend only
-- Update for production domains
-- Preflight request validation
+- **Password Security**: Uses bcrypt hashing (12 rounds) with a salt, constant-time comparison, and an 8+ character minimum.
+- **Token Security**: Employs HS256 algorithm for JWTs with a 256-bit secret key, automatic expiration, and algorithm verification.
+- **Cookie Security**: Sets `HttpOnly`, `Secure`, and `SameSite=Strict` flags on cookies to protect against XSS and CSRF attacks.
+- **CORS Policy**: Restricts cross-origin requests to a configured list of origins.
 
 ### Production Security Checklist
-
-- [ ] Change SECRET_KEY to random 256-bit value
-- [ ] Update CORS_ORIGINS to production domain
-- [ ] Set DEBUG=False
-- [ ] Enable HTTPS/SSL certificates
-- [ ] Configure database backups
-- [ ] Enable Redis persistence
-- [ ] Setup monitoring and alerting
-- [ ] Enable rate limiting
-- [ ] Review audit logs regularly
-- [ ] Test disaster recovery
+-   Change `SECRET_KEY` to a securely generated random 256-bit value.
+-   Update `CORS_ORIGINS` to your production frontend domain(s).
+-   Set `DEBUG=False`.
+-   Enforce HTTPS/SSL across the entire application.
+-   Configure regular database backups and a disaster recovery plan.
+-   Enable Redis persistence if using it for more than just caching.
+-   Set up robust monitoring, logging, and alerting.
+-   Implement rate limiting on sensitive endpoints like login.
+-   Perform regular security audits and review audit logs.
 
 ---
 
-## 📈 Monitoring & Logs
+## Monitoring & Logs
 
 ### Health Check
-
-```bash
-curl http://localhost:8000/health
-
-Response:
-{
-  "status": "healthy"
-}
-```
+An unauthenticated health check endpoint is available to monitor service status.
+`curl http://localhost:8000/health`
+-   **Response**: `{ "status": "healthy" }`
 
 ### View Application Logs
-
 ```bash
-# Docker logs
+# View real-time logs from Docker
 docker-compose logs -f backend --tail=50
-
-# Application log level
-DEBUG=False      # Production
-LOG_LEVEL=INFO   # Standard
-LOG_LEVEL=DEBUG  # Development
 ```
+Log verbosity is controlled by the `LOG_LEVEL` environment variable (`INFO` for production, `DEBUG` for development).
 
 ### Audit Logging
-
-All authentication events are logged:
-
-```sql
-SELECT * FROM audit_logs 
-WHERE action = 'LOGIN' 
-ORDER BY created_at DESC;
-```
+Key authentication events are logged to the `audit_logs` database table and can be queried for security and compliance purposes.
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Common Issues
-
-**Issue:** "Connection refused" on database
-
-```bash
-# Solution: Check PostgreSQL is running
-docker-compose logs postgres
-
-# Restart database
-docker-compose restart postgres
-```
-
-**Issue:** "Invalid token" on protected endpoints
-
-```bash
-# Solution: Verify Authorization header format
-Authorization: Bearer {access_token}
-
-# Token expired? Use refresh endpoint:
-POST /api/v1/auth/refresh
-```
-
-**Issue:** CORS error in browser
-
-```bash
-# Solution: Update CORS_ORIGINS in .env
-CORS_ORIGINS=["https://yourdomain.com", "http://localhost:8000"]
-```
-
-**Issue:** "Email or password invalid"
-
-```bash
-# Solution: Verify user exists in database
-SELECT * FROM users WHERE email = 'user@company.com';
-
-# Reset password
-python3 backend/scripts/reset_password.py user@company.com
-```
+-   **Connection Refused**: Ensure Docker services (especially `postgres` and `redis`) are running. Check `docker-compose logs <service_name>`.
+-   **Invalid Token**: The access token may have expired. Use the refresh token to get a new one. Ensure the `Authorization: Bearer <token>` header is correctly formatted.
+-   **CORS Error**: Make sure your frontend URL is included in the `CORS_ORIGINS` environment variable.
+-   **Invalid Credentials**: Verify the user exists in the database and the password is correct.
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-- **TRD.md** - Technical Requirements Document
-- **PRD.md** - Product Requirements Document
-- **README.md** - This file
-
----
-
-## 🚢 Deployment Checklist
-
-### Pre-Deployment
-
-- [ ] All tests passing
-- [ ] Code review completed
-- [ ] Security audit passed
-- [ ] Performance benchmarks met
-- [ ] Backup strategy in place
-- [ ] Rollback plan documented
-
-### Deployment
-
-- [ ] Update environment variables
-- [ ] Run database migrations
-- [ ] Verify service health
-- [ ] Check audit logs
-- [ ] Monitor error rates
-
-### Post-Deployment
-
-- [ ] Confirm all endpoints working
-- [ ] Test login flow end-to-end
-- [ ] Verify audit logging
-- [ ] Monitor performance metrics
-- [ ] Check error logs
+-   **TRD.md**: Technical Requirements Document for the backend services.
+-   **PRD.md**: Product Requirements Document for the overall platform vision.
+-   **README.md**: This file.
 
 ---
 
-## 🤝 Contributing
 
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -r requirements.txt
-
-# Format code
-black app/
-
-# Lint code
-flake8 app/
-
-# Type checking
-mypy app/
-
-# Run tests
-pytest --cov=app
-```
-
-### Git Workflow
-
-```bash
-# Create feature branch
-git checkout -b feature/auth-improvements
-
-# Commit changes
-git commit -m "feat: add rate limiting to login"
-
-# Push to remote
-git push origin feature/auth-improvements
-
-# Create pull request
-```
-
----
-
-## 📞 Support
-
-### Getting Help
-
-- **Documentation:** See TRD.md and PRD.md
-- **Issues:** Create GitHub issue
-- **Security:** security@company.com
-- **Support:** support@company.com
-
----
-
-## 📝 License
-
-Proprietary - AI Interviewer Platform
-
----
-
-## 🎯 Roadmap
-
-### Q4 2025
-- [x] JWT authentication
-- [x] Role-based access control
-- [x] Audit logging
-
-### Q1 2026
-- [ ] Multi-factor authentication
-- [ ] OAuth2 / SSO
-- [ ] Advanced analytics
-
-### Q2 2026
-- [ ] Mobile app support
-- [ ] API rate limiting
-- [ ] Enhanced monitoring
-
----
-
-## 📊 System Requirements
+## System Requirements
 
 | Component | Requirement |
 |-----------|-------------|
@@ -639,22 +317,10 @@ Proprietary - AI Interviewer Platform
 | Redis | 7+ |
 | Docker | 20.10+ |
 | Docker Compose | 1.29+ |
-| Memory | 2GB minimum |
-| Disk | 10GB minimum |
 
 ---
 
-## ✅ Status
-
-**Current Release:** 1.0.0  
-**Status:** ✅ Production Ready  
-**Test Coverage:** 96.5%  
-**Security Audit:** ✅ Passed  
-**Performance:** ✅ Optimized
-
----
-
-**Last Updated:** November 5, 2025  
-**Maintained By:** Development Team  
-**Next Review:** Q1 2026
-
+**Status:** Production Ready
+**Test Coverage:** 96.5%
+**Security Audit:** Passed
+**Maintained By:** Megh Vyas
