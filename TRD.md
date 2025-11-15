@@ -847,6 +847,230 @@ Every login/logout action is logged to `audit_logs` table:
 
 ---
 
+## 11. Phase 2: Candidate Management - Technical Implementation
+
+### 11.1 Bulk Candidate Import
+
+**File:** `backend/app/utils/file_parser.py` (500+ lines)
+
+#### Supported Formats
+- JSON array: `POST /api/v1/candidates/bulk/import`
+- CSV files: `POST /api/v1/candidates/bulk/import/file`
+- Excel files (.xlsx, .xls): `POST /api/v1/candidates/bulk/import/file`
+
+#### Implementation Details
+
+**CandidateImportParser Class:**
+```python
+class CandidateImportParser:
+    @staticmethod
+    async def parse_file(file_path: str) -> List[dict]
+        # Auto-detect format (CSV/Excel)
+        # Handles encoding errors gracefully
+        
+    @staticmethod
+    def _parse_csv(content: BytesIO) -> pd.DataFrame
+        # UTF-8 CSV parsing
+        # Header detection
+        
+    @staticmethod
+    def _parse_excel(content: BytesIO) -> pd.DataFrame
+        # Supports .xlsx and .xls
+        # Uses openpyxl for parsing
+```
+
+#### Validation Framework
+- Required fields: `email`, `first_name`, `last_name`
+- Email validation: RFC-compliant regex pattern
+- Phone validation: Minimum 10 digits, flexible formatting (accepts +1-234-567-8900, (123) 456-7890, etc.)
+- Experience years: 0-100 range validation
+- Type coercion: Automatic numeric field conversion
+- NaN handling: Converts "nan" strings to None
+
+#### Error Handling
+- File size limit: 10MB (413 PAYLOAD_TOO_LARGE if exceeded)
+- Error collection: First 100 errors returned in response
+- Duplicate detection: Prevents duplicate emails per company
+- Graceful degradation: Failed records don't block entire import
+
+#### Response Format
+```json
+{
+  "total": 100,
+  "created": 95,
+  "failed": 5,
+  "errors": [
+    "Row 2: Invalid email format: invalid@",
+    "Row 5: Phone: already exists with email jane@example.com",
+    ...
+  ],
+  "created_candidates": [
+    {
+      "id": "uuid",
+      "email": "...",
+      "first_name": "...",
+      "status": "applied",
+      "source": "excel_import",
+      "created_at": "2025-11-16T..."
+    },
+    ...
+  ],
+  "message": "✅ Imported 95/100 candidates successfully. 5 errors."
+}
+```
+
+### 11.2 HR Dashboard Analytics
+
+**File:** `backend/app/services/candidate_service.py` (Analytics methods)
+
+#### Dashboard Stats Endpoint
+- **Endpoint:** `GET /api/v1/candidates/dashboard/stats`
+- **Returns:**
+  - `total_candidates`: Count of all candidates
+  - `active_interviews`: Count with status in [SCHEDULED, IN_PROGRESS]
+  - `pending_feedback`: Count of interviews without notes
+  - `candidates_by_status`: Object with counts per status
+  - `candidates_by_domain`: Object with counts per domain
+  - `conversion_rates`: Calculated percentages at each stage
+
+#### Funnel Analytics Endpoint
+- **Endpoint:** `GET /api/v1/candidates/analytics/funnel`
+- **Returns:** Array of funnel stages with:
+  - `stage`: Applied → Screening → Interview → Offer → Accepted
+  - `count`: Number of candidates at stage
+  - `percentage`: Percentage of total
+  - `dropoff_from_previous`: % lost to previous stage
+- **Calculations:**
+  - Applied-to-Screening: (screening / applied) * 100
+  - Screening-to-Interview: (interview / screening) * 100
+  - Interview-to-Offer: (offer / interview) * 100
+  - Offer-to-Accepted: (accepted / offer) * 100
+
+#### Time-to-Hire Metrics
+- **Endpoint:** `GET /api/v1/candidates/analytics/time-to-hire`
+- **Returns:**
+  - `average_days_to_hire`: Mean from applied to accepted
+  - `median_days_to_hire`: Median (50th percentile)
+  - `total_hired`: Count of accepted candidates
+  - `by_department`: Department-level breakdown
+  - `recent_hires_30_days`: Count hired in last 30 days
+
+#### Calculation Methods
+```python
+# Time-to-hire calculation
+duration = (updated_at - created_at).days
+
+# Conversion rates
+conversion_rate = (stage_count / previous_stage_count) * 100
+
+# Multi-tenant isolation
+WHERE company_id = user.company_id
+```
+
+### 11.3 Bulk Email System
+
+**Files:**
+- `backend/app/services/email_async_service.py`: Queue and send logic
+- `backend/app/routes/candidates.py`: Bulk email endpoint
+
+#### Endpoint
+- **Endpoint:** `POST /api/v1/candidates/bulk/send-email`
+- **Request:**
+  ```json
+  {
+    "candidate_ids": ["uuid1", "uuid2", ...],
+    "template_id": "candidate_status_update",
+    "subject": "Your Interview Status",
+    "body": "<p>HTML body</p>",
+    "send_immediately": true
+  }
+  ```
+- **Response:** `202 ACCEPTED` with job tracking ID
+
+#### Implementation
+```python
+async def queue_bulk_emails(
+    session: AsyncSession,
+    company_id: UUID,
+    recipients: List[Dict],
+    subject: str,
+    body: str,
+    email_type: EmailType,
+    priority: EmailPriority = MEDIUM
+) -> List[UUID]
+    # Queue each email in database
+    # Trigger Celery tasks
+    # Return email IDs for progress tracking
+```
+
+#### Rate Limiting
+- Enforced at application level
+- Default: 100 emails per minute per company
+- Configurable via environment
+- Queued emails respect rate limits
+
+#### Async Processing
+- Emails queued to database first
+- Celery tasks triggered for actual sending
+- Max retries: 3 with exponential backoff
+- Delivery status tracked: QUEUED → SENDING → SENT/FAILED
+
+### 11.4 Database Schema Extensions
+
+#### New Tables for Phase 2
+
+**candidates** (Extended from Phase 0)
+```sql
+- email: String, Unique per company
+- first_name, last_name: String
+- phone: String, Optional
+- domain: String, Optional (engineering, sales, etc.)
+- position: String, Optional
+- experience_years: Integer, Optional
+- qualifications: Text, Optional
+- resume_url: String, Optional
+- status: Enum (applied, screening, interview, offer, accepted, rejected, withdrawn, on_hold)
+- source: Enum (direct, excel_import, bulk_upload, referral, etc.)
+- created_by: UUID FK to users
+- company_id: UUID FK to companies (Multi-tenant isolation)
+- Indexes: (company_id, email), (company_id, status), (company_id, domain)
+```
+
+**interviews** (Extended from Phase 0)
+```sql
+- Added: round: Enum (screening, technical, hr_round, final, assessment)
+- Added: recording_url, transcription_url: String, Optional
+- Added: notes: Text, Optional (feedback)
+- Indexes: (company_id, status), (company_id, candidate_id)
+```
+
+#### Multi-Tenant Isolation Enforcement
+- All queries include: `WHERE company_id = current_user.company_id`
+- Database constraints: Composite unique indexes include company_id
+- Foreign keys: Enforce company_id consistency across tables
+
+### 11.5 Performance Considerations
+
+#### Bulk Import Performance
+- CSV parsing: Pandas DataFrames (vectorized operations)
+- Batch inserts: SQLAlchemy bulk operations where possible
+- Validation: Single-pass through records
+- Expected throughput: 1000+ candidates in <5 seconds
+
+#### Analytics Query Performance
+- All analytics use aggregation functions (COUNT, GROUP BY)
+- Queries optimized with proper indexes
+- Response time target: <500ms for all analytics endpoints
+- Caching: Future optimization point (Redis caching of daily stats)
+
+#### Email Throughput
+- Queue-based: Async processing doesn't block API
+- Celery workers: Parallel processing of multiple emails
+- Rate limiting: Prevents provider throttling
+- Database: Async session management for concurrency
+
+---
+
 ## 12. Future Enhancements
 
 1. **Multi-Factor Authentication (MFA)**
@@ -883,5 +1107,5 @@ Every login/logout action is logged to `audit_logs` table:
 
 ---
 
-**Last Updated:** November 11, 2025
-**Document Version:** 1.0.0
+**Last Updated:** November 16, 2025
+**Document Version:** 1.0.1 - Phase 2 Technical Implementation Added

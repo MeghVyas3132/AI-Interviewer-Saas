@@ -4,10 +4,11 @@ Comprehensive CRUD, bulk operations, and email integration
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -27,6 +28,7 @@ from app.schemas.candidate_schema import (
 )
 from app.services.candidate_service import CandidateService
 from app.services.email_async_service import EmailService
+from app.utils.file_parser import CandidateImportParser, FileParseError, BulkImportStats
 
 logger = logging.getLogger(__name__)
 
@@ -277,16 +279,139 @@ async def delete_candidate(
 
 
 # ============================================================================
+# ============================================================================
 # BULK OPERATIONS
 # ============================================================================
+
+
+@router.post(
+    "/bulk/import/file",
+    response_model=CandidateBulkImportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk import candidates from file",
+    description="Import multiple candidates from Excel (XLSX) or CSV file",
+)
+async def bulk_import_file(
+    file: UploadFile = File(..., description="Excel (.xlsx) or CSV (.csv) file with candidate data"),
+    send_invitations: bool = Query(True, description="Send invitation emails after import"),
+    default_domain: Optional[str] = Query(None, description="Default domain for all candidates"),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CandidateBulkImportResponse:
+    """
+    Bulk import candidates from uploaded file
+    
+    **File Format:**
+    - Excel (.xlsx) or CSV (.csv)
+    - Required columns: email, first_name, last_name
+    - Optional columns: phone, domain, position, experience_years, qualifications, resume_url
+    
+    **Example CSV:**
+    ```
+    email,first_name,last_name,phone,domain,position,experience_years
+    john@example.com,John,Doe,+1-234-567-8900,Engineering,Senior Engineer,5
+    jane@example.com,Jane,Smith,+1-234-567-8901,Sales,Account Executive,3
+    ```
+    """
+    try:
+        # Validate file size (max 10MB)
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File size exceeds 10MB limit"
+            )
+        
+        # Parse file
+        logger.info(f"Parsing file: {file.filename}")
+        parsed_candidates, parse_errors = CandidateImportParser.parse_file(
+            content,
+            file.filename or "candidates.csv"
+        )
+        
+        if not parsed_candidates and parse_errors:
+            logger.error(f"File parsing failed: {parse_errors}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse file: {parse_errors[0]}"
+            )
+        
+        logger.info(f"✅ Parsed {len(parsed_candidates)} candidates from {file.filename}")
+        
+        # Add default domain if provided
+        if default_domain:
+            for candidate in parsed_candidates:
+                if "domain" not in candidate or not candidate["domain"]:
+                    candidate["domain"] = default_domain
+        
+        # Prepare candidate data for creation
+        candidates_data = []
+        for cand in parsed_candidates:
+            cand["created_by"] = current_user.id
+            candidates_data.append(cand)
+        
+        # Bulk create candidates
+        created, errors = await CandidateService.bulk_create_candidates(
+            session=session,
+            company_id=current_user.company_id,
+            candidates_data=candidates_data,
+            created_by=current_user.id,
+            send_invitation_emails=send_invitations,
+        )
+        
+        # Log audit
+        await CandidateService.log_bulk_import(
+            session=session,
+            company_id=current_user.company_id,
+            user_id=current_user.id,
+            filename=file.filename or "unknown",
+            total=len(candidates_data),
+            created=len(created),
+            failed=len(errors),
+        )
+        
+        # Combine parse errors with creation errors
+        all_errors = parse_errors + errors
+        
+        logger.info(
+            f"✅ Bulk import complete: {len(created)} created, "
+            f"{len(all_errors)} errors"
+        )
+        
+        return CandidateBulkImportResponse(
+            total=len(candidates_data),
+            created=len(created),
+            failed=len(all_errors),
+            errors=all_errors[:100],  # Return first 100 errors
+            created_candidates=[
+                CandidateResponse.from_orm(c) for c in created
+            ] if created else [],
+            message=f"✅ Imported {len(created)}/{len(candidates_data)} candidates successfully. "
+                   f"{len(all_errors)} errors." if created else f"❌ Import failed: {all_errors[0] if all_errors else 'Unknown error'}"
+        )
+        
+    except FileParseError as e:
+        logger.error(f"File parsing error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File parsing error: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk import: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error importing candidates: {str(e)}"
+        )
 
 
 @router.post(
     "/bulk/import",
     response_model=CandidateBulkImportResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Bulk import candidates",
-    description="Import multiple candidates from Excel/CSV data",
+    summary="Bulk import candidates from JSON",
+    description="Import multiple candidates from JSON request body",
 )
 async def bulk_import_candidates(
     request: CandidateBulkImportRequest,
@@ -294,12 +419,28 @@ async def bulk_import_candidates(
     current_user: User = Depends(get_current_user),
 ) -> CandidateBulkImportResponse:
     """
-    Import multiple candidates in bulk
+    Import multiple candidates from JSON
     
     Request body:
     - **candidates**: List of candidate objects with email, name, etc.
     - **send_invitations**: Whether to send invitation emails (default: true)
     - **domain**: Default domain for all candidates (optional)
+    
+    **Example:**
+    ```json
+    {
+      "candidates": [
+        {
+          "email": "john@example.com",
+          "first_name": "John",
+          "last_name": "Doe",
+          "position": "Senior Engineer",
+          "experience_years": 5
+        }
+      ],
+      "send_invitations": true
+    }
+    ```
     """
     try:
         # Prepare candidates data
@@ -308,6 +449,7 @@ async def bulk_import_candidates(
             cand_dict = cand.model_dump()
             if request.domain:
                 cand_dict["domain"] = request.domain
+            cand_dict["created_by"] = current_user.id
             candidates_data.append(cand_dict)
         
         # Bulk create
@@ -319,20 +461,27 @@ async def bulk_import_candidates(
             send_invitation_emails=request.send_invitations,
         )
         
+        logger.info(
+            f"✅ Bulk import complete: {len(created)} created, {len(errors)} errors"
+        )
+        
         return CandidateBulkImportResponse(
             total=len(candidates_data),
             created=len(created),
             failed=len(errors),
             errors=errors,
             created_candidates=[
-                CandidateResponse.from_attributes(c) for c in created
-            ],
+                CandidateResponse.from_orm(c) for c in created
+            ] if created else [],
             message=f"Imported {len(created)} candidates successfully. {len(errors)} errors."
         )
         
     except Exception as e:
         logger.error(f"Error in bulk import: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error importing candidates")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error importing candidates"
+        )
 
 
 @router.post(
@@ -427,23 +576,88 @@ async def get_dashboard_stats(
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get HR dashboard statistics and metrics"""
+    """
+    Get comprehensive HR dashboard statistics and metrics
+    
+    Returns:
+    - Total candidates by status (applied, shortlisted, interviewed, rejected, hired)
+    - Candidates by domain/department
+    - Active interview count
+    - Pending feedback count
+    - Recent activities and time-to-hire metrics
+    """
     try:
-        # TODO: Implement comprehensive dashboard stats
-        # This will include:
-        # - Total candidates by status
-        # - Active interviews
-        # - Pending feedback
-        # - Recent activities
+        stats = await CandidateService.get_dashboard_stats(
+            session=session,
+            company_id=current_user.company_id,
+        )
         
-        return {
-            "total_candidates": 0,
-            "total_active_interviews": 0,
-            "total_pending_feedback": 0,
-            "candidates_by_status": {},
-            "candidates_by_domain": {},
-        }
+        logger.info(f"📊 Dashboard stats retrieved for company: {current_user.company_id}")
+        
+        return stats
         
     except Exception as e:
-        logger.error(f"Error fetching dashboard stats: {str(e)}")
+        logger.error(f"Error fetching dashboard stats: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error fetching statistics")
+
+
+@router.get(
+    "/analytics/funnel",
+    summary="Get candidate funnel analytics",
+)
+async def get_funnel_analytics(
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get candidate funnel analytics
+    
+    Shows progression through each stage:
+    - Applied → Shortlisted → Interviewed → Offered → Hired
+    - Includes drop-off rates at each stage
+    """
+    try:
+        funnel = await CandidateService.get_funnel_analytics(
+            session=session,
+            company_id=current_user.company_id,
+        )
+        
+        logger.info(f"📈 Funnel analytics retrieved for company: {current_user.company_id}")
+        
+        return funnel
+        
+    except Exception as e:
+        logger.error(f"Error fetching funnel analytics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error fetching analytics")
+
+
+@router.get(
+    "/analytics/time-to-hire",
+    summary="Get time-to-hire metrics",
+)
+async def get_time_to_hire(
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get time-to-hire metrics
+    
+    Shows:
+    - Average days from applied to hired
+    - Average days per stage
+    - Department/domain breakdowns
+    - Trend over time
+    """
+    try:
+        metrics = await CandidateService.get_time_to_hire_metrics(
+            session=session,
+            company_id=current_user.company_id,
+        )
+        
+        logger.info(f"⏱️  Time-to-hire metrics retrieved for company: {current_user.company_id}")
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Error fetching time-to-hire metrics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error fetching metrics")

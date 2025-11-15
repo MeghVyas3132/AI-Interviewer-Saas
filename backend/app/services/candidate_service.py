@@ -16,6 +16,8 @@ from app.models.candidate import (
     CandidateSource,
     EmailType,
     EmailPriority,
+    Interview,
+    InterviewStatus,
 )
 from app.services.email_async_service import EmailService
 
@@ -362,3 +364,291 @@ class CandidateService:
         except Exception as e:
             logger.error(f"Error queueing bulk invitations: {str(e)}", exc_info=True)
             # Don't fail the whole import if emails fail
+
+    @staticmethod
+    async def log_bulk_import(
+        session: AsyncSession,
+        company_id: UUID,
+        user_id: UUID,
+        filename: str,
+        total: int,
+        created: int,
+        failed: int,
+    ) -> None:
+        """Log bulk import operation to audit logs"""
+        try:
+            from app.services.audit_log_service import AuditLogService
+            
+            await AuditLogService.log_action(
+                session=session,
+                company_id=company_id,
+                user_id=user_id,
+                action="BULK_IMPORT_CANDIDATES",
+                resource_type="candidate",
+                resource_id=None,
+                details={
+                    "filename": filename,
+                    "total": total,
+                    "created": created,
+                    "failed": failed,
+                    "success_rate": f"{(created/total*100):.1f}%" if total > 0 else "0%",
+                }
+            )
+            logger.info(f"✅ Logged bulk import: {created}/{total} created")
+        except Exception as e:
+            logger.error(f"Error logging bulk import: {str(e)}")
+
+    # ========================================================================
+    # DASHBOARD ANALYTICS
+    # ========================================================================
+
+    @staticmethod
+    async def get_dashboard_stats(
+        session: AsyncSession,
+        company_id: UUID,
+    ) -> dict:
+        """
+        Get comprehensive dashboard statistics
+        
+        Returns:
+        - Total candidates
+        - Candidates by status
+        - Candidates by domain
+        - Active interviews
+        - Pending feedback
+        - Recent activities
+        """
+        try:
+            # Total candidates
+            total_result = await session.execute(
+                select(func.count(Candidate.id)).where(
+                    Candidate.company_id == company_id
+                )
+            )
+            total_candidates = total_result.scalar() or 0
+            
+            # Candidates by status
+            status_query = select(
+                Candidate.status,
+                func.count(Candidate.id).label("count")
+            ).where(
+                Candidate.company_id == company_id
+            ).group_by(Candidate.status)
+            
+            status_result = await session.execute(status_query)
+            candidates_by_status = {
+                row[0].value: row[1] for row in status_result.fetchall()
+            }
+            
+            # Candidates by domain
+            domain_query = select(
+                Candidate.domain,
+                func.count(Candidate.id).label("count")
+            ).where(
+                Candidate.company_id == company_id,
+                Candidate.domain != None
+            ).group_by(Candidate.domain)
+            
+            domain_result = await session.execute(domain_query)
+            candidates_by_domain = {
+                row[0] or "Unspecified": row[1] for row in domain_result.fetchall()
+            }
+            
+            # Active interviews (from interview model)
+            
+            active_interviews_query = select(func.count(Interview.id)).where(
+                and_(
+                    Interview.company_id == company_id,
+                    Interview.status.in_([
+                        InterviewStatus.SCHEDULED,
+                        InterviewStatus.IN_PROGRESS,
+                    ])
+                )
+            )
+            
+            active_interviews_result = await session.execute(active_interviews_query)
+            active_interviews = active_interviews_result.scalar() or 0
+            
+            # Pending feedback (interviews without feedback)
+            pending_feedback_query = select(func.count(Interview.id)).where(
+                and_(
+                    Interview.company_id == company_id,
+                    Interview.status == InterviewStatus.COMPLETED,
+                    Interview.notes == None  # No feedback yet
+                )
+            )
+            
+            pending_feedback_result = await session.execute(pending_feedback_query)
+            pending_feedback = pending_feedback_result.scalar() or 0
+            
+            # Conversion rates
+            applied = candidates_by_status.get("applied", 0)
+            shortlisted = candidates_by_status.get("screening", 0)  # screening is shortlisting
+            interviewed = candidates_by_status.get("interview", 0)
+            accepted = candidates_by_status.get("accepted", 0)  # accepted offers
+            rejected = candidates_by_status.get("rejected", 0)
+            
+            conversion_rates = {
+                "applied_to_screening": round((shortlisted / applied * 100) if applied > 0 else 0, 1),
+                "screening_to_interview": round((interviewed / shortlisted * 100) if shortlisted > 0 else 0, 1),
+                "interview_to_offer": round((accepted / interviewed * 100) if interviewed > 0 else 0, 1),
+                "total_acceptance_rate": round((accepted / applied * 100) if applied > 0 else 0, 1),
+                "rejection_rate": round((rejected / applied * 100) if applied > 0 else 0, 1),
+            }
+            
+            return {
+                "total_candidates": total_candidates,
+                "active_interviews": active_interviews,
+                "pending_feedback": pending_feedback,
+                "candidates_by_status": candidates_by_status,
+                "candidates_by_domain": candidates_by_domain,
+                "conversion_rates": conversion_rates,
+                "timestamp": None,  # Will be set by route handler
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting dashboard stats: {str(e)}", exc_info=True)
+            raise
+
+    @staticmethod
+    async def get_funnel_analytics(
+        session: AsyncSession,
+        company_id: UUID,
+    ) -> dict:
+        """
+        Get candidate funnel analytics showing progression through stages
+        
+        Returns:
+        - Applied → Screening → Interview → Offer → Accepted
+        - Drop-off rates at each stage
+        - Total funnel efficiency
+        """
+        try:
+            # Get candidates by status
+            status_query = select(
+                Candidate.status,
+                func.count(Candidate.id).label("count")
+            ).where(
+                Candidate.company_id == company_id
+            ).group_by(Candidate.status)
+            
+            status_result = await session.execute(status_query)
+            status_counts = {row[0].value: row[1] for row in status_result.fetchall()}
+            
+            applied = status_counts.get("applied", 0)
+            screening = status_counts.get("screening", 0)  # shortlisting stage
+            interview = status_counts.get("interview", 0)
+            offer = status_counts.get("offer", 0)
+            accepted = status_counts.get("accepted", 0)  # hired/accepted offers
+            rejected = status_counts.get("rejected", 0)
+            
+            total = applied + screening + interview + offer + accepted + rejected
+            
+            # Calculate funnel stages and drop-off rates
+            funnel_stages = [
+                {"stage": "Applied", "count": applied, "percentage": round((applied/total*100) if total > 0 else 0, 1)},
+                {"stage": "Screening", "count": screening, "percentage": round((screening/total*100) if total > 0 else 0, 1), "dropoff_from_applied": round((1 - screening/applied) * 100 if applied > 0 else 0, 1)},
+                {"stage": "Interview", "count": interview, "percentage": round((interview/total*100) if total > 0 else 0, 1), "dropoff_from_screening": round((1 - interview/screening) * 100 if screening > 0 else 0, 1)},
+                {"stage": "Offer", "count": offer, "percentage": round((offer/total*100) if total > 0 else 0, 1), "dropoff_from_interview": round((1 - offer/interview) * 100 if interview > 0 else 0, 1)},
+                {"stage": "Accepted", "count": accepted, "percentage": round((accepted/total*100) if total > 0 else 0, 1), "dropoff_from_offer": round((1 - accepted/offer) * 100 if offer > 0 else 0, 1)},
+            ]
+            
+            return {
+                "funnel_stages": funnel_stages,
+                "total_candidates": total,
+                "rejected": rejected,
+                "overall_acceptance_rate": round((accepted / applied * 100) if applied > 0 else 0, 1),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting funnel analytics: {str(e)}", exc_info=True)
+            raise
+
+    @staticmethod
+    async def get_time_to_hire_metrics(
+        session: AsyncSession,
+        company_id: UUID,
+    ) -> dict:
+        """
+        Get time-to-hire metrics showing duration at each stage
+        
+        Returns:
+        - Average days from applied to hired (accepted)
+        - Average days per stage
+        - Department breakdowns
+        - Trend data
+        """
+        try:
+            from sqlalchemy import extract
+            from datetime import datetime, timedelta
+            
+            # Get accepted candidates with duration
+            hired_candidates = await session.execute(
+                select(
+                    Candidate.id,
+                    Candidate.created_at,
+                    Candidate.updated_at,
+                    Candidate.domain,
+                ).where(
+                    and_(
+                        Candidate.company_id == company_id,
+                        Candidate.status == CandidateStatus.ACCEPTED
+                    )
+                )
+            )
+            
+            hired_list = hired_candidates.fetchall()
+            
+            if not hired_list:
+                return {
+                    "average_days_to_hire": 0,
+                    "median_days_to_hire": 0,
+                    "by_department": {},
+                    "recent_hires_count": 0,
+                    "message": "No accepted candidates yet",
+                }
+            
+            # Calculate time-to-hire for each candidate
+            durations = []
+            by_department = {}
+            
+            for candidate_id, created_at, updated_at, domain in hired_list:
+                duration = (updated_at - created_at).days
+                durations.append(duration)
+                
+                dept = domain or "Unspecified"
+                if dept not in by_department:
+                    by_department[dept] = []
+                by_department[dept].append(duration)
+            
+            # Calculate statistics
+            avg_days = sum(durations) / len(durations) if durations else 0
+            sorted_durations = sorted(durations)
+            median_days = sorted_durations[len(sorted_durations) // 2] if durations else 0
+            
+            # Department averages
+            dept_stats = {}
+            for dept, times in by_department.items():
+                dept_stats[dept] = {
+                    "average_days": round(sum(times) / len(times), 1),
+                    "count": len(times),
+                    "min_days": min(times),
+                    "max_days": max(times),
+                }
+            
+            # Recent hires (last 30 days)
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            recent_count = sum(1 for _, created_at, _, _ in hired_list if created_at >= thirty_days_ago)
+            
+            return {
+                "average_days_to_hire": round(avg_days, 1),
+                "median_days_to_hire": median_days,
+                "total_hired": len(hired_list),
+                "by_department": dept_stats,
+                "recent_hires_30_days": recent_count,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting time-to-hire metrics: {str(e)}", exc_info=True)
+            raise
+
