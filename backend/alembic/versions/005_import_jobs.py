@@ -1,7 +1,7 @@
 """Add ImportJob model for async bulk import tracking
 
-Revision ID: 005_import_jobs
-Revises: 004_phase_2_candidates
+Revision ID: 005
+Revises: 004
 Create Date: 2025-11-16 10:00:00.000000
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '005_import_jobs'
-down_revision = '004_phase_2_candidates'
+revision = '005'
+down_revision = '004'
 branch_labels = None
 depends_on = None
 

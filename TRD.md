@@ -1071,7 +1071,236 @@ async def queue_bulk_emails(
 
 ---
 
-## 12. Future Enhancements
+## 12. Interview Round Scheduling (Phase 2)
+
+### 12.1 Database Schema
+
+**Table:** `interview_rounds`
+
+| Column | Type | Constraints | Purpose |
+|--------|------|-----------|---------|
+| id | UUID | PK | Unique identifier |
+| company_id | UUID | FK | Multi-tenant isolation |
+| candidate_id | UUID | FK | Reference to candidate |
+| interviewer_id | UUID | FK | Reference to interviewer (user) |
+| round_type | VARCHAR(50) | ENUM | SCREENING, TECHNICAL, BEHAVIORAL, FINAL, HR, CUSTOM |
+| round_status | VARCHAR(50) | ENUM | SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED, RESCHEDULED |
+| scheduled_at | TIMESTAMP | NOT NULL | UTC timestamp of scheduled interview |
+| timezone | VARCHAR(100) | NOT NULL | IANA timezone (America/New_York, Europe/London, etc.) |
+| duration_minutes | INTEGER | NOT NULL | Interview duration in minutes |
+| notes | TEXT | NULL | Interview notes and feedback |
+| created_by | UUID | FK | User who created the round |
+| created_at | TIMESTAMP | DEFAULT NOW() | Record creation timestamp |
+| updated_at | TIMESTAMP | DEFAULT NOW() | Last modification timestamp |
+
+**Indexes:**
+- company_id (frequent multi-tenant filtering)
+- candidate_id (candidate's interview history)
+- interviewer_id (interviewer's schedule)
+- scheduled_at (upcoming rounds query)
+- round_status (status filtering)
+- (company_id, scheduled_at) (compound for date range queries)
+- (candidate_id, scheduled_at) (candidate pipeline progress)
+
+**Foreign Keys:**
+- company_id REFERENCES companies(id) CASCADE
+- candidate_id REFERENCES candidates(id) CASCADE
+- interviewer_id REFERENCES users(id) SET NULL
+- created_by REFERENCES users(id) SET NULL
+
+### 12.2 Timezone Handling Architecture
+
+**Timezone Conversion Strategy:**
+
+1. **Storage**: Always UTC
+   - `scheduled_at` stored as UTC timestamp in database
+   - Ensures consistency across timezones
+
+2. **Conversion on Create**:
+   ```
+   Client sends: "2025-11-20 14:00:00" (local time) + timezone "America/New_York"
+   Backend converts: America/New_York 14:00 → UTC 19:00
+   Stores: 2025-11-20 19:00:00 UTC
+   ```
+
+3. **Conversion on Retrieve**:
+   ```
+   Database has: 2025-11-20 19:00:00 UTC
+   Client requests with timezone: "America/New_York"
+   Backend converts: UTC 19:00 → America/New_York 14:00
+   Returns: 2025-11-20 14:00:00-05:00 (with DST offset)
+   ```
+
+4. **DST Handling**:
+   - pytz library automatically handles Daylight Saving Time
+   - When converting, considers whether date falls in DST period
+   - No manual calculation needed
+
+**Supported Timezones**: 400+ IANA timezones (America/New_York, Europe/London, Asia/Tokyo, etc.)
+
+### 12.3 Service Layer: InterviewRoundService
+
+**File:** `backend/app/services/interview_round_service.py`
+
+**Key Methods:**
+
+1. **convert_to_utc(local_datetime, timezone_str) -> datetime**
+   - Input: Local datetime + IANA timezone string
+   - Output: UTC datetime
+   - Handles DST automatically
+   - Validates timezone is in pytz.all_timezones
+
+2. **convert_from_utc(utc_datetime, timezone_str) -> datetime**
+   - Input: UTC datetime + IANA timezone string
+   - Output: Local datetime with timezone info
+   - Preserves DST offset information
+
+3. **create_round(company_id, candidate_id, round_type, scheduled_at, timezone, duration_minutes, interviewer_id) -> InterviewRound**
+   - Creates interview round with timezone support
+   - Converts local time to UTC for storage
+   - Validates round_type and timezone
+   - Returns round with all details
+
+4. **get_candidate_rounds(company_id, candidate_id, skip=0, limit=50) -> List[InterviewRound]**
+   - Returns all rounds for a candidate in order
+   - Multi-tenant scoped
+   - Sorted by scheduled_at ascending
+   - Includes timezone info
+
+5. **get_company_rounds(company_id, round_type=None, status=None, start_date=None, end_date=None) -> List[InterviewRound]**
+   - Returns all company rounds with optional filtering
+   - Filters by round_type (SCREENING, TECHNICAL, etc.)
+   - Filters by status (SCHEDULED, IN_PROGRESS, etc.)
+   - Filters by date range
+   - Multi-tenant scoped
+
+6. **get_upcoming_rounds(company_id, days_ahead=7, timezone_str='UTC') -> List[InterviewRound]**
+   - Returns rounds scheduled in next N days
+   - Useful for dashboard/notifications
+   - Converts to specified timezone for client
+
+7. **reschedule_round(round_id, new_scheduled_at, new_timezone, company_id) -> InterviewRound**
+   - Reschedules round to new datetime
+   - Validates new time is in future
+   - Updates timezone if provided
+   - Marks status as RESCHEDULED
+   - Audit logged
+
+8. **get_candidate_round_progress(company_id, candidate_id) -> CandidateRoundProgressResponse**
+   - Returns: { completed: int, pending: int, cancelled: int }
+   - Useful for progress tracking
+
+9. **get_interviewer_schedule(company_id, interviewer_id, start_date, end_date) -> List[InterviewRound]**
+   - Returns interviewer's schedule for date range
+   - Used for availability checking
+
+### 12.4 API Endpoints
+
+**File:** `backend/app/routes/interview_rounds.py`
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/api/v1/interview-rounds` | Create single round | EMPLOYEE+ |
+| POST | `/api/v1/interview-rounds/batch-schedule` | Batch create pipeline | EMPLOYEE+ |
+| GET | `/api/v1/interview-rounds` | List rounds (filtered) | EMPLOYEE+ |
+| GET | `/api/v1/interview-rounds/{id}` | Get round details | EMPLOYEE+ |
+| PATCH | `/api/v1/interview-rounds/{id}` | Update round | TEAM_LEAD+ |
+| POST | `/api/v1/interview-rounds/{id}/reschedule` | Reschedule round | TEAM_LEAD+ |
+| POST | `/api/v1/interview-rounds/{id}/cancel` | Cancel round | TEAM_LEAD+ |
+| POST | `/api/v1/interview-rounds/{id}/start` | Mark IN_PROGRESS | TEAM_LEAD+ |
+| POST | `/api/v1/interview-rounds/{id}/complete` | Mark COMPLETED | TEAM_LEAD+ |
+| GET | `/api/v1/interview-rounds/candidate/{id}/progress` | Get progress | CANDIDATE |
+| GET | `/api/v1/interview-rounds/interviewer/{id}/schedule` | Get schedule | EMPLOYEE+ |
+| GET | `/api/v1/interview-rounds/company/upcoming` | Get upcoming | EMPLOYEE+ |
+
+**Request/Response Examples:**
+
+Create Round:
+```json
+POST /api/v1/interview-rounds
+{
+  "candidate_id": "uuid",
+  "round_type": "SCREENING",
+  "scheduled_at": "2025-11-20T14:00:00",
+  "timezone": "America/New_York",
+  "duration_minutes": 60,
+  "interviewer_id": "uuid"
+}
+
+Response (201):
+{
+  "id": "uuid",
+  "candidate_id": "uuid",
+  "round_type": "SCREENING",
+  "round_status": "SCHEDULED",
+  "scheduled_at": "2025-11-20T14:00:00-05:00",
+  "timezone": "America/New_York",
+  "duration_minutes": 60,
+  "end_time": "2025-11-20T15:00:00-05:00",
+  "interviewer_id": "uuid",
+  "created_at": "2025-11-16T10:00:00Z"
+}
+```
+
+Batch Schedule (Multi-Round Pipeline):
+```json
+POST /api/v1/interview-rounds/batch-schedule
+{
+  "candidate_id": "uuid",
+  "timezone": "America/New_York",
+  "rounds": [
+    {
+      "round_type": "SCREENING",
+      "scheduled_at": "2025-11-20T10:00:00",
+      "duration_minutes": 30,
+      "interviewer_id": "uuid1"
+    },
+    {
+      "round_type": "TECHNICAL",
+      "scheduled_at": "2025-11-22T14:00:00",
+      "duration_minutes": 60,
+      "interviewer_id": "uuid2"
+    },
+    {
+      "round_type": "FINAL",
+      "scheduled_at": "2025-11-24T15:00:00",
+      "duration_minutes": 45,
+      "interviewer_id": "uuid3"
+    }
+  ]
+}
+
+Response (201):
+{
+  "created_rounds": [
+    { "id": "uuid", "round_type": "SCREENING", ... },
+    { "id": "uuid", "round_type": "TECHNICAL", ... },
+    { "id": "uuid", "round_type": "FINAL", ... }
+  ],
+  "message": "Created 3 rounds successfully"
+}
+```
+
+### 12.5 Validation Rules
+
+- scheduled_at must be in future
+- timezone must be valid IANA timezone
+- duration_minutes must be > 0 and <= 480 (8 hours max)
+- round_type must be valid enum
+- interviewer_id must exist and belong to same company
+- No duplicate SCHEDULED rounds for same interviewer/time
+
+### 12.6 Performance Considerations
+
+- Index on (company_id, scheduled_at) for range queries
+- Index on (candidate_id, scheduled_at) for pipeline progress
+- Timezone conversion happens in application layer (avoids database bottleneck)
+- Batch operations use SQLAlchemy bulk_insert for efficiency
+- All queries multi-tenant scoped for security
+
+---
+
+## 13. Future Enhancements
 
 1. **Multi-Factor Authentication (MFA)**
    - SMS/Email OTP

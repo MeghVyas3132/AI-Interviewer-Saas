@@ -278,26 +278,31 @@ class CandidateService:
         try:
             for idx, data in enumerate(candidates_data, 1):
                 try:
-                    email = data.get("email", "").strip().lower()
+                    email_val = data.get("email")
+                    email = email_val.strip().lower() if email_val else ""
                     
                     # Validate email
                     if not email or "@" not in email:
                         errors.append(f"Row {idx}: Invalid email '{data.get('email')}'")
                         continue
                     
+                    # Helper to safely strip strings
+                    def safe_strip(val):
+                        return val.strip() if val else None
+                    
                     # Create candidate
                     candidate = await CandidateService.create_candidate(
                         session=session,
                         company_id=company_id,
                         email=email,
-                        first_name=data.get("first_name", "").strip() or None,
-                        last_name=data.get("last_name", "").strip() or None,
-                        phone=data.get("phone", "").strip() or None,
-                        domain=data.get("domain", "").strip() or None,
-                        position=data.get("position", "").strip() or None,
+                        first_name=safe_strip(data.get("first_name")),
+                        last_name=safe_strip(data.get("last_name")),
+                        phone=safe_strip(data.get("phone")),
+                        domain=safe_strip(data.get("domain")),
+                        position=safe_strip(data.get("position")),
                         experience_years=data.get("experience_years"),
-                        qualifications=data.get("qualifications", "").strip() or None,
-                        resume_url=data.get("resume_url", "").strip() or None,
+                        qualifications=safe_strip(data.get("qualifications")),
+                        resume_url=safe_strip(data.get("resume_url")),
                         source=CandidateSource.EXCEL_IMPORT,
                         created_by=created_by,
                     )

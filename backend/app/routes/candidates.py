@@ -100,7 +100,7 @@ async def create_candidate(
         
         logger.info(f"✅ Candidate created and invitation sent: {candidate.email}")
         
-        return CandidateResponse.from_attributes(candidate)
+        return CandidateResponse.model_validate(candidate)
         
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")
@@ -131,7 +131,7 @@ async def get_candidate(
         if not candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
         
-        return CandidateResponse.from_attributes(candidate)
+        return CandidateResponse.model_validate(candidate)
         
     except HTTPException:
         raise
@@ -184,7 +184,7 @@ async def list_candidates(
         )
         
         return CandidateListResponse(
-            candidates=[CandidateResponse.from_attributes(c) for c in candidates],
+            candidates=[CandidateResponse.model_validate(c) for c in candidates],
             total=total,
             page=skip // limit + 1,
             page_size=limit,
@@ -236,7 +236,7 @@ async def update_candidate(
         
         await session.commit()
         
-        return CandidateResponse.from_attributes(candidate)
+        return CandidateResponse.model_validate(candidate)
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -493,7 +493,7 @@ async def get_import_job_status(
                 detail=f"Import job {job_id} not found",
             )
         
-        return ImportJobStatusResponse.from_orm(import_job)
+        return ImportJobStatusResponse.model_validate(import_job)
         
     except HTTPException:
         raise
@@ -570,7 +570,7 @@ async def bulk_import_candidates(
             failed=len(errors),
             errors=errors,
             created_candidates=[
-                CandidateResponse.from_orm(c) for c in created
+                CandidateResponse.model_validate(c) for c in created
             ] if created else [],
             message=f"Imported {len(created)} candidates successfully. {len(errors)} errors."
         )

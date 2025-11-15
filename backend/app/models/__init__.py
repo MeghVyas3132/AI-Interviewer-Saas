@@ -9,12 +9,14 @@ from app.models.score import Score
 from app.models.audit_log import AuditLog
 from app.models.candidate import Candidate, Interview, EmailQueue, EmailTracking, CandidateFeedback
 from app.models.import_job import ImportJob
+from app.models.interview_round import InterviewRound
 
 __all__ = [
     "Company",
     "User",
     "Role",
     "Interview",
+    "InterviewRound",
     "Score",
     "AuditLog",
     "Candidate",
