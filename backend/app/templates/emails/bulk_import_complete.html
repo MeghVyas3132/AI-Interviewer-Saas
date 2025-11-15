@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Import Complete</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .content { background: #f9f9f9; padding: 40px 20px; }
+        .cta-button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .footer { background: #333; color: #fff; text-align: center; padding: 20px; font-size: 12px; border-radius: 0 0 8px 8px; }
+        .stats-box { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; }
+        .stat-item { background: white; padding: 15px; text-align: center; border-radius: 4px; border-top: 3px solid #667eea; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #667eea; }
+        .stat-label { font-size: 12px; color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Bulk Import Complete</h1>
+        </div>
+        <div class="content">
+            <p>Hello {{ recipient_name }},</p>
+            
+            <p>Your bulk candidate import has been completed successfully!</p>
+            
+            <div class="stats-box">
+                <div class="stat-item">
+                    <div class="stat-number">{{ total_count }}</div>
+                    <div class="stat-label">Total Candidates</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" style="color: #27ae60;">{{ success_count }}</div>
+                    <div class="stat-label">Imported</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number" style="color: #e74c3c;">{{ failed_count }}</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+            </div>
+            
+            <p style="text-align: center; font-size: 18px; font-weight: bold;">
+                <strong style="color: #667eea;">{{ success_rate }}%</strong> Success Rate
+            </p>
+            
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            
+            <p><strong>📝 Next Steps:</strong></p>
+            <ul>
+                <li>Review imported candidates in your dashboard</li>
+                <li>Set interview schedules</li>
+                <li>Send interview invitations</li>
+                <li>Track candidate progress</li>
+            </ul>
+            
+            {% if failed_count > 0 %}
+            <p><strong>⚠️ Note:</strong> {{ failed_count }} candidate(s) could not be imported. Click below to view the detailed import report:</p>
+            {% else %}
+            <p>Click below to view the detailed import report:</p>
+            {% endif %}
+            
+            <center>
+                <a href="{{ import_summary_link }}" class="cta-button">View Import Report</a>
+            </center>
+        </div>
+        <div class="footer">
+            <p>&copy; {{ current_year }} AI Interviewer. All rights reserved.</p>
+            <p>This is an automated message, please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>

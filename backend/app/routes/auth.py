@@ -9,6 +9,7 @@ Login Flow:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -17,8 +18,19 @@ from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResp
 from app.services.auth_service import AuthService
 from app.services.audit_log_service import AuditLogService
 from app.services.token_blacklist_service import TokenBlacklistService
+from app.services.email_verification_service import EmailVerificationService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+class VerifyEmailRequest(BaseModel):
+    """Email verification request."""
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    """Resend verification email request."""
+    email: str
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -169,3 +181,75 @@ async def logout(
     await session.commit()
 
     return {"message": "Logged out successfully"}
+
+
+@router.post("/verify-email")
+async def verify_email(
+    request: VerifyEmailRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Verify user's email using verification token.
+
+    Args:
+        request: Verification token
+        session: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException 400: Invalid or expired token
+        HTTPException 404: User not found
+    """
+    try:
+        user = await EmailVerificationService.verify_email_token(session, request.token)
+        await session.commit()
+        return {
+            "message": "Email verified successfully. You can now log in.",
+            "email": user.email,
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    request: ResendVerificationRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Resend verification email to user.
+
+    Args:
+        request: Email address to resend to
+        session: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException 404: User not found
+        HTTPException 429: Too many resend attempts
+    """
+    try:
+        await EmailVerificationService.resend_verification_email(
+            session,
+            request.email,
+            frontend_url="http://localhost:3000",  # TODO: Load from config
+        )
+        await session.commit()
+        return {"message": "Verification email sent. Check your inbox."}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+        )

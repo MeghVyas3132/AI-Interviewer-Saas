@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Reminder</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #ffa751 0%, #ffe259 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .content { background: #f9f9f9; padding: 40px 20px; }
+        .cta-button { display: inline-block; background: #ffa751; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .footer { background: #333; color: #fff; text-align: center; padding: 20px; font-size: 12px; border-radius: 0 0 8px 8px; }
+        .details-box { background: white; padding: 20px; border-left: 4px solid #ffa751; margin: 20px 0; border-radius: 4px; }
+        .detail-item { margin: 10px 0; }
+        .detail-label { font-weight: bold; color: #ffa751; }
+        .highlight { background: #fff3cd; padding: 15px; border-radius: 4px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⏰ Interview Reminder</h1>
+        </div>
+        <div class="content">
+            <p>Hello {{ recipient_name }},</p>
+            
+            <div class="highlight">
+                <strong>🎯 Reminder:</strong> Your interview is scheduled for <strong>tomorrow</strong>!
+            </div>
+            
+            <div class="details-box">
+                <div class="detail-item">
+                    <span class="detail-label">📋 Position:</span> {{ position }}
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">👤 Candidate:</span> {{ candidate_name }}
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">📅 Time:</span> {{ scheduled_time }}
+                </div>
+            </div>
+            
+            {% if interview_link != '#' %}
+            <p>Click the button below to prepare and review interview details:</p>
+            <center>
+                <a href="{{ interview_link }}" class="cta-button">View Interview Details</a>
+            </center>
+            {% endif %}
+            
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            
+            <p><strong>✅ Preparation Checklist:</strong></p>
+            <ul>
+                <li>Test your internet connection</li>
+                <li>Test your microphone and camera</li>
+                <li>Find a quiet location</li>
+                <li>Have any relevant materials ready</li>
+                <li>Join 5 minutes early</li>
+            </ul>
+            
+            <p>If you need to reschedule, please contact the hiring team as soon as possible.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{ current_year }} AI Interviewer. All rights reserved.</p>
+            <p>This is an automated message, please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>

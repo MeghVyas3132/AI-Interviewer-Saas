@@ -21,7 +21,7 @@ from app.core.database import async_session_maker, init_db
 from app.models.user import User
 from app.models.company import Company
 from app.models.role import Role
-from app.models.interview import Interview
+from app.models.candidate import Interview
 from app.models.score import Score
 from app.models.audit_log import AuditLog
 

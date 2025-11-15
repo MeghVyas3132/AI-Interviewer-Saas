@@ -18,7 +18,7 @@ from app.core.database import close_db, init_db, AsyncSessionLocal
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import auth, company, interviews, logs, roles, scores, users
+from app.routes import auth, company, interviews, logs, roles, scores, users, email, register, candidates
 from app.utils.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,8 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
 
     # Add rate limiting middleware (must be before CORS)
-    app.add_middleware(RateLimitMiddleware)
+    # TEMPORARILY DISABLED for heavy testing - will re-enable before production deployment
+    # app.add_middleware(RateLimitMiddleware)
 
     # Add CORS middleware
     app.add_middleware(
@@ -73,11 +74,14 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(auth.router)
     app.include_router(company.router)
+    app.include_router(register.router)
     app.include_router(users.router)
     app.include_router(roles.router)
     app.include_router(interviews.router)
     app.include_router(scores.router)
     app.include_router(logs.router)
+    app.include_router(email.router)
+    app.include_router(candidates.router)  # Phase 2: Candidates
 
     @app.get("/health")
     async def health_check():

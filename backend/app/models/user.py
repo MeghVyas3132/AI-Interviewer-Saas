@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 class UserRole(str, Enum):
     """User role enumeration."""
 
+    ADMIN = "ADMIN"
     HR = "HR"
     TEAM_LEAD = "TEAM_LEAD"
     EMPLOYEE = "EMPLOYEE"
@@ -48,6 +49,10 @@ class User(Base):
     )
     department = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, index=True)
+    email_verified = Column(Boolean, default=False, index=True)
+    verification_token = Column(String(500), nullable=True, unique=True)
+    verification_token_expires = Column(DateTime(timezone=True), nullable=True)
+    verification_attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 

@@ -89,6 +89,7 @@ class UserResponse(UserBase):
     company_id: UUID
     manager_id: Optional[UUID] = None
     is_active: bool
+    email_verified: bool = False
     created_at: datetime
     updated_at: datetime
 

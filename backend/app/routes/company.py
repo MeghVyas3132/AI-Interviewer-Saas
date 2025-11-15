@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.middleware.auth import get_current_user, require_hr
+from app.middleware.auth import get_current_user, require_hr, require_admin
 from app.models.user import User
 from app.schemas.company_schema import (
     CompanyCreate,
@@ -25,13 +25,15 @@ router = APIRouter(prefix="/api/v1/company", tags=["company"])
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def register_company(
     company_data: CompanyCreate,
+    current_user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ) -> CompanyResponse:
     """
-    Register a new company.
+    Create a new company (ADMIN only).
 
     Args:
         company_data: Company creation data
+        current_user: Current authenticated ADMIN user
         session: Database session
 
     Returns:

@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.models.interview import Interview, InterviewStatus
+from app.models.candidate import Interview, InterviewStatus
 from app.schemas.interview_schema import InterviewCreate, InterviewUpdate
 
 

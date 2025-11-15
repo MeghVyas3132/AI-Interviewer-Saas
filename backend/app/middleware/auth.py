@@ -148,6 +148,49 @@ async def require_hr(
     return current_user
 
 
+async def require_hr_or_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Require HR or ADMIN role.
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        Current user
+    """
+    if current_user.role not in [UserRole.HR, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="HR or Admin role required",
+        )
+    return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Require ADMIN role.
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        Current user
+
+    Raises:
+        HTTPException: If user is not an admin
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return current_user
+
+
 async def require_team_lead(
     current_user: User = Depends(get_current_user),
 ) -> User:

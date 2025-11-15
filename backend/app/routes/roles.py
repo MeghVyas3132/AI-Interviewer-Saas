@@ -2,7 +2,7 @@
 Role management routes.
 """
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -75,7 +75,7 @@ async def list_roles(
     session: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    is_active: bool | None = None,
+    is_active: Optional[bool] = None,
 ) -> List[RoleListResponse]:
     """
     List roles in the company with user counts.

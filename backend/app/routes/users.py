@@ -13,6 +13,7 @@ from app.middleware.auth import (
     get_current_user,
     require_employee,
     require_hr,
+    require_hr_or_admin,
     require_team_lead,
 )
 from app.models.user import User, UserRole
@@ -32,15 +33,15 @@ router = APIRouter(prefix="/api/v1/users", tags=["users"])
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate,
-    current_user: User = Depends(require_hr),
+    current_user: User = Depends(require_hr_or_admin),
     session: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """
-    Create a new user (HR only).
+    Create a new user (HR or Admin).
 
     Args:
         user_data: User creation data
-        current_user: Current authenticated HR user
+        current_user: Current authenticated HR or Admin user
         session: Database session
 
     Returns:

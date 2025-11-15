@@ -24,8 +24,37 @@ async def main():
         await session.commit()
         print()
         
-        # Create company
-        print("Creating company...")
+        # Create AI Interviewer company (for admin and platform users)
+        print("Creating AI Interviewer company...")
+        ai_company_data = CompanyCreate(
+            name="AI Interviewer",
+            email_domain="aiinterviewer.com",
+            description="AI Interviewer Platform - Admin",
+        )
+        ai_company = await CompanyService.create_company(session, ai_company_data)
+        await session.commit()
+        print(f"   Company: {ai_company.name}")
+        print()
+        
+        # Create ADMIN user for AI Interviewer
+        print("Creating ADMIN user...")
+        admin_data = UserCreate(
+            name="Platform Admin",
+            email="admin@aiinterviewer.com",
+            password="AdminPass123!@",
+            role=UserRole.ADMIN,
+            department="Administration",
+        )
+        admin_user = await UserService.create_user(session, ai_company.id, admin_data)
+        # Mark email as verified for seeded admin
+        admin_user.email_verified = True
+        await session.commit()
+        print(f"   {admin_user.name} ({admin_user.email})")
+        print(f"   Password: AdminPass123!@")
+        print()
+        
+        # Create test company
+        print("Creating test company...")
         company_data = CompanyCreate(
             name="Test Corp",
             email_domain="testcorp.com",
@@ -36,8 +65,8 @@ async def main():
         print(f"   Company: {company.name}")
         print()
         
-        # Create HR user
-        print("Creating HR user...")
+        # Create HR user in test company
+        print("Creating HR user in test company...")
         hr_data = UserCreate(
             name="HR Manager",
             email="hr@testcorp.com",
@@ -46,6 +75,8 @@ async def main():
             department="Human Resources",
         )
         hr_user = await UserService.create_user(session, company.id, hr_data)
+        # Mark email as verified for seeded HR user
+        hr_user.email_verified = True
         await session.commit()
         print(f"   {hr_user.name} ({hr_user.email})")
         print(f"   Password: HRPass123!@")
@@ -67,6 +98,8 @@ async def main():
                 department="Engineering",
             )
             emp = await UserService.create_user(session, company.id, emp_data)
+            # Mark email as verified for seeded employees
+            emp.email_verified = True
             await session.commit()
             print(f"   {name} ({email}) - Password: {password}")
         print()
@@ -88,6 +121,8 @@ async def main():
                 department="Candidates",
             )
             cand = await UserService.create_user(session, company.id, cand_data)
+            # Mark email as verified for seeded candidates
+            cand.email_verified = True
             await session.commit()
             print(f"   {name} ({email}) - Password: {password}")
         

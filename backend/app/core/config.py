@@ -50,6 +50,27 @@ class Settings(BaseSettings):
     rate_limit_login: str = "5/minute"  # 5 login attempts per minute
     rate_limit_api: str = "100/minute"  # 100 requests per minute
 
+    # Email Configuration (Phase 1)
+    email_provider: str = "console"  # sendgrid, ses, console
+    email_from_address: str = "noreply@aiinterviewer.com"
+    email_from_name: str = "AI Interviewer"
+    sendgrid_api_key: str = ""  # Optional: Set for SendGrid
+    
+    # Celery & Redis Configuration (Phase 2 - Async Email)
+    celery_broker_url: str = ""  # Redis URL for task queue (can use REDIS_URL)
+    celery_result_backend_url: str = ""  # Redis URL for results
+    celery_worker_prefetch_multiplier: int = 4
+    celery_task_max_retries: int = 3
+    celery_task_default_retry_delay: int = 60  # seconds
+    email_rate_limit: str = "100/minute"  # Max emails per minute to provider
+    email_batch_size: int = 50  # Send emails in batches
+    email_send_timeout: int = 30  # Seconds to wait for email provider
+    
+    # AWS Configuration (Phase 4)
+    aws_region: str = "us-east-1"
+    aws_access_key_id: str = ""  # Optional: Set for AWS SES
+    aws_secret_access_key: str = ""  # Optional: Set for AWS SES
+
     # Security
     bcrypt_rounds: int = 12
     password_min_length: int = 8
@@ -94,6 +115,30 @@ class Settings(BaseSettings):
         if not v:
             raise ValueError("REDIS_URL environment variable must be set")
         return v
+
+    @field_validator("celery_broker_url", mode="before")
+    @classmethod
+    def set_celery_broker_url(cls, v: str, info) -> str:
+        """Set Celery broker URL (defaults to REDIS_URL if not set)"""
+        if v:
+            return v
+        # Use redis_url as fallback
+        redis_url = info.data.get("redis_url")
+        if redis_url:
+            return redis_url
+        raise ValueError("CELERY_BROKER_URL or REDIS_URL must be set")
+
+    @field_validator("celery_result_backend_url", mode="before")
+    @classmethod
+    def set_celery_result_backend_url(cls, v: str, info) -> str:
+        """Set Celery result backend URL (defaults to REDIS_URL if not set)"""
+        if v:
+            return v
+        # Use redis_url as fallback
+        redis_url = info.data.get("redis_url")
+        if redis_url:
+            return redis_url
+        raise ValueError("CELERY_RESULT_BACKEND_URL or REDIS_URL must be set")
 
     class Config:
         """Pydantic settings config."""

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 30px;
+            margin-top: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .verification-link {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .verification-link:hover {
+            background-color: #2980b9;
+        }
+        .token {
+            background-color: #ecf0f1;
+            padding: 10px;
+            border-radius: 3px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 20px 0;
+            font-size: 12px;
+        }
+        .footer {
+            color: #7f8c8d;
+            font-size: 12px;
+            margin-top: 30px;
+            border-top: 1px solid #ecf0f1;
+            padding-top: 20px;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Verify Your Email Address</h1>
+        <p>Hi {{ user_name }},</p>
+        
+        <p>Thank you for registering with AI Interviewer. To complete your registration and access your account, please verify your email address.</p>
+        
+        <p>This verification link will expire in 24 hours.</p>
+        
+        <a href="{{ verification_link }}" class="verification-link">Verify Your Email</a>
+        
+        <p>Or copy and paste this link in your browser:</p>
+        <div class="token">{{ verification_link }}</div>
+        
+        <div class="warning">
+            <strong>For security:</strong> This link is unique to your account. Do not share it with anyone.
+        </div>
+        
+        <p>If you didn't register for this account, please ignore this email.</p>
+        
+        <p>Best regards,<br>AI Interviewer Team</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message. Please do not reply to this email.</p>
+        <p>&copy; 2024 AI Interviewer. All rights reserved.</p>
+    </div>
+</body>
+</html>

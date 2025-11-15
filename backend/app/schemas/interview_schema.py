@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.interview import InterviewStatus
+from app.models.candidate import InterviewStatus
 
 
 class InterviewBase(BaseModel):

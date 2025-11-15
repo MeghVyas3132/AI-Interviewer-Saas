@@ -22,43 +22,73 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Apply rate limiting to login endpoint."""
-        # Only rate limit POST /api/v1/auth/login
-        if request.method == "POST" and "/auth/login" in request.url.path:
-            client_ip = self._get_client_ip(request)
-            
-            try:
-                # Check rate limit
-                is_rate_limited = await self._check_rate_limit(client_ip)
+        """Apply rate limiting to login and public registration endpoints."""
+        # Rate limit these endpoints:
+        # 1. POST /api/v1/auth/login - 5 per minute
+        # 2. POST /api/v1/register/user - 3 per hour
+        
+        client_ip = self._get_client_ip(request)
+        
+        try:
+            # Check login endpoint rate limit
+            if request.method == "POST" and "/auth/login" in request.url.path:
+                is_rate_limited = await self._check_rate_limit(
+                    client_ip, "login", max_requests=5, window_seconds=60
+                )
                 if is_rate_limited:
-                    logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                    logger.warning(f"Login rate limit exceeded for IP: {client_ip}")
                     return JSONResponse(
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                         content={"detail": "Too many login attempts. Try again in 1 minute."},
                     )
-            except Exception as e:
-                logger.error(f"Rate limit check failed: {e}")
-                # Don't block requests if Redis fails (graceful degradation)
-                pass
+            
+            # Check registration endpoint rate limit
+            if request.method == "POST" and "/register/user" in request.url.path:
+                is_rate_limited = await self._check_rate_limit(
+                    client_ip, "register", max_requests=3, window_seconds=3600
+                )
+                if is_rate_limited:
+                    logger.warning(f"Registration rate limit exceeded for IP: {client_ip}")
+                    return JSONResponse(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        content={"detail": "Too many registration attempts. Try again in 1 hour."},
+                    )
+        except Exception as e:
+            logger.error(f"Rate limit check failed: {e}")
+            # Don't block requests if Redis fails (graceful degradation)
+            pass
 
         response = await call_next(request)
         return response
 
-    async def _check_rate_limit(self, client_ip: str) -> bool:
+    async def _check_rate_limit(
+        self, 
+        client_ip: str, 
+        endpoint: str,
+        max_requests: int = 5,
+        window_seconds: int = 60
+    ) -> bool:
         """
-        Check if client has exceeded rate limit (5 attempts per minute).
-        Returns True if rate limited, False otherwise.
+        Check if client has exceeded rate limit.
+        
+        Args:
+            client_ip: Client IP address
+            endpoint: Endpoint name (login, register)
+            max_requests: Maximum requests allowed
+            window_seconds: Time window in seconds
+            
+        Returns:
+            True if rate limited, False otherwise
         """
-        key = f"rate_limit:login:{client_ip}"
+        key = f"rate_limit:{endpoint}:{client_ip}"
         
         try:
             current = await redis_client.incr(key)
             if current == 1:
-                # First request, set expiry to 60 seconds
-                await redis_client.expire(key, 60)
+                # First request, set expiry to window
+                await redis_client.expire(key, window_seconds)
             
-            # Allow 5 requests per minute
-            return current > 5
+            return current > max_requests
         except Exception as e:
             logger.error(f"Redis rate limit error: {e}")
             raise

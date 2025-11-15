@@ -99,6 +99,10 @@ class AuthService:
         if not user or not user.is_active:
             return None
 
+        # Check if email is verified
+        if not user.email_verified:
+            return None
+
         # Step 2: Password check
         if not verify_password(password, user.password_hash):
             return None
