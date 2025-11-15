@@ -26,8 +26,10 @@ from app.schemas.candidate_schema import (
     BulkActionResponse,
     BulkActionStatusResponse,
 )
+from app.schemas.import_job_schema import ImportJobResponse, ImportJobStatusResponse
 from app.services.candidate_service import CandidateService
 from app.services.email_async_service import EmailService
+from app.services.import_job_service import ImportJobService
 from app.utils.file_parser import CandidateImportParser, FileParseError, BulkImportStats
 
 logger = logging.getLogger(__name__)
@@ -286,10 +288,10 @@ async def delete_candidate(
 
 @router.post(
     "/bulk/import/file",
-    response_model=CandidateBulkImportResponse,
+    response_model=ImportJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Bulk import candidates from file",
-    description="Import multiple candidates from Excel (XLSX) or CSV file",
+    summary="Bulk import candidates from file (async)",
+    description="Queue file upload for async processing - returns immediately with job ID",
 )
 async def bulk_import_file(
     file: UploadFile = File(..., description="Excel (.xlsx) or CSV (.csv) file with candidate data"),
@@ -297,20 +299,43 @@ async def bulk_import_file(
     default_domain: Optional[str] = Query(None, description="Default domain for all candidates"),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> CandidateBulkImportResponse:
+) -> ImportJobResponse:
     """
-    Bulk import candidates from uploaded file
+    Bulk import candidates from file (ASYNC)
+    
+    ⚡ **This endpoint is now ASYNC** - returns immediately with a job ID
+    
+    The file is queued for processing by Celery workers in the background.
+    Use the job ID to poll status: `GET /api/v1/candidates/import-jobs/{job_id}`
     
     **File Format:**
     - Excel (.xlsx) or CSV (.csv)
     - Required columns: email, first_name, last_name
     - Optional columns: phone, domain, position, experience_years, qualifications, resume_url
     
+    **Max concurrent imports per company: 2**
+    
     **Example CSV:**
     ```
     email,first_name,last_name,phone,domain,position,experience_years
     john@example.com,John,Doe,+1-234-567-8900,Engineering,Senior Engineer,5
     jane@example.com,Jane,Smith,+1-234-567-8901,Sales,Account Executive,3
+    ```
+    
+    **Response (Immediate 202):**
+    ```json
+    {
+      "job_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": "queued",
+      "message": "Import job queued for processing",
+      "total_records": 1000,
+      "celery_task_id": "abc123..."
+    }
+    ```
+    
+    **Then poll for status:**
+    ```
+    GET /api/v1/candidates/import-jobs/550e8400-e29b-41d4-a716-446655440000
     ```
     """
     try:
@@ -322,72 +347,77 @@ async def bulk_import_file(
                 detail="File size exceeds 10MB limit"
             )
         
-        # Parse file
-        logger.info(f"Parsing file: {file.filename}")
-        parsed_candidates, parse_errors = CandidateImportParser.parse_file(
-            content,
-            file.filename or "candidates.csv"
+        # Check rate limit - max 2 concurrent imports per company
+        allowed, message = await ImportJobService.check_rate_limit(
+            session=session,
+            company_id=current_user.company_id,
+            max_concurrent=2,
         )
-        
-        if not parsed_candidates and parse_errors:
-            logger.error(f"File parsing failed: {parse_errors}")
+        if not allowed:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to parse file: {parse_errors[0]}"
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=message,
             )
         
-        logger.info(f"✅ Parsed {len(parsed_candidates)} candidates from {file.filename}")
-        
-        # Add default domain if provided
-        if default_domain:
-            for candidate in parsed_candidates:
-                if "domain" not in candidate or not candidate["domain"]:
-                    candidate["domain"] = default_domain
-        
-        # Prepare candidate data for creation
-        candidates_data = []
-        for cand in parsed_candidates:
-            cand["created_by"] = current_user.id
-            candidates_data.append(cand)
-        
-        # Bulk create candidates
-        created, errors = await CandidateService.bulk_create_candidates(
-            session=session,
-            company_id=current_user.company_id,
-            candidates_data=candidates_data,
-            created_by=current_user.id,
-            send_invitation_emails=send_invitations,
+        # Parse file to get record count (quick validation)
+        logger.info(f"Validating file: {file.filename}")
+        parsed_candidates, parse_errors = CandidateImportParser.parse_file(
+            content,
+            file.filename or "candidates.csv",
         )
         
-        # Log audit
-        await CandidateService.log_bulk_import(
-            session=session,
-            company_id=current_user.company_id,
-            user_id=current_user.id,
-            filename=file.filename or "unknown",
-            total=len(candidates_data),
-            created=len(created),
-            failed=len(errors),
-        )
-        
-        # Combine parse errors with creation errors
-        all_errors = parse_errors + errors
+        if not parsed_candidates:
+            parse_error_msg = parse_errors[0] if parse_errors else "Unknown error"
+            logger.error(f"File validation failed: {parse_error_msg}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File validation failed: {parse_error_msg}",
+            )
         
         logger.info(
-            f"✅ Bulk import complete: {len(created)} created, "
-            f"{len(all_errors)} errors"
+            f"✅ File validated: {len(parsed_candidates)} candidates in {file.filename}"
         )
         
-        return CandidateBulkImportResponse(
-            total=len(candidates_data),
-            created=len(created),
-            failed=len(all_errors),
-            errors=all_errors[:100],  # Return first 100 errors
-            created_candidates=[
-                CandidateResponse.from_orm(c) for c in created
-            ] if created else [],
-            message=f"✅ Imported {len(created)}/{len(candidates_data)} candidates successfully. "
-                   f"{len(all_errors)} errors." if created else f"❌ Import failed: {all_errors[0] if all_errors else 'Unknown error'}"
+        # Determine file format
+        file_format = "xlsx" if file.filename.endswith((".xlsx", ".xls")) else "csv"
+        
+        # Create import job record
+        import_job = await ImportJobService.create_import_job(
+            session=session,
+            company_id=current_user.company_id,
+            created_by=current_user.id,
+            filename=file.filename or "candidates",
+            file_size_bytes=len(content),
+            file_format=file_format,
+            total_records=len(parsed_candidates),
+            send_invitations=send_invitations,
+            default_domain=default_domain,
+        )
+        await session.commit()
+        
+        # Queue Celery task for async processing
+        celery_task_id = await ImportJobService.queue_bulk_import_task(
+            session=session,
+            import_job=import_job,
+            file_content=content,
+            created_by=current_user.id,
+        )
+        await session.commit()
+        
+        logger.info(
+            f"✅ Queued bulk import job {import_job.id} with Celery task {celery_task_id}"
+        )
+        
+        return ImportJobResponse(
+            job_id=import_job.id,
+            status=import_job.status,
+            message=(
+                f"✅ Import job queued for processing. "
+                f"Total records: {len(parsed_candidates)}. "
+                f"Check status with: GET /api/v1/candidates/import-jobs/{import_job.id}"
+            ),
+            total_records=len(parsed_candidates),
+            celery_task_id=celery_task_id,
         )
         
     except FileParseError as e:
@@ -399,10 +429,79 @@ async def bulk_import_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in bulk import: {str(e)}", exc_info=True)
+        logger.error(f"Error queuing import job: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error importing candidates: {str(e)}"
+            detail=f"Error queuing import job: {str(e)}"
+        )
+
+
+@router.get(
+    "/import-jobs/{job_id}",
+    response_model=ImportJobStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get import job status",
+    description="Poll the status of a bulk import job",
+)
+async def get_import_job_status(
+    job_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ImportJobStatusResponse:
+    """
+    Get the status of a bulk import job
+    
+    Use this endpoint to poll the status of your import job.
+    
+    **Response Status Codes:**
+    - `queued`: Waiting to be processed
+    - `processing`: Currently being processed
+    - `completed`: Successfully completed
+    - `failed`: Failed during processing
+    - `cancelled`: Cancelled by user
+    
+    **Example:**
+    ```
+    GET /api/v1/candidates/import-jobs/550e8400-e29b-41d4-a716-446655440000
+    
+    Response:
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "filename": "candidates.csv",
+      "status": "processing",
+      "total_records": 1000,
+      "created_count": 750,
+      "failed_count": 50,
+      "skipped_count": 200,
+      "success_rate": 75.0,
+      "processing_duration_seconds": 30,
+      "error_message": null,
+      "created_at": "2025-11-16T10:30:00Z"
+    }
+    ```
+    """
+    try:
+        import_job = await ImportJobService.get_import_job(
+            session=session,
+            import_job_id=job_id,
+            company_id=current_user.company_id,
+        )
+        
+        if not import_job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Import job {job_id} not found",
+            )
+        
+        return ImportJobStatusResponse.from_orm(import_job)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching import job status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching import job status: {str(e)}"
         )
 
 

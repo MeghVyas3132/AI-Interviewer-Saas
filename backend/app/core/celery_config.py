@@ -72,6 +72,7 @@ celery_app.conf.update(
     task_rate_limit={
         "tasks.send_email": "100/m",  # 100 emails per minute max
         "tasks.send_bulk_emails": "10/m",  # 10 bulk jobs per minute
+        "tasks.process_bulk_import": "2/m",  # Max 2 bulk imports per minute
     },
 )
 
@@ -108,6 +109,16 @@ celery_app.conf.task_queues = (
             "x-message-ttl": 86400000,  # 24 hours TTL
         },
     ),
+    # Bulk import queue for long-running import tasks
+    Queue(
+        "bulk_import",
+        exchange=Exchange("tasks", type="direct"),
+        routing_key="bulk_import.default",
+        queue_arguments={
+            "x-max-priority": 3,
+            "x-message-ttl": 1800000,  # 30 minutes TTL
+        },
+    ),
     # Default queue for miscellaneous tasks
     Queue(
         "default",
@@ -126,6 +137,8 @@ celery_app.conf.task_routes = {
     "tasks.send_bulk_emails": {"queue": "email_default"},
     "tasks.send_status_update_email": {"queue": "email_default"},
     "tasks.send_feedback_notification": {"queue": "email_low"},
+    "tasks.process_bulk_import": {"queue": "default"},  # Use default for imports
+    "tasks.check_import_job_status": {"queue": "default"},
 }
 
 
