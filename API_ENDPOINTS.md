@@ -1,4 +1,4 @@
-# 📚 AI INTERVIEWER - COMPLETE API DOCUMENTATION
+# AI INTERVIEWER - COMPLETE API DOCUMENTATION
 
 **Base URL**: `http://localhost:8000/api/v1`  
 **Authentication**: JWT Bearer Token (except login endpoint)  
@@ -6,7 +6,7 @@
 
 ---
 
-## 🔐 AUTHENTICATION ENDPOINTS
+## AUTHENTICATION ENDPOINTS
 
 ### 1. **Login** (No Auth Required)
 ```
@@ -129,7 +129,7 @@ POST /auth/resend-verification
 
 ---
 
-## 🏢 COMPANY ENDPOINTS
+## COMPANY ENDPOINTS
 
 ### 1. **Create Company** (Admin Only)
 ```
@@ -229,7 +229,7 @@ Authorization: Bearer {admin_token}
 
 ---
 
-## 👥 USER ENDPOINTS
+## USER ENDPOINTS
 
 ### 1. **Create User** (HR or Admin)
 ```
@@ -423,7 +423,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 👨‍💼 REGISTRATION ENDPOINTS
+## REGISTRATION ENDPOINTS
 
 ### 1. **Register HR User** (Admin Initiated)
 ```
@@ -466,7 +466,7 @@ Authorization: Bearer {admin_token}
 
 ---
 
-## 👤 CANDIDATE ENDPOINTS
+## CANDIDATE ENDPOINTS
 
 ### 1. **Create Candidate**
 ```
@@ -915,7 +915,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 📅 INTERVIEW ROUND ENDPOINTS
+## INTERVIEW ROUND ENDPOINTS
 
 ### 1. **Create Interview Round**
 ```
@@ -1092,7 +1092,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 💬 INTERVIEW ENDPOINTS (Actual Interviews)
+## INTERVIEW ENDPOINTS (Actual Interviews)
 
 ### 1. **Start Interview**
 ```
@@ -1156,7 +1156,7 @@ Authorization: Bearer {token}
 
 ---
 
-## ⭐ SCORE/FEEDBACK ENDPOINTS
+## SCORE/FEEDBACK ENDPOINTS
 
 ### 1. **Create Score/Feedback**
 ```
@@ -1261,7 +1261,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 📜 ROLES ENDPOINTS
+## ROLES ENDPOINTS
 
 ### 1. **Create Role**
 ```
@@ -1325,7 +1325,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 📋 AUDIT LOG ENDPOINTS
+## AUDIT LOG ENDPOINTS
 
 ### 1. **Get Audit Logs**
 ```
@@ -1395,7 +1395,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 📧 EMAIL ENDPOINTS
+## EMAIL ENDPOINTS
 
 ### 1. **Send Email**
 ```
@@ -1432,7 +1432,7 @@ Authorization: Bearer {token}
 
 ---
 
-## 🏥 HEALTH CHECK
+## HEALTH CHECK
 
 ### 1. **Health Status** (No Auth Required)
 ```
@@ -1452,47 +1452,47 @@ GET /health
 
 ---
 
-## 📊 QUICK REFERENCE TABLE
+## QUICK REFERENCE TABLE
 
 | Category | Endpoint | Method | Auth | Purpose |
 |----------|----------|--------|------|---------|
-| **Auth** | `/auth/login` | POST | ❌ | Login |
-| | `/auth/refresh` | POST | ✅ | Refresh token |
-| | `/auth/logout` | POST | ✅ | Logout |
-| **Company** | `/company` | POST | ✅ | Create company |
-| | `/company/{id}` | GET | ✅ | Get company |
-| | `/company/{id}` | PUT | ✅ | Update company |
-| **Users** | `/users` | POST | ✅ | Create user |
-| | `/users` | GET | ✅ | List users |
-| | `/users/{id}` | GET | ✅ | Get user |
-| | `/users/{id}` | PUT | ✅ | Update user |
-| | `/users/{id}` | DELETE | ✅ | Delete user |
-| **Candidates** | `/candidates` | POST | ✅ | Create candidate |
-| | `/candidates/bulk/import` | POST | ✅ | Bulk import JSON |
-| | `/candidates/bulk/import/file` | POST | ✅ | Bulk import file |
-| | `/candidates` | GET | ✅ | List candidates |
-| | `/candidates/{id}` | GET | ✅ | Get candidate |
-| | `/candidates/{id}` | PATCH | ✅ | Update candidate |
-| | `/candidates/{id}` | DELETE | ✅ | Delete candidate |
-| | `/candidates/dashboard/stats` | GET | ✅ | Dashboard stats |
-| | `/candidates/analytics/funnel` | GET | ✅ | Funnel analytics |
-| | `/candidates/analytics/time-to-hire` | GET | ✅ | TTH metrics |
-| **Interviews** | `/interview-rounds` | POST | ✅ | Schedule interview |
-| | `/interview-rounds` | GET | ✅ | List interviews |
-| | `/interview-rounds/{id}` | GET | ✅ | Get interview |
-| | `/interview-rounds/{id}` | PUT | ✅ | Update interview |
-| | `/interview-rounds/{id}/cancel` | POST | ✅ | Cancel interview |
-| **Scores** | `/scores` | POST | ✅ | Add score |
-| | `/scores/{id}` | GET | ✅ | Get score |
-| | `/scores/{id}` | PUT | ✅ | Update score |
-| **Logs** | `/logs` | GET | ✅ | Get audit logs |
-| | `/logs/user/{id}` | GET | ✅ | Get user logs |
-| **Email** | `/email/send` | POST | ✅ | Send email |
-| **Health** | `/health` | GET | ❌ | Health check |
+| Auth | `/auth/login` | POST | No | Login |
+| | `/auth/refresh` | POST | Yes | Refresh token |
+| | `/auth/logout` | POST | Yes | Logout |
+| Company | `/company` | POST | Yes | Create company |
+| | `/company/{id}` | GET | Yes | Get company |
+| | `/company/{id}` | PUT | Yes | Update company |
+| Users | `/users` | POST | Yes | Create user |
+| | `/users` | GET | Yes | List users |
+| | `/users/{id}` | GET | Yes | Get user |
+| | `/users/{id}` | PUT | Yes | Update user |
+| | `/users/{id}` | DELETE | Yes | Delete user |
+| Candidates | `/candidates` | POST | Yes | Create candidate |
+| | `/candidates/bulk/import` | POST | Yes | Bulk import JSON |
+| | `/candidates/bulk/import/file` | POST | Yes | Bulk import file |
+| | `/candidates` | GET | Yes | List candidates |
+| | `/candidates/{id}` | GET | Yes | Get candidate |
+| | `/candidates/{id}` | PATCH | Yes | Update candidate |
+| | `/candidates/{id}` | DELETE | Yes | Delete candidate |
+| | `/candidates/dashboard/stats` | GET | Yes | Dashboard stats |
+| | `/candidates/analytics/funnel` | GET | Yes | Funnel analytics |
+| | `/candidates/analytics/time-to-hire` | GET | Yes | TTH metrics |
+| Interviews | `/interview-rounds` | POST | Yes | Schedule interview |
+| | `/interview-rounds` | GET | Yes | List interviews |
+| | `/interview-rounds/{id}` | GET | Yes | Get interview |
+| | `/interview-rounds/{id}` | PUT | Yes | Update interview |
+| | `/interview-rounds/{id}/cancel` | POST | Yes | Cancel interview |
+| Scores | `/scores` | POST | Yes | Add score |
+| | `/scores/{id}` | GET | Yes | Get score |
+| | `/scores/{id}` | PUT | Yes | Update score |
+| Logs | `/logs` | GET | Yes | Get audit logs |
+| | `/logs/user/{id}` | GET | Yes | Get user logs |
+| Email | `/email/send` | POST | Yes | Send email |
+| Health | `/health` | GET | No | Health check |
 
 ---
 
-## ✅ ERRORS & STATUS CODES
+## ERRORS AND STATUS CODES
 
 ```json
 200 OK - Request successful
@@ -1518,7 +1518,7 @@ GET /health
 
 ---
 
-## 🔑 AUTHENTICATION
+## AUTHENTICATION
 
 All endpoints except `/health`, `/auth/login`, `/auth/verify-email`, `/auth/resend-verification` require JWT token.
 
