@@ -1,9 +1,13 @@
 # Frontend - Exclude entire frontend folder
 frontend/
 
-# Documentation files
-*.md
+# Documentation files (but keep important docs)
+# *.md  # Allow markdown files to be tracked
 *.txt
+!API_ENDPOINTS.md
+!README.md
+!PRD.md
+!TRD.md
 
 # Docker compose (if you want to exclude it)
 # docker-compose.yml
