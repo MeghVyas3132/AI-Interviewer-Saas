@@ -22,11 +22,12 @@ if TYPE_CHECKING:
 class UserRole(str, Enum):
     """User role enumeration."""
 
-    ADMIN = "ADMIN"
-    HR = "HR"
-    TEAM_LEAD = "TEAM_LEAD"
-    EMPLOYEE = "EMPLOYEE"
-    CANDIDATE = "CANDIDATE"
+    SYSTEM_ADMIN = "SYSTEM_ADMIN"  # Global system administrator (sees all companies)
+    ADMIN = "ADMIN"  # Company HR/Admin (deprecated - use HR instead)
+    HR = "HR"  # Company HR/Admin (sees all company data)
+    TEAM_LEAD = "TEAM_LEAD"  # Senior employee (batch operations)
+    EMPLOYEE = "EMPLOYEE"  # Regular employee
+    CANDIDATE = "CANDIDATE"  # Job candidate
 
 
 class User(Base):

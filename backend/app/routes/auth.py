@@ -11,14 +11,18 @@ Login Flow:
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResponse
+from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResponse, UserLoginResponse, RegisterRequest
 from app.services.auth_service import AuthService
 from app.services.audit_log_service import AuditLogService
 from app.services.token_blacklist_service import TokenBlacklistService
 from app.services.email_verification_service import EmailVerificationService
+from app.models.user import User, UserRole
+from app.models.company import Company
+from app.models.company_request import CompanyRequest, RequestStatus
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -33,6 +37,18 @@ class ResendVerificationRequest(BaseModel):
     email: str
 
 
+class RegistrationResponse(BaseModel):
+    """Response for company registration request."""
+    message: str
+    status: str
+    request_id: str | None = None
+    # For join existing company flow - immediate login
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str | None = None
+    user: UserLoginResponse | None = None
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: LoginRequest,
@@ -41,24 +57,6 @@ async def login(
 ) -> TokenResponse:
     """
     Login user and return JWT tokens following the login flow.
-
-    Login Flow Steps:
-    1. Email check - Verify email exists in database
-    2. Password check - Verify password is correct
-    3. JWT generation - Create access and refresh tokens
-    4. Cookie setting - Set refresh token in secure HTTP-only cookie
-
-    Args:
-        request: Login credentials (email, password)
-        response: HTTP response to set cookie
-        session: Database session
-
-    Returns:
-        TokenResponse with access_token and refresh_token
-
-    Raises:
-        HTTPException 401: Email not found in database
-        HTTPException 401: Invalid password
     """
     # Step 1: Email check
     user = await AuthService.authenticate_user(
@@ -68,7 +66,6 @@ async def login(
     )
 
     if not user:
-        # Email not found or password invalid
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -84,7 +81,7 @@ async def login(
         httponly=True,
         secure=True,
         samesite="strict",
-        max_age=7 * 24 * 60 * 60,  # 7 days
+        max_age=7 * 24 * 60 * 60,
     )
 
     # Log login action
@@ -99,7 +96,21 @@ async def login(
 
     await session.commit()
 
-    return tokens
+    return TokenResponse(
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        token_type=tokens.token_type,
+        user=UserLoginResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.name,
+            role=user.role,
+            company_id=str(user.company_id),
+            is_active=user.is_active,
+            department=user.department,
+            created_at=user.created_at.isoformat() if user.created_at else "",
+        )
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -107,16 +118,7 @@ async def refresh_token(
     request: RefreshTokenRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """
-    Refresh access token using refresh token.
-
-    Args:
-        request: Refresh token request
-        session: Database session
-
-    Returns:
-        TokenResponse with new access token
-    """
+    """Refresh access token using refresh token."""
     result = AuthService.verify_and_refresh_token(request.refresh_token)
 
     if not result:
@@ -140,27 +142,13 @@ async def logout(
     response: Response = Response(),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Logout user, revoke tokens, and clear refresh token cookie.
-
-    Args:
-        request: HTTP request
-        current_user: Current authenticated user
-        response: HTTP response to clear cookie
-        session: Database session
-
-    Returns:
-        Success message
-    """
-    # Get access token from request to add to blacklist
+    """Logout user, revoke tokens, and clear refresh token cookie."""
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # Remove "Bearer " prefix
-        # Add token to blacklist (immediate revocation)
+        token = auth_header[7:]
         blacklist_service = TokenBlacklistService()
         await blacklist_service.add_to_blacklist(token)
 
-    # Clear refresh token cookie
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
@@ -168,7 +156,6 @@ async def logout(
         samesite="strict",
     )
 
-    # Log logout action
     await AuditLogService.log_action(
         session,
         current_user.company_id,
@@ -188,20 +175,7 @@ async def verify_email(
     request: VerifyEmailRequest,
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Verify user's email using verification token.
-
-    Args:
-        request: Verification token
-        session: Database session
-
-    Returns:
-        Success message
-
-    Raises:
-        HTTPException 400: Invalid or expired token
-        HTTPException 404: User not found
-    """
+    """Verify user's email using verification token."""
     try:
         user = await EmailVerificationService.verify_email_token(session, request.token)
         await session.commit()
@@ -221,25 +195,12 @@ async def resend_verification(
     request: ResendVerificationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Resend verification email to user.
-
-    Args:
-        request: Email address to resend to
-        session: Database session
-
-    Returns:
-        Success message
-
-    Raises:
-        HTTPException 404: User not found
-        HTTPException 429: Too many resend attempts
-    """
+    """Resend verification email to user."""
     try:
         await EmailVerificationService.resend_verification_email(
             session,
             request.email,
-            frontend_url="http://localhost:3000",  # TODO: Load from config
+            frontend_url="http://localhost:3000",
         )
         await session.commit()
         return {"message": "Verification email sent. Check your inbox."}
@@ -253,3 +214,236 @@ async def resend_verification(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=str(e),
         )
+
+
+@router.post("/register", response_model=RegistrationResponse)
+async def register(
+    request: RegisterRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Register a new user - either request a new company or join an existing one.
+    
+    Registration Flows:
+    A. Request new company (provide company_name):
+       1. Create a pending company request
+       2. System admin must approve before company is created
+       3. User will be notified and can login after approval
+       Returns: Pending status with request_id
+    
+    B. Join existing company (provide company_id):
+       1. Validate company exists and is active
+       2. Create user as HR of existing company
+       3. User can login immediately
+       Returns: Tokens for immediate login
+    """
+    from uuid import UUID as PyUUID
+    
+    try:
+        # Validate: must provide either company_name OR company_id
+        if not request.company_name and not request.company_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either company_name (to request new) or company_id (to join existing) is required",
+            )
+        
+        if request.company_name and request.company_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide either company_name or company_id, not both",
+            )
+        
+        # Check if email already exists in users
+        existing_user = await AuthService.check_email_exists(session, request.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
+        
+        # Flow A: Request new company (requires admin approval)
+        if request.company_name:
+            # Check if there's already a pending request with this email
+            existing_request = await session.execute(
+                select(CompanyRequest).where(
+                    CompanyRequest.requester_email == request.email,
+                    CompanyRequest.status == RequestStatus.PENDING
+                )
+            )
+            if existing_request.scalars().first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You already have a pending company registration request",
+                )
+            
+            # Check if company name already exists
+            existing_company = await session.execute(
+                select(Company).where(Company.name == request.company_name)
+            )
+            if existing_company.scalars().first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A company with this name already exists",
+                )
+            
+            # Create pending company request
+            company_request = CompanyRequest(
+                company_name=request.company_name,
+                requester_email=request.email,
+                requester_name=request.full_name,
+                requester_password_hash=AuthService.hash_password(request.password),
+                status=RequestStatus.PENDING,
+            )
+            session.add(company_request)
+            await session.commit()
+            
+            return RegistrationResponse(
+                message="Your company registration request has been submitted. You will be notified once an administrator reviews your request.",
+                status="pending",
+                request_id=str(company_request.id),
+            )
+        
+        # Flow B: Join existing company (immediate access)
+        else:
+            # Accept either join_code (ABCD-EFGH) or company_id (UUID)
+            join_code = request.company_id.upper().strip()
+            
+            # Check if it's a join code format (XXXX-XXXX)
+            if len(join_code) == 9 and join_code[4] == '-':
+                result = await session.execute(
+                    select(Company).where(Company.join_code == join_code)
+                )
+            else:
+                # Try as UUID for backward compatibility
+                try:
+                    company_uuid = PyUUID(request.company_id)
+                    result = await session.execute(
+                        select(Company).where(Company.id == company_uuid)
+                    )
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid Company Code format. Use the 8-character code (e.g., ABCD-EFGH).",
+                    )
+            
+            company = result.scalars().first()
+            
+            if not company:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Company not found. Please check the Company Code.",
+                )
+            
+            if not company.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Company is not active. Contact your administrator.",
+                )
+            
+            # Create user as HR
+            user = User(
+                email=request.email,
+                name=request.full_name,
+                password_hash=AuthService.hash_password(request.password),
+                company_id=company.id,
+                role=UserRole.HR,
+                email_verified=True,
+                is_active=True,
+            )
+            session.add(user)
+            await session.flush()
+            
+            # Generate JWT tokens
+            tokens = AuthService.create_tokens(user.id, company.id)
+            
+            # Set secure HTTP-only cookie
+            response.set_cookie(
+                key="refresh_token",
+                value=tokens.refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="strict",
+                max_age=7 * 24 * 60 * 60,
+            )
+            
+            await session.commit()
+            
+            return RegistrationResponse(
+                message="Registration successful! You have joined the company as HR.",
+                status="approved",
+                access_token=tokens.access_token,
+                refresh_token=tokens.refresh_token,
+                token_type=tokens.token_type,
+                user=UserLoginResponse(
+                    id=str(user.id),
+                    email=user.email,
+                    full_name=user.name,
+                    role=user.role,
+                    company_id=str(company.id),
+                    is_active=user.is_active,
+                    department=user.department,
+                    created_at=user.created_at.isoformat() if user.created_at else "",
+                )
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}",
+        )
+
+
+@router.get("/register/status/{request_id}")
+async def check_registration_status(
+    request_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Check the status of a company registration request.
+    
+    Returns:
+        Status of the request (pending, approved, rejected)
+        If approved: company_id to use for login
+        If rejected: rejection reason
+    """
+    from uuid import UUID as PyUUID
+    
+    try:
+        request_uuid = PyUUID(request_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request ID format",
+        )
+    
+    result = await session.execute(
+        select(CompanyRequest).where(CompanyRequest.id == request_uuid)
+    )
+    company_request = result.scalars().first()
+    
+    if not company_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registration request not found",
+        )
+    
+    response_data = {
+        "status": company_request.status.value,
+        "company_name": company_request.company_name,
+        "created_at": company_request.created_at.isoformat() if company_request.created_at else None,
+    }
+    
+    if company_request.status == RequestStatus.APPROVED:
+        response_data["company_id"] = str(company_request.approved_company_id)
+        response_data["message"] = "Your company has been approved! You can now login."
+    elif company_request.status == RequestStatus.REJECTED:
+        response_data["rejection_reason"] = company_request.rejection_reason
+        response_data["message"] = "Your company registration was rejected."
+    else:
+        response_data["message"] = "Your request is pending review by an administrator."
+    
+    return response_data

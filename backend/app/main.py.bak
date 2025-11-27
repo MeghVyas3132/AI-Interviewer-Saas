@@ -18,7 +18,7 @@ from app.core.database import close_db, init_db, AsyncSessionLocal
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import auth, admin, company, interviews, interview_rounds, logs, roles, scores, hr, users, email, register, candidates, employee, candidate_portal
+from app.routes import auth, admin, company, interviews, interview_rounds, logs, roles, scores, users, email, register, candidates
 from app.utils.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
@@ -74,9 +74,6 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(admin.router)  # System admin routes
     app.include_router(auth.router)
-    app.include_router(hr.router)  # HR company-specific routes
-    app.include_router(employee.router)  # Employee routes
-    app.include_router(candidate_portal.router)  # Candidate portal routes
     app.include_router(company.router)
     app.include_router(register.router)
     app.include_router(users.router)

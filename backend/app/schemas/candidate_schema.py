@@ -79,6 +79,8 @@ class CandidateResponse(CandidateBase):
     source: str
     created_by: Optional[UUID]
     resume_url: Optional[str]
+    assigned_to: Optional[UUID] = Field(None, description="Assigned employee ID")
+    assigned_employee_name: Optional[str] = Field(None, description="Assigned employee name")
     created_at: datetime
     updated_at: datetime
 

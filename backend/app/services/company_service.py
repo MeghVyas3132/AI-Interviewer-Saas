@@ -165,3 +165,64 @@ class CompanyService:
         company.is_active = False
         await session.flush()
         return True
+
+    @staticmethod
+    async def list_all_companies(
+        session: AsyncSession,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> list:
+        """
+        List all companies (system admin only).
+
+        Args:
+            session: Database session
+            skip: Pagination offset
+            limit: Pagination limit
+
+        Returns:
+            List of companies
+        """
+        from sqlalchemy import select
+        from app.models.company import Company
+
+        query = select(Company).offset(skip).limit(limit)
+        result = await session.execute(query)
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_system_metrics(session: AsyncSession) -> dict:
+        """
+        Get system-wide metrics.
+
+        Args:
+            session: Database session
+
+        Returns:
+            System metrics
+        """
+        from sqlalchemy import select, func
+        from app.models.company import Company
+        from app.models.user import User
+
+        # Get total companies
+        company_query = select(func.count(Company.id))
+        company_result = await session.execute(company_query)
+        total_companies = company_result.scalar()
+
+        # Get active companies
+        active_query = select(func.count(Company.id)).where(Company.is_active == True)
+        active_result = await session.execute(active_query)
+        active_companies = active_result.scalar()
+
+        # Get total users
+        user_query = select(func.count(User.id))
+        user_result = await session.execute(user_query)
+        total_users = user_result.scalar()
+
+        return {
+            "total_companies": total_companies or 0,
+            "active_companies": active_companies or 0,
+            "inactive_companies": (total_companies or 0) - (active_companies or 0),
+            "total_users": total_users or 0,
+        }

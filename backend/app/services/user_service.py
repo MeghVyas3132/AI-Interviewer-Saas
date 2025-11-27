@@ -49,6 +49,8 @@ class UserService:
             role=user_data.role,
             manager_id=user_data.manager_id,
             department=user_data.department,
+            is_active=True,
+            email_verified=True,  # Users created by HR are pre-verified
         )
 
         session.add(user)

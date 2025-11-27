@@ -70,15 +70,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Control referrer information leaking across origins
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Basic Content Security Policy: restrict resources to same-origin
-        # This prevents inline scripts and restricts external script loading
+        # Content Security Policy.
+        # Allow specific trusted CDNs/font hosts so the built-in docs (Swagger UI / ReDoc)
+        # which reference external JS/CSS can load correctly during local development.
+        # Keep CSP restrictive otherwise.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
             "img-src 'self' data: https:; "
-            "font-src 'self' data:; "
-            "connect-src 'self'; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https:; "
             "frame-ancestors 'none'; "
             "upgrade-insecure-requests"
         )

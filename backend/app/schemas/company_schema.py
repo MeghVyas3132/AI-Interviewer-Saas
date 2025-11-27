@@ -86,6 +86,7 @@ class CompanyResponse(CompanyBase):
     """Schema for company response."""
 
     id: UUID
+    join_code: str  # Short code like ABCD-EFGH for users to join
     is_active: bool
     created_at: datetime
     updated_at: datetime

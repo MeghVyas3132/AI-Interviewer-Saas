@@ -183,8 +183,46 @@ async def list_candidates(
             limit=limit,
         )
         
+        # Fetch assigned employee names
+        from sqlalchemy import select
+        from app.models.user import User as UserModel
+        
+        candidate_responses = []
+        for c in candidates:
+            response_dict = {
+                "id": c.id,
+                "email": c.email,
+                "first_name": c.first_name,
+                "last_name": c.last_name,
+                "phone": c.phone,
+                "domain": c.domain,
+                "position": c.position,
+                "experience_years": c.experience_years,
+                "qualifications": c.qualifications,
+                "company_id": c.company_id,
+                "status": c.status.value if hasattr(c.status, 'value') else str(c.status),
+                "source": c.source.value if hasattr(c.source, 'value') else str(c.source),
+                "created_by": c.created_by,
+                "resume_url": c.resume_url,
+                "assigned_to": c.assigned_to,
+                "assigned_employee_name": None,
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+            }
+            
+            # Get employee name if assigned
+            if c.assigned_to:
+                emp_result = await session.execute(
+                    select(UserModel).where(UserModel.id == c.assigned_to)
+                )
+                emp = emp_result.scalar_one_or_none()
+                if emp:
+                    response_dict["assigned_employee_name"] = emp.name
+            
+            candidate_responses.append(CandidateResponse(**response_dict))
+        
         return CandidateListResponse(
-            candidates=[CandidateResponse.model_validate(c) for c in candidates],
+            candidates=candidate_responses,
             total=total,
             page=skip // limit + 1,
             page_size=limit,
@@ -760,3 +798,90 @@ async def get_time_to_hire(
     except Exception as e:
         logger.error(f"Error fetching time-to-hire metrics: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error fetching metrics")
+
+
+@router.post(
+    "/bulk/import-csv",
+    response_model=CandidateBulkImportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk import candidates from CSV",
+    description="Import multiple candidates from CSV file",
+)
+async def bulk_import_candidates_csv(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CandidateBulkImportResponse:
+    """
+    Import multiple candidates from CSV file
+    
+    CSV format should have columns: email, first_name, last_name, position, experience_years
+    
+    Example CSV:
+    ```
+    email,first_name,last_name,position,experience_years
+    john@example.com,John,Doe,Senior Engineer,5
+    jane@example.com,Jane,Smith,Product Manager,3
+    ```
+    """
+    try:
+        import csv
+        from io import StringIO
+        
+        # Read CSV file
+        content = await file.read()
+        text_content = content.decode('utf-8')
+        csv_reader = csv.DictReader(StringIO(text_content))
+        
+        candidates_data = []
+        for row in csv_reader:
+            if not row.get('email'):
+                continue
+            
+            candidates_data.append({
+                'email': row.get('email', ''),
+                'first_name': row.get('first_name', ''),
+                'last_name': row.get('last_name', ''),
+                'position': row.get('position', ''),
+                'experience_years': int(row.get('experience_years', 0)) if row.get('experience_years', '').isdigit() else 0,
+                'created_by': current_user.id,
+            })
+        
+        if not candidates_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid candidates found in CSV"
+            )
+        
+        # Bulk create
+        created, errors = await CandidateService.bulk_create_candidates(
+            session=session,
+            company_id=current_user.company_id,
+            candidates_data=candidates_data,
+            created_by=current_user.id,
+            send_invitation_emails=False,
+        )
+        
+        logger.info(
+            f"✅ CSV Bulk import complete: {len(created)} created, {len(errors)} errors"
+        )
+        
+        return CandidateBulkImportResponse(
+            total=len(candidates_data),
+            created=len(created),
+            failed=len(errors),
+            errors=errors,
+            created_candidates=[
+                CandidateResponse.model_validate(c) for c in created
+            ] if created else [],
+            message=f"Imported {len(created)} candidates from CSV. {len(errors)} errors."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in CSV bulk import: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error importing candidates from CSV: {str(e)}"
+        )

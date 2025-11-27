@@ -136,6 +136,12 @@ class Candidate(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    assigned_to: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Core fields
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

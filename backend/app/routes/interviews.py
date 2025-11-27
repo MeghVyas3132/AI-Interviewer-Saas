@@ -1,28 +1,27 @@
 """
-Interview management routes.
+Interview management routes for the AI Interviewer platform.
+
+Handles interview creation, scheduling, status updates, and candidate feedback.
 """
 
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.middleware.auth import (
-    get_current_user,
-    require_employee,
-    require_team_lead,
-)
+from app.middleware.auth import get_current_user
+from app.models.candidate import Interview, InterviewStatus, Candidate
 from app.models.user import User, UserRole
 from app.schemas.interview_schema import (
-    InterviewCreate,
     InterviewListResponse,
     InterviewResponse,
+    InterviewCreate,
     InterviewUpdate,
 )
-from app.services.audit_log_service import AuditLogService
-from app.services.interview_service import InterviewService
 
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 
@@ -34,278 +33,323 @@ router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 )
 async def create_interview(
     interview_data: InterviewCreate,
-    current_user: User = Depends(require_employee),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> InterviewResponse:
+):
     """
-    Create a new interview (Employee and above).
-
-    Args:
-        interview_data: Interview creation data
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Created interview
+    Create a new interview.
+    Only ADMIN and TEAM_LEAD can create interviews.
     """
-    interview = await InterviewService.create_interview(
-        session,
-        current_user.company_id,
-        interview_data.candidate_id,
-        current_user.id,
-        interview_data,
-    )
+    if current_user.role not in [UserRole.ADMIN, UserRole.TEAM_LEAD]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators and team leads can create interviews",
+        )
 
-    # Log interview creation
-    await AuditLogService.log_action(
-        session,
-        current_user.company_id,
-        current_user.id,
-        "CREATE_INTERVIEW",
-        resource_type="interview",
-        resource_id=interview.id,
-    )
-
-    await session.commit()
-    return interview
+    try:
+        interview = Interview(
+            company_id=current_user.company_id,
+            candidate_id=interview_data.candidate_id,
+            interviewer_id=interview_data.interviewer_id,
+            round=interview_data.round,
+            scheduled_time=interview_data.scheduled_time,
+            status=InterviewStatus.SCHEDULED,
+        )
+        session.add(interview)
+        await session.commit()
+        await session.refresh(interview)
+        return interview
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating interview: {str(e)}",
+        )
 
 
 @router.get("", response_model=List[InterviewListResponse])
-async def list_interviews(
-    current_user: User = Depends(require_employee),
-    session: AsyncSession = Depends(get_db),
+async def get_interviews(
+    current_user: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-) -> List[InterviewListResponse]:
+    limit: int = Query(100, ge=1, le=1000),
+    session: AsyncSession = Depends(get_db),
+):
     """
-    List interviews.
-
-    Candidates see only their own, others see company's interviews.
-
-    Args:
-        current_user: Current authenticated user
-        session: Database session
-        skip: Number of records to skip
-        limit: Maximum number of records
-
-    Returns:
-        List of interviews
+    Get all interviews for the current user's company.
     """
-    # Candidates see only their own interviews
-    if current_user.role == UserRole.CANDIDATE:
-        interviews = await InterviewService.get_candidate_interviews(
-            session,
-            current_user.id,
-            skip=skip,
-            limit=limit,
+    try:
+        query = select(Interview).filter(
+            Interview.company_id == current_user.company_id
         )
-    else:
-        # Employees and above see all company interviews
-        interviews = await InterviewService.get_company_interviews(
-            session,
-            current_user.company_id,
-            skip=skip,
-            limit=limit,
+        query = query.offset(skip).limit(limit)
+        result = await session.execute(query)
+        interviews = result.scalars().all()
+        return interviews
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interviews: {str(e)}",
         )
 
-    return interviews
+
+@router.get("/assigned")
+async def get_assigned_interviews(
+    current_user: User = Depends(get_current_user),
+    status_filter: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Get interviews assigned to the current user (as interviewer).
+    Only EMPLOYEE and TEAM_LEAD can access this.
+    """
+    if current_user.role not in [UserRole.EMPLOYEE, UserRole.TEAM_LEAD]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only employees can access assigned interviews"
+        )
+
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.interviewer_id == current_user.id,
+                Interview.company_id == current_user.company_id,
+            )
+        )
+
+        if status_filter:
+            query = query.filter(Interview.status == status_filter)
+
+        query = query.offset(skip).limit(limit)
+        result = await session.execute(query)
+        interviews = result.scalars().all()
+
+        # Fetch candidate details for each interview
+        response_interviews = []
+        for interview in interviews:
+            candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+            candidate_result = await session.execute(candidate_query)
+            candidate = candidate_result.scalar_one_or_none()
+
+            response_interviews.append({
+                "id": str(interview.id),
+                "candidate_id": str(interview.candidate_id),
+                "candidate_name": candidate.name if candidate else "Unknown",
+                "candidate_email": candidate.email if candidate else "N/A",
+                "round_number": interview.round.value if interview.round else "Unknown",
+                "scheduled_at": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "status": interview.status.value if interview.status else "UNKNOWN",
+                "interview_type": "Technical",
+                "duration_minutes": 60,
+            })
+
+        return response_interviews
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interviews: {str(e)}"
+        )
 
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
 async def get_interview(
     interview_id: UUID,
-    current_user: User = Depends(require_employee),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> InterviewResponse:
+):
     """
-    Get interview by ID.
-
-    Args:
-        interview_id: Interview ID
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Interview details
+    Get a specific interview by ID.
     """
-    interview = await InterviewService.get_interview_by_id(session, interview_id)
-    if not interview or interview.company_id != current_user.company_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview not found",
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id,
+            )
         )
+        result = await session.execute(query)
+        interview = result.scalar_one_or_none()
 
-    # Candidates can only view their own interviews
-    if current_user.role == UserRole.CANDIDATE and interview.candidate_id != current_user.id:
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found",
+            )
+        return interview
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot access interview",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interview: {str(e)}",
         )
-
-    return interview
 
 
 @router.put("/{interview_id}", response_model=InterviewResponse)
 async def update_interview(
     interview_id: UUID,
-    interview_data: InterviewUpdate,
-    current_user: User = Depends(require_team_lead),
+    update_data: InterviewUpdate,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> InterviewResponse:
+):
     """
-    Update interview information (Team Lead and above).
-
-    Args:
-        interview_id: Interview ID
-        interview_data: Update data
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Updated interview
+    Update an interview.
+    Only the assigned interviewer or an admin can update.
     """
-    interview = await InterviewService.get_interview_by_id(session, interview_id)
-    if not interview or interview.company_id != current_user.company_id:
+    if current_user.role not in [UserRole.ADMIN, UserRole.TEAM_LEAD]:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview not found",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators and team leads can update interviews",
         )
 
-    interview = await InterviewService.update_interview(
-        session,
-        interview_id,
-        interview_data,
-    )
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id,
+            )
+        )
+        result = await session.execute(query)
+        interview = result.scalar_one_or_none()
 
-    # Log update action
-    await AuditLogService.log_action(
-        session,
-        current_user.company_id,
-        current_user.id,
-        "UPDATE_INTERVIEW",
-        resource_type="interview",
-        resource_id=interview_id,
-    )
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found",
+            )
 
-    await session.commit()
-    return interview
+        if update_data.scheduled_time:
+            interview.scheduled_time = update_data.scheduled_time
+        if update_data.status:
+            interview.status = update_data.status
+
+        await session.commit()
+        await session.refresh(interview)
+        return interview
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating interview: {str(e)}",
+        )
 
 
 @router.post("/{interview_id}/cancel")
 async def cancel_interview(
     interview_id: UUID,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> dict:
+):
     """
-    Cancel an interview (Team Lead and above).
-
-    Args:
-        interview_id: Interview ID
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Success message
+    Cancel an interview.
     """
-    interview = await InterviewService.get_interview_by_id(session, interview_id)
-    if not interview or interview.company_id != current_user.company_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview not found",
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id,
+            )
         )
+        result = await session.execute(query)
+        interview = result.scalar_one_or_none()
 
-    await InterviewService.cancel_interview(session, interview_id)
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found",
+            )
 
-    # Log cancellation
-    await AuditLogService.log_action(
-        session,
-        current_user.company_id,
-        current_user.id,
-        "CANCEL_INTERVIEW",
-        resource_type="interview",
-        resource_id=interview_id,
-    )
-
-    await session.commit()
-    return {"message": "Interview cancelled successfully"}
+        interview.status = InterviewStatus.CANCELED
+        await session.commit()
+        await session.refresh(interview)
+        return {"status": "cancelled", "interview": interview}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error cancelling interview: {str(e)}",
+        )
 
 
 @router.post("/{interview_id}/start")
 async def start_interview(
     interview_id: UUID,
-    current_user: User = Depends(require_employee),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> dict:
+):
     """
-    Start an interview.
-
-    Args:
-        interview_id: Interview ID
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Success message
+    Mark an interview as started.
     """
-    interview = await InterviewService.get_interview_by_id(session, interview_id)
-    if not interview or interview.company_id != current_user.company_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview not found",
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id,
+            )
         )
+        result = await session.execute(query)
+        interview = result.scalar_one_or_none()
 
-    await InterviewService.start_interview(session, interview_id)
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found",
+            )
 
-    # Log start action
-    await AuditLogService.log_action(
-        session,
-        current_user.company_id,
-        current_user.id,
-        "START_INTERVIEW",
-        resource_type="interview",
-        resource_id=interview_id,
-    )
-
-    await session.commit()
-    return {"message": "Interview started"}
+        interview.status = InterviewStatus.IN_PROGRESS
+        await session.commit()
+        await session.refresh(interview)
+        return {"status": "started", "interview": interview}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error starting interview: {str(e)}",
+        )
 
 
 @router.post("/{interview_id}/complete")
 async def complete_interview(
     interview_id: UUID,
-    current_user: User = Depends(require_employee),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> dict:
+):
     """
-    Mark interview as complete.
-
-    Args:
-        interview_id: Interview ID
-        current_user: Current authenticated user
-        session: Database session
-
-    Returns:
-        Success message
+    Mark an interview as completed.
     """
-    interview = await InterviewService.get_interview_by_id(session, interview_id)
-    if not interview or interview.company_id != current_user.company_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview not found",
+    try:
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id,
+            )
         )
+        result = await session.execute(query)
+        interview = result.scalar_one_or_none()
 
-    await InterviewService.complete_interview(session, interview_id)
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found",
+            )
 
-    # Log complete action
-    await AuditLogService.log_action(
-        session,
-        current_user.company_id,
-        current_user.id,
-        "COMPLETE_INTERVIEW",
-        resource_type="interview",
-        resource_id=interview_id,
-    )
-
-    await session.commit()
-    return {"message": "Interview marked as complete"}
+        interview.status = InterviewStatus.COMPLETED
+        await session.commit()
+        await session.refresh(interview)
+        return {"status": "completed", "interview": interview}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error completing interview: {str(e)}",
+        )
