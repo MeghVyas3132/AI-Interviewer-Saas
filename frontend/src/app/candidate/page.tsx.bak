@@ -1,0 +1,369 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { Navigation } from '@/components/Navigation';
+
+interface Interview {
+  id: string;
+  company_name: string;
+  company_id: string;
+  position: string;
+  round: string;
+  scheduled_time: string;
+  timezone: string;
+  status: string;
+  meeting_link: string | null;
+  interviewer: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+}
+
+interface Company {
+  company_id: string;
+  company_name: string;
+  position: string;
+  domain: string;
+  status: string;
+  applied_at: string;
+  interviews: Interview[];
+}
+
+export default function CandidateDashboard() {
+  const router = useRouter();
+  const { user, isLoading: authLoading, logout } = useAuth();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        router.push('/auth/register');
+        return;
+      }
+      
+      if (user.role !== 'CANDIDATE') {
+        router.push('/dashboard');
+        return;
+      }
+
+      // Load companies from localStorage (set during login)
+      const storedCompanies = localStorage.getItem('candidate_companies');
+      if (storedCompanies) {
+        setCompanies(JSON.parse(storedCompanies));
+      }
+      setLoading(false);
+    }
+  }, [user, authLoading, router]);
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'scheduled':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'canceled':
+        return 'bg-red-100 text-red-800';
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'applied':
+        return 'bg-gray-100 text-gray-800';
+      case 'screening':
+        return 'bg-purple-100 text-purple-800';
+      case 'interview':
+        return 'bg-blue-100 text-blue-800';
+      case 'selected':
+        return 'bg-green-100 text-green-800';
+      case 'rejected':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getApplicationStatusLabel = (status: string) => {
+    const labels: { [key: string]: string } = {
+      applied: 'Applied',
+      screening: 'Screening',
+      assessment: 'Assessment',
+      interview: 'Interview Stage',
+      selected: 'Selected',
+      offer: 'Offer Extended',
+      accepted: 'Offer Accepted',
+      rejected: 'Not Selected',
+      withdrawn: 'Withdrawn',
+      on_hold: 'On Hold',
+    };
+    return labels[status?.toLowerCase()] || status || 'Applied';
+  };
+
+  const getRoundLabel = (round: string) => {
+    const labels: { [key: string]: string } = {
+      screening: 'Screening Round',
+      technical: 'Technical Round',
+      hr_round: 'HR Round',
+      final: 'Final Round',
+      assessment: 'Assessment',
+    };
+    return labels[round] || round;
+  };
+
+  // Calculate stats
+  const totalInterviews = companies.reduce((sum, c) => sum + c.interviews.length, 0);
+  const upcomingInterviews = companies.reduce((sum, c) => 
+    sum + c.interviews.filter(i => i.status === 'scheduled' && new Date(i.scheduled_time) > new Date()).length, 0
+  );
+  const completedInterviews = companies.reduce((sum, c) => 
+    sum + c.interviews.filter(i => i.status === 'completed').length, 0
+  );
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navigation />
+      
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Welcome, {user?.full_name || 'Candidate'}!
+          </h1>
+          <p className="text-gray-600 mt-1">
+            View your applications and scheduled interviews across all companies
+          </p>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{companies.length}</p>
+                <p className="text-sm text-gray-500">Companies</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{upcomingInterviews}</p>
+                <p className="text-sm text-gray-500">Upcoming Interviews</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{totalInterviews}</p>
+                <p className="text-sm text-gray-500">Total Interviews</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{completedInterviews}</p>
+                <p className="text-sm text-gray-500">Completed</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {companies.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Applications Found</h3>
+            <p className="text-gray-500">
+              You haven't been added as a candidate by any company yet. Check back later or contact HR.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {companies.map((company) => (
+              <div key={company.company_id} className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+                {/* Company Header */}
+                <div className="bg-gradient-to-r from-brand-500 to-brand-600 px-6 py-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-semibold text-white">{company.company_name}</h2>
+                        <p className="text-white/80 text-sm">
+                          {company.position || 'Position not specified'} 
+                          {company.domain && <span> • {company.domain}</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium bg-white/20 text-white`}>
+                        {getApplicationStatusLabel(company.status)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interviews List */}
+                <div className="p-6">
+                  {company.interviews.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <h4 className="text-gray-900 font-medium mb-1">No Interviews Scheduled Yet</h4>
+                      <p className="text-sm text-gray-500">
+                        The company hasn't scheduled any interviews for you yet. Check back later!
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Scheduled Interviews ({company.interviews.length})
+                      </h3>
+                      
+                      <div className="divide-y divide-gray-100">
+                        {company.interviews.map((interview) => (
+                          <div key={interview.id} className="py-4 first:pt-0 last:pb-0">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h4 className="font-semibold text-gray-900">
+                                    {getRoundLabel(interview.round)}
+                                  </h4>
+                                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(interview.status)}`}>
+                                    {interview.status?.replace('_', ' ').charAt(0).toUpperCase() + interview.status?.slice(1).replace('_', ' ') || 'Scheduled'}
+                                  </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                                  <div className="flex items-center gap-2 text-gray-600">
+                                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    {formatDate(interview.scheduled_time)}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-gray-600">
+                                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    {formatTime(interview.scheduled_time)} ({interview.timezone})
+                                  </div>
+                                  {interview.interviewer && (
+                                    <div className="flex items-center gap-2 text-gray-600 sm:col-span-2">
+                                      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                      </svg>
+                                      <span>
+                                        <strong>Interviewer:</strong> {interview.interviewer.name}
+                                        <span className="text-gray-400 ml-1">({interview.interviewer.email})</span>
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {interview.meeting_link && interview.status === 'scheduled' && (
+                                <a
+                                  href={interview.meeting_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                  Join Meeting
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Logout Button */}
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => {
+              localStorage.removeItem('candidate_companies');
+              localStorage.removeItem('candidate_interviews');
+              logout();
+            }}
+            className="text-gray-500 hover:text-gray-700 text-sm"
+          >
+            Logout
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}

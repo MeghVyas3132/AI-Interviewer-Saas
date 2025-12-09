@@ -1,5 +1,7 @@
-# Frontend - Exclude entire frontend folder
-frontend/
+# Frontend - Node modules and build files
+frontend/node_modules/
+frontend/.next/
+frontend/out/
 
 # Documentation files (but keep important docs)
 # *.md  # Allow markdown files to be tracked
