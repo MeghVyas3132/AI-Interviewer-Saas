@@ -466,3 +466,63 @@ async def get_employee_assigned_candidates(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching assigned candidates: {str(e)}"
         )
+
+
+@router.get("/interviews")
+async def get_hr_interviews(
+    current_user: User = Depends(require_hr),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get all interviews for the HR user's company with candidate and interviewer details.
+    """
+    from sqlalchemy.orm import selectinload
+    
+    company_id = current_user.company_id
+    
+    # Query interviews with eager loading to avoid detached instance issues
+    query = (
+        select(Interview)
+        .filter(Interview.company_id == company_id)
+        .order_by(Interview.scheduled_time.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    
+    result = await db.execute(query)
+    interviews = result.scalars().all()
+    
+    # Build response with candidate and interviewer info
+    response_list = []
+    for interview in interviews:
+        # Get candidate info
+        candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+        candidate_result = await db.execute(candidate_query)
+        candidate = candidate_result.scalar_one_or_none()
+        
+        # Get interviewer info
+        interviewer_name = None
+        if interview.interviewer_id:
+            interviewer_query = select(User).filter(User.id == interview.interviewer_id)
+            interviewer_result = await db.execute(interviewer_query)
+            interviewer = interviewer_result.scalar_one_or_none()
+            if interviewer:
+                interviewer_name = interviewer.name
+        
+        response_list.append({
+            "id": str(interview.id),
+            "candidate_id": str(interview.candidate_id),
+            "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() if candidate else "Unknown",
+            "candidate_email": candidate.email if candidate else "",
+            "interviewer_id": str(interview.interviewer_id) if interview.interviewer_id else None,
+            "interviewer_name": interviewer_name,
+            "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+            "status": interview.status.value if interview.status else "SCHEDULED",
+            "meeting_link": interview.meeting_link,
+            "notes": interview.notes,
+            "created_at": interview.created_at.isoformat() if interview.created_at else None,
+        })
+    
+    return response_list

@@ -447,3 +447,179 @@ async def check_registration_status(
         response_data["message"] = "Your request is pending review by an administrator."
     
     return response_data
+
+
+# =============================================================================
+# Candidate Email-Only Login (No Password Required)
+# =============================================================================
+
+class CandidateLoginRequest(BaseModel):
+    """Schema for candidate email-only login."""
+    email: str
+
+
+
+class CandidateLoginResponse(BaseModel):
+    """Response for candidate login."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserLoginResponse
+    companies: list = []
+    interviews: list = []
+
+
+@router.post("/candidate-login")
+async def candidate_login(
+    request: CandidateLoginRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Candidate login using email only (no password required).
+    
+    Returns all companies where the candidate is registered,
+    along with any scheduled interviews for each company.
+    """
+    from app.models.candidate import Candidate, Interview
+    
+    try:
+        # Find all candidates by email (across all companies)
+        result = await session.execute(
+            select(Candidate).where(Candidate.email == request.email.lower().strip())
+        )
+        candidates = result.scalars().all()
+        
+        if not candidates:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No candidate found with this email. Please check your email or contact HR.",
+            )
+        
+        # Get the first candidate for user creation
+        candidate = candidates[0]
+        
+        # Check if user already exists for this candidate
+        user_result = await session.execute(
+            select(User).where(
+                User.email == request.email.lower().strip(),
+                User.role == UserRole.CANDIDATE
+            )
+        )
+        user = user_result.scalars().first()
+        
+        if not user:
+            # Create a candidate user account (no password)
+            user = User(
+                email=request.email.lower().strip(),
+                name=f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or request.email,
+                password_hash="CANDIDATE_NO_PASSWORD",
+                company_id=candidate.company_id,
+                role=UserRole.CANDIDATE,
+                is_active=True,
+                email_verified=True,
+            )
+            session.add(user)
+            await session.flush()
+        
+        # Generate JWT tokens
+        tokens = AuthService.create_tokens(user.id, user.company_id)
+        
+        # Set secure HTTP-only cookie
+        response.set_cookie(
+            key="refresh_token",
+            value=tokens.refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=7 * 24 * 60 * 60,
+        )
+        
+        # Build company data with interviews
+        companies_data = []
+        all_interviews = []
+        
+        for cand in candidates:
+            # Get company info
+            company_result = await session.execute(
+                select(Company).where(Company.id == cand.company_id)
+            )
+            company = company_result.scalars().first()
+            
+            # Get interviews for this candidate
+            interviews_result = await session.execute(
+                select(Interview).where(Interview.candidate_id == cand.id)
+            )
+            interviews = interviews_result.scalars().all()
+            
+            company_interviews = []
+            for interview in interviews:
+                interviewer_info = None
+                if interview.interviewer_id:
+                    interviewer_result = await session.execute(
+                        select(User).where(User.id == interview.interviewer_id)
+                    )
+                    interviewer = interviewer_result.scalars().first()
+                    if interviewer:
+                        interviewer_info = {
+                            "id": str(interviewer.id),
+                            "name": interviewer.name,
+                            "email": interviewer.email,
+                        }
+                
+                interview_data = {
+                    "id": str(interview.id),
+                    "company_name": company.name if company else "Unknown",
+                    "company_id": str(cand.company_id),
+                    "position": cand.position,
+                    "round": interview.round.value if interview.round else None,
+                    "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                    "timezone": interview.timezone,
+                    "status": interview.status.value if interview.status else None,
+                    "meeting_link": interview.meeting_link,
+                    "interviewer": interviewer_info,
+                }
+                company_interviews.append(interview_data)
+                all_interviews.append(interview_data)
+            
+            # Add company data regardless of whether there are interviews
+            companies_data.append({
+                "company_id": str(cand.company_id),
+                "company_name": company.name if company else "Unknown",
+                "position": cand.position,
+                "domain": cand.domain,
+                "status": cand.status.value if cand.status else None,
+                "applied_at": cand.created_at.isoformat() if cand.created_at else None,
+                "interviews": company_interviews,
+            })
+        
+        await session.commit()
+        
+        return {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "token_type": tokens.token_type,
+            "user": UserLoginResponse(
+                id=str(user.id),
+                email=user.email,
+                full_name=user.name,
+                role=user.role,
+                company_id=str(user.company_id),
+                is_active=user.is_active,
+                department=user.department,
+                created_at=user.created_at.isoformat() if user.created_at else "",
+            ),
+            "companies": companies_data,
+            "interviews": all_interviews,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}",
+        )

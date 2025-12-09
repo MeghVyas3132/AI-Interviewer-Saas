@@ -265,3 +265,134 @@ async def get_candidate_dashboard(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching dashboard: {str(e)}"
         )
+
+
+@router.post("/login")
+async def candidate_login(
+    request_data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Login for candidates using email only.
+    Candidates don't have passwords - they're added by HR.
+    Returns a token if the email exists as a candidate in any company.
+    """
+    from datetime import datetime, timedelta, timezone
+    import jwt
+    from app.core.config import settings
+    
+    email = request_data.get("email", "").strip().lower()
+    
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required"
+        )
+    
+    # Find candidate by email
+    candidate_query = select(Candidate).filter(Candidate.email == email)
+    result = await db.execute(candidate_query)
+    candidates = result.scalars().all()
+    
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No candidate found with this email. You can only login if a company has added you as a candidate."
+        )
+    
+    # Get the first candidate (could be in multiple companies)
+    candidate = candidates[0]
+    
+    # Get company info
+    company_query = select(Company).filter(Company.id == candidate.company_id)
+    company_result = await db.execute(company_query)
+    company = company_result.scalars().first()
+    
+    # Check if a user account exists for this candidate
+    user_query = select(User).filter(
+        and_(
+            User.email == email,
+            User.role == UserRole.CANDIDATE
+        )
+    )
+    user_result = await db.execute(user_query)
+    user = user_result.scalars().first()
+    
+    # If no user account exists, create one
+    if not user:
+        from uuid import uuid4
+        user = User(
+            id=uuid4(),
+            email=email,
+            name=f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or email,
+            password_hash="CANDIDATE_NO_PASSWORD",  # Candidates don't have passwords
+            role=UserRole.CANDIDATE,
+            company_id=candidate.company_id,
+            is_active=True,
+            email_verified=True,
+            verification_attempts=0,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    
+    # Generate JWT token
+    token_data = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role.value,
+        "company_id": str(user.company_id) if user.company_id else None,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+        "iat": datetime.now(timezone.utc),
+    }
+    
+    access_token = jwt.encode(token_data, settings.secret_key, algorithm="HS256")
+    
+    # Get all companies where this email is a candidate
+    companies_list = []
+    for c in candidates:
+        comp_query = select(Company).filter(Company.id == c.company_id)
+        comp_result = await db.execute(comp_query)
+        comp = comp_result.scalars().first()
+        if comp:
+            companies_list.append({
+                "id": str(comp.id),
+                "name": comp.name,
+                "position": c.position,
+                "status": c.status.value if c.status else None,
+            })
+    
+    # Get interviews for this candidate
+    interviews_list = []
+    for c in candidates:
+        interviews_query = select(Interview).filter(Interview.candidate_id == c.id)
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+        for i in interviews:
+            comp_query = select(Company).filter(Company.id == c.company_id)
+            comp_result = await db.execute(comp_query)
+            comp = comp_result.scalars().first()
+            interviews_list.append({
+                "id": str(i.id),
+                "company_name": comp.name if comp else None,
+                "position": c.position,
+                "round": i.round.value if i.round else None,
+                "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
+                "status": i.status.value if i.status else None,
+                "meeting_link": i.meeting_link,
+            })
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "role": user.role.value,
+            "company_id": str(user.company_id) if user.company_id else None,
+        },
+        "companies": companies_list,
+        "interviews": interviews_list,
+    }
