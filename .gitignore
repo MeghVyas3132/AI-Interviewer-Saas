@@ -6,6 +6,7 @@ frontend/out/
 # Documentation files (but keep important docs)
 # *.md  # Allow markdown files to be tracked
 *.txt
+!backend/requirements.txt
 !API_ENDPOINTS.md
 !README.md
 !PRD.md
