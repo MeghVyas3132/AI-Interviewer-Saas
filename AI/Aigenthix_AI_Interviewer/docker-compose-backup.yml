@@ -1,0 +1,101 @@
+services:
+  ai-interviewer-frontend-v4-8080:
+    build: .
+    depends_on:
+      - assemblyai-ws-proxy
+    # For production with load balancer, don't expose ports directly
+    # The load balancer will handle routing
+    ports:
+      - "80:9002"  # Expose port 9002 for local access
+    volumes:
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_API_KEY_2=${GOOGLE_API_KEY_2}
+      - GOOGLE_API_KEY_3=${GOOGLE_API_KEY_3}
+      - API_KEY_ROTATION_STRATEGY=${API_KEY_ROTATION_STRATEGY:-round-robin}
+      - API_KEY_COOLDOWN_DURATION=${API_KEY_COOLDOWN_DURATION:-300000}
+      - API_KEY_MAX_RETRIES=${API_KEY_MAX_RETRIES:-3}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY_2=${OPENAI_API_KEY_2}
+      - OPENAI_API_KEY_3=${OPENAI_API_KEY_3}
+      - OPENAI_API_KEY_ROTATION_STRATEGY=${OPENAI_API_KEY_ROTATION_STRATEGY:-round-robin}
+      - OPENAI_API_KEY_COOLDOWN_DURATION=${OPENAI_API_KEY_COOLDOWN_DURATION:-300000}
+      - OPENAI_API_KEY_MAX_RETRIES=${OPENAI_API_KEY_MAX_RETRIES:-3}
+      # AssemblyAI settings
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      # AssemblyAI WebSocket proxy URL (for client-side connections)
+      - NEXT_PUBLIC_WS_PROXY_URL=${NEXT_PUBLIC_WS_PROXY_URL:-ws://localhost:9003}
+      # Database connection pool settings
+      - DB_POOL_MAX=${DB_POOL_MAX:-100}
+      - DB_POOL_MIN=${DB_POOL_MIN:-10}
+      - DB_POOL_IDLE_TIMEOUT=${DB_POOL_IDLE_TIMEOUT:-30000}
+      - DB_POOL_CONNECTION_TIMEOUT=${DB_POOL_CONNECTION_TIMEOUT:-10000}
+      # MongoDB connection pool settings
+      - MONGODB_MAX_POOL_SIZE=${MONGODB_MAX_POOL_SIZE:-50}
+      - MONGODB_MIN_POOL_SIZE=${MONGODB_MIN_POOL_SIZE:-5}
+      # Rate limiting settings
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - INTERVIEW_RATE_LIMIT_MAX=${INTERVIEW_RATE_LIMIT_MAX:-20}
+      - AI_RATE_LIMIT_MAX=${AI_RATE_LIMIT_MAX:-10}
+      # AI request queue settings
+      - AI_QUEUE_CONCURRENCY=${AI_QUEUE_CONCURRENCY:-5}
+      - AI_QUEUE_MAX_RETRIES=${AI_QUEUE_MAX_RETRIES:-3}
+      # Cache settings
+      - CACHE_DEFAULT_TTL=${CACHE_DEFAULT_TTL:-300000}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9002"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits to prevent resource exhaustion
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+      # For Docker Swarm mode, uncomment to scale horizontally
+      # replicas: 5
+      # placement:
+      #   constraints:
+      #     - node.role == worker
+      # For Docker Compose scale command, use:
+      # docker-compose up --scale ai-interviewer-frontend-v4-8080=5
+
+  # WebSocket proxy server for AssemblyAI streaming
+  assemblyai-ws-proxy:
+    build: .
+    command: node ws-proxy-server.js
+    ports:
+      - "9003:9003"
+    env_file:
+      - .env
+    environment:
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+    restart: unless-stopped
+    # WebSocket server doesn't have HTTP endpoint, so skip healthcheck
+    # or use a simple process check
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "ws-proxy-server.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M

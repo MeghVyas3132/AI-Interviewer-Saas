@@ -1,0 +1,52 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    depends_on:
+      - ai-interviewer-frontend
+      - assemblyai-ws-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  ai-interviewer-frontend:
+    build: .
+    container_name: nextjs-app
+    depends_on:
+      - assemblyai-ws-proxy
+    ports:
+      - "9004:3000"
+    volumes:
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      # ...other env vars...
+      - NEXT_PUBLIC_WS_PROXY_URL=${NEXT_PUBLIC_WS_PROXY_URL:-ws://localhost/api/assemblyai/stream}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  assemblyai-ws-proxy:
+    build: .
+    command: node ws-proxy-server.js
+    container_name: assemblyai-ws-proxy
+    expose:
+      - "9003"
+    env_file:
+      - .env
+    environment:
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

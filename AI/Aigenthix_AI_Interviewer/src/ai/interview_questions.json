@@ -1,0 +1,4965 @@
+[
+  {
+    "id": 1,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 2,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 3,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 4,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 5,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 6,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 7,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 8,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 9,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 10,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 11,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 12,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 13,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 14,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 15,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 16,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 17,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 18,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 19,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 20,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 21,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 22,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 23,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 24,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 25,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 26,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 27,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 28,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 29,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 30,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 31,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 32,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 33,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 34,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 35,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 36,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 37,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 38,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 39,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 40,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 41,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 42,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 43,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 44,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 45,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 46,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 47,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 48,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 49,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 50,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 51,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 52,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 53,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 54,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 55,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 56,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 57,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 58,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 59,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 60,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 61,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 62,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 63,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 64,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 65,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 66,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 67,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 68,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 69,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 70,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 71,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 72,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 73,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 74,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 75,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 76,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 77,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 78,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 79,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 80,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 81,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 82,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 83,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 84,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 85,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 86,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 87,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 88,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 89,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 90,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 91,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 92,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 93,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 94,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 95,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 96,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 97,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 98,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 99,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 100,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 101,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 102,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 103,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 104,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 105,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 106,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 107,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 108,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 109,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 110,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 111,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 112,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 113,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 114,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 115,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 116,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 117,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 118,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 119,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 120,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 121,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 122,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 123,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 124,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 125,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 126,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 127,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 128,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 129,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 130,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 131,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 132,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 133,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 134,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 135,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 136,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 137,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 138,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 139,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 140,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 141,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 142,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 143,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 144,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 145,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 146,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 147,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 148,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 149,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 150,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 151,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 152,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 153,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 154,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 155,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 156,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 157,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 158,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 159,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 160,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 161,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 162,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 163,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 164,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 165,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 166,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 167,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 168,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 169,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 170,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "SSC-CGLE",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 171,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 172,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 173,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 174,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 175,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 176,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 177,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 178,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 179,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 180,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 181,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 182,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 183,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 184,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 185,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 186,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 187,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 188,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 189,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 190,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 191,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 192,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 193,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 194,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 195,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 196,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 197,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 198,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 199,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 200,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "CRT (Recruitment Training)",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 201,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 202,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 203,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 204,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 205,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 206,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 207,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 208,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 209,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 210,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 211,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 212,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 213,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 214,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 215,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 216,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 217,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 218,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 219,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 220,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 221,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 222,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 223,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 224,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 225,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 226,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 227,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 228,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 229,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 230,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 231,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 232,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 233,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 234,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 235,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 236,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 237,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 238,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 239,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 240,
+    "category": "Law and IPM",
+    "subcategory": "CLAT",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 241,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 242,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 243,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 244,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 245,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 246,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 247,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 248,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 249,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 250,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 251,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 252,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 253,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 254,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 255,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 256,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 257,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 258,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 259,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 260,
+    "category": "Law and IPM",
+    "subcategory": "IPM (IIM-IPM Exams)",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 261,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 262,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 263,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 264,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 265,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 266,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 267,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 268,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 269,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 270,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 271,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 272,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 273,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 274,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 275,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 276,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 277,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 278,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 279,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 280,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 281,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 282,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 283,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 284,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 285,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 286,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 287,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 288,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 289,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 290,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 291,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 292,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 293,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 294,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 295,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 296,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 297,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 298,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 299,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 300,
+    "category": "International Exams",
+    "subcategory": "GRE",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 301,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 302,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 303,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 304,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 305,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 306,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 307,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 308,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 309,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 310,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 311,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 312,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 313,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 314,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 315,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 316,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 317,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 318,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 319,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 320,
+    "category": "International Exams",
+    "subcategory": "GMAT",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 321,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Aptitude",
+    "question": "What is the simple interest on ₹1200 at 5% per annum for 2 years?"
+  },
+  {
+    "id": 322,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Aptitude",
+    "question": "What is the probability of getting a head when tossing a fair coin?"
+  },
+  {
+    "id": 323,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Aptitude",
+    "question": "If a pipe fills a tank in 4 hours and another empties it in 6 hours, how long will it take to fill the tank together?"
+  },
+  {
+    "id": 324,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Aptitude",
+    "question": "What is the least common multiple (LCM) of 12, 18, and 30?"
+  },
+  {
+    "id": 325,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Aptitude",
+    "question": "If the perimeter of a rectangle is 60 cm and its length is 20 cm, what is its width?"
+  },
+  {
+    "id": 326,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Personality",
+    "question": "How do you balance personal and professional life?"
+  },
+  {
+    "id": 327,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Personality",
+    "question": "Can you tell us about a time you resolved a team conflict?"
+  },
+  {
+    "id": 328,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Personality",
+    "question": "What qualities do you think a good leader must have?"
+  },
+  {
+    "id": 329,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Personality",
+    "question": "How do you prioritize tasks when you're under pressure?"
+  },
+  {
+    "id": 330,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Personality",
+    "question": "How do you adapt to changes in the workplace?"
+  },
+  {
+    "id": 331,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Technical",
+    "question": "What is the difference between stack and queue?"
+  },
+  {
+    "id": 332,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Technical",
+    "question": "Write a Python function to check if a number is prime."
+  },
+  {
+    "id": 333,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Technical",
+    "question": "What is SQL JOIN and what are its types?"
+  },
+  {
+    "id": 334,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Technical",
+    "question": "Explain polymorphism in object-oriented programming."
+  },
+  {
+    "id": 335,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Technical",
+    "question": "What is a pointer in C, and how is it used?"
+  },
+  {
+    "id": 336,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Subject-Specific",
+    "question": "Define elasticity of demand and give a real-life example."
+  },
+  {
+    "id": 337,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Subject-Specific",
+    "question": "What are the major functions of financial management?"
+  },
+  {
+    "id": 338,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Subject-Specific",
+    "question": "Explain the Law of Diminishing Marginal Utility with an example."
+  },
+  {
+    "id": 339,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Subject-Specific",
+    "question": "Describe Maslow's Hierarchy of Needs and its relevance in HRM."
+  },
+  {
+    "id": 340,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation",
+    "subsection": "Subject-Specific",
+    "question": "What is Six Sigma and how is it applied in business processes?"
+  },
+  {
+    "id": 341,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Aptitude",
+    "question": "In how many ways can the letters of the word 'MATH' be arranged?"
+  },
+  {
+    "id": 342,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Aptitude",
+    "question": "The average of five numbers is 46. What is the sum of the numbers?"
+  },
+  {
+    "id": 343,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Aptitude",
+    "question": "A man sells an article at a loss of 10%. If the selling price is ₹450, what was the cost price?"
+  },
+  {
+    "id": 344,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Aptitude",
+    "question": "Find the compound interest on ₹1000 at 10% p.a. for 2 years, compounded annually."
+  },
+  {
+    "id": 345,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Aptitude",
+    "question": "Solve for x: 3x + 5 = 20."
+  },
+  {
+    "id": 346,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Personality",
+    "question": "Give an example of a situation where you took initiative."
+  },
+  {
+    "id": 347,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Personality",
+    "question": "Describe a challenge you faced and how you overcame it."
+  },
+  {
+    "id": 348,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Personality",
+    "question": "Describe your ideal work environment and why."
+  },
+  {
+    "id": 349,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Personality",
+    "question": "What are your strengths and how do they help in a team?"
+  },
+  {
+    "id": 350,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Personality",
+    "question": "Describe a failure that taught you a valuable lesson."
+  },
+  {
+    "id": 351,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Technical",
+    "question": "How does a bubble sort algorithm work?"
+  },
+  {
+    "id": 352,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Technical",
+    "question": "What are binary trees and how are they used in computer science?"
+  },
+  {
+    "id": 353,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Technical",
+    "question": "Explain the concept of recursion with an example."
+  },
+  {
+    "id": 354,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Technical",
+    "question": "Describe the OSI model and its seven layers."
+  },
+  {
+    "id": 355,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Technical",
+    "question": "What is the difference between an abstract class and an interface in Java?"
+  },
+  {
+    "id": 356,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Subject-Specific",
+    "question": "What is SWOT analysis and how is it used in strategic planning?"
+  },
+  {
+    "id": 357,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Subject-Specific",
+    "question": "What is the difference between nominal and real GDP?"
+  },
+  {
+    "id": 358,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Subject-Specific",
+    "question": "In economics, explain the concept of demand and supply with a graph."
+  },
+  {
+    "id": 359,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Subject-Specific",
+    "question": "Describe Porter's Five Forces model."
+  },
+  {
+    "id": 360,
+    "category": "Foundation/School Level",
+    "subcategory": "IIT Foundation (E-Learning Course)",
+    "subsection": "Subject-Specific",
+    "question": "How does inflation impact the purchasing power of money?"
+  },
+  {
+    "id": 361,
+    "category": "Engineering & Science",
+    "subcategory": "Institute A",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Your work-ex is 4 months; Are you still working?"
+  },
+  {
+    "id": 362,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "So, apart from the conventional reasons like power, status and job security, why would you do that?"
+  },
+  {
+    "id": 363,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Name any IAS who you think has had an impact"
+  },
+  {
+    "id": 364,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "That's ancient now, also do you think that there are no instances of electoral malpractices that he had stopped?"
+  },
+  {
+    "id": 365,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Asked for some recent impactful persons (not the ones read from newspapers and stuff)"
+  },
+  {
+    "id": 366,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "So how would post-MBA role help you in creating the desired effect?"
+  },
+  {
+    "id": 367,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "In the movie \"12th Fail\", he says towards the end that you don't need to be an IAS/IPS to create an impact; So, are you doing anything towards that right now?"
+  },
+  {
+    "id": 368,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Asked questions about time complexity of algorithms."
+  },
+  {
+    "id": 369,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Do we use best-case or worst-case or avg-case time complexity?"
+  },
+  {
+    "id": 370,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Why is it so? Does that not waste resources?"
+  },
+  {
+    "id": 371,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Asked me about best-case, worst-case and average-case complexity of Linear Search; and worst-case for Binary Search."
+  },
+  {
+    "id": 372,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Draw the graph of logN, and asked me whether it is base 2 or e."
+  },
+  {
+    "id": 373,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Asked me what my optional was (it was Anthro); he was seemingly upset (ref: Judge (Saurabh Shukla) meme from Jolly LLB2) and asked me why take up a subject which you probably read for the first time while starting prep."
+  },
+  {
+    "id": 374,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "So, you must have read about MN Srinivas. List some of his works."
+  },
+  {
+    "id": 375,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Explain Sanskritization"
+  },
+  {
+    "id": 376,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "How can it be applied in business and management?"
+  },
+  {
+    "id": 377,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "If Consumption patterns are getting changed, the culture must be dynamic. However, our Indian culture is fundamentally same for so many years. Why is it the case?"
+  },
+  {
+    "id": 378,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Why is there a push for OBC status by castes like Jats and Patidars? Does that not contradict Sanskritization?"
+  },
+  {
+    "id": 379,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "How does Sanskritization work?"
+  },
+  {
+    "id": 380,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Now we're taking it too far. Since you mentioned that in Sanskritization, lower castes emulate upper castes' practices. How does it work in case of Desanskritisation — which practices do lower castes emulate?"
+  },
+  {
+    "id": 381,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "But that isn't exactly \"de\"- Sanskritization (i.e. not the exact opposite), right?"
+  },
+  {
+    "id": 382,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "Tell me one reason why caste-based reservation should be there, and one reason why they shouldn't be? (Apart from the economic reasons)"
+  },
+  {
+    "id": 383,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "But that is economic reason."
+  },
+  {
+    "id": 384,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE) BITS Pilani(2021)",
+    "question": "That's it from our side. Do you have any questions for us?"
+  },
+  {
+    "id": 385,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "So, what have you heard about our panel?"
+  },
+  {
+    "id": 386,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Really? (Laughs) A good experience?"
+  },
+  {
+    "id": 387,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "(smiling) So what are your expectations?"
+  },
+  {
+    "id": 388,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "So how good is your math?"
+  },
+  {
+    "id": 389,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "(Pretends to be shocked) How will you survive in IIM-C then, we are very focused on math"
+  },
+  {
+    "id": 390,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "What about CAT?"
+  },
+  {
+    "id": 391,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "So AI is the latest buzzword. Can you explain what type of AI is ChatGPT?"
+  },
+  {
+    "id": 392,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Have you heard the term naturalness in AI?"
+  },
+  {
+    "id": 393,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Do you know if there is a test for naturalness?"
+  },
+  {
+    "id": 394,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "No, but that's okay maybe you can go back and read about it. Can you tell me what is the difference between AI and AGI?"
+  },
+  {
+    "id": 395,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "So I see you have done some courses here, can you tell me what is a stack and queue?"
+  },
+  {
+    "id": 396,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "You have also done a course on Financial Statement Analysis. Do you know in inventory management the principle of LIFO is applied? Can you tell me why?"
+  },
+  {
+    "id": 397,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Then what happens to the earlier batches?"
+  },
+  {
+    "id": 398,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Can you think of why changing from LIFO to FIFO inventory management system can cause auditor to raise concerns?"
+  },
+  {
+    "id": 399,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "Consumer is still getting the product. Can you think of something else?"
+  },
+  {
+    "id": 400,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "BE(CSE)",
+    "question": "So you have mentioned you are a voracious reader. Can you tell me what books you read?"
+  },
+  {
+    "id": 401,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Talk about your favourite books in historical fiction"
+  },
+  {
+    "id": 402,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "What about fantasy?"
+  },
+  {
+    "id": 403,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "In fantasy we have this term 'high fantasy', can you explain what that is?"
+  },
+  {
+    "id": 404,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "(interrupting) what does your name mean?"
+  },
+  {
+    "id": 405,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Can you tell me then 10 avatars of Vishnu?"
+  },
+  {
+    "id": 406,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Only 3? That's it? Are you not interested in Indian mythology?"
+  },
+  {
+    "id": 407,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Can you tell some IIM-C alumnus who writes historical fiction?"
+  },
+  {
+    "id": 408,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "I think Mr Guha would feel very insulted if his work was characterised as historical fiction"
+  },
+  {
+    "id": 409,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "So you have mentioned about football, can you tell me who is top of the Indian League?"
+  },
+  {
+    "id": 410,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Can you tell me who their top scorer is or any front line?"
+  },
+  {
+    "id": 411,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "You are not interested in Indian football?"
+  },
+  {
+    "id": 412,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Which club do you support?"
+  },
+  {
+    "id": 413,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Why has the aura of Manchester United gone down in recent years?"
+  },
+  {
+    "id": 414,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "BE(CSE)",
+    "question": "Can you tell me how many marriage halls are required to cater to Mumbai?"
+  },
+  {
+    "id": 415,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "Tell me something about yourself."
+  },
+  {
+    "id": 416,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "Ok . so which turbine is used in this power plant?"
+  },
+  {
+    "id": 417,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "What are the capacities?"
+  },
+  {
+    "id": 418,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "What is the heat ratio?"
+  },
+  {
+    "id": 419,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "Cost of generation of electricity?"
+  },
+  {
+    "id": 420,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "Which turbine is more efficient? Gas or steam"
+  },
+  {
+    "id": 421,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "So, why did you choose Bharatnatyam Dance and not any other"
+  },
+  {
+    "id": 422,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "Tell me the difference between Freedom of expression, speech and opinion."
+  },
+  {
+    "id": 423,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "You have not taken a clear stand. If you have to take a clear stand- should there be limits on freedom of expression or not?"
+  },
+  {
+    "id": 424,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "So, the French gov. didn't do that? That's why Charlie hebdo happened.?"
+  },
+  {
+    "id": 425,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "But French gov. did nothing new in this direction."
+  },
+  {
+    "id": 426,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "So, you are from Delhi. Do u think Delhi should be given full statehood?"
+  },
+  {
+    "id": 427,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "So, is Kejriwal mad? Making it an issue?"
+  },
+  {
+    "id": 428,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "But, there is even a country which is smaller than Delhi. Which one?"
+  },
+  {
+    "id": 429,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "how does that work?"
+  },
+  {
+    "id": 430,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "what do u think about CCTV cameras being installed."
+  },
+  {
+    "id": 431,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "So, what kind of books do you read"
+  },
+  {
+    "id": 432,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "what is Saudi Arabia doing about oil?"
+  },
+  {
+    "id": 433,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "what is the problem in OPEC?"
+  },
+  {
+    "id": 434,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "should OPEC break ?"
+  },
+  {
+    "id": 435,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "why do u think Saudi Arabia is not cutting down production?"
+  },
+  {
+    "id": 436,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "any other reason"
+  },
+  {
+    "id": 437,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "How is Russia's economy dependent on oil?"
+  },
+  {
+    "id": 438,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "could this be the reason why the USA is asking Saudi Arabia to not cut production?"
+  },
+  {
+    "id": 439,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "so, since you have read about North Korea, tell me something about the Korean War."
+  },
+  {
+    "id": 440,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "year?"
+  },
+  {
+    "id": 441,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "sure?"
+  },
+  {
+    "id": 442,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "who is the dictator now?"
+  },
+  {
+    "id": 443,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "so what are the firsts about MOM"
+  },
+  {
+    "id": 444,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "what is the full form?"
+  },
+  {
+    "id": 445,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "B.Tech (Delhi College of Engineering)",
+    "question": "think of some first related to that"
+  },
+  {
+    "id": 446,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "Good morning! Have a seat. Can you please introduce yourself."
+  },
+  {
+    "id": 447,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "So you are comp. engineer. What subjects did you study during BTech."
+  },
+  {
+    "id": 448,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "So what is wrong with it?"
+  },
+  {
+    "id": 449,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "So you play chess. Answer these questions as fast as possible."
+  },
+  {
+    "id": 450,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "He had tablet in front of him. He asked me 15 questions on chess from it which included some like: what is FIDE rating, how is it defined, Against whom Anand lost recently, Anand's rating, Carlsen's rating, my chosen first move, E4-C6 is called what, Fool's mate, Queen's gambit"
+  },
+  {
+    "id": 451,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "any recent news which we may not be aware of."
+  },
+  {
+    "id": 452,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "So, you have won two state level essay competitions. Are you interested in essay writings.? Which essay you wrote recently."
+  },
+  {
+    "id": 453,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computer Engineer (2014 passout)",
+    "question": "Tell three things that you want to ask God, if s/he exists."
+  },
+  {
+    "id": 454,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "So Abhishek.. good day so far?"
+  },
+  {
+    "id": 455,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Football blogger who has written for ESPN? You think you're a football expert eh?"
+  },
+  {
+    "id": 456,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "You don't play?"
+  },
+  {
+    "id": 457,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "So you don't play?"
+  },
+  {
+    "id": 458,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Where are Swansea City in the Premier League Table?"
+  },
+  {
+    "id": 459,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Umm? You're not sure?"
+  },
+  {
+    "id": 460,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "6th.. here see shows me laptop"
+  },
+  {
+    "id": 461,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Abhishek why do you want to do management? You have excellent grades- just do research no?"
+  },
+  {
+    "id": 462,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Football presenter? That's your life goal?"
+  },
+  {
+    "id": 463,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "But we don't produce sports presenters. We produce managers"
+  },
+  {
+    "id": 464,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Tell me about Biosynth (Project I worked for in IITB)"
+  },
+  {
+    "id": 465,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Abhishek I love math. I'm going to give you a math problem. If the volume of a cylinder is fixed, derive the radius and height that will maximize the surface area"
+  },
+  {
+    "id": 466,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "Okay. Thanks Abhishek. Have a toffee"
+  },
+  {
+    "id": 467,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Undergrad: IIT Bombay",
+    "question": "We have other candidates Abhishek"
+  },
+  {
+    "id": 468,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "Supreme Court did not legalise same-sex marriage and gave this responsibility to parliament and state legislatures. Your views on it."
+  },
+  {
+    "id": 469,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "you have a unique profile, why do you want to go for an MBA"
+  },
+  {
+    "id": 470,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "did you do any marketing courses in college"
+  },
+  {
+    "id": 471,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "why did you go for internships different from your graduation domain"
+  },
+  {
+    "id": 472,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "one marketing campaign that you liked. (1-2 cross questions on it)"
+  },
+  {
+    "id": 473,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "Do you know about P's in marketing"
+  },
+  {
+    "id": 474,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "Sell yourself based on these 7Ps so that we give you admission"
+  },
+  {
+    "id": 475,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "won't you be at a disadvantage from people who have prior work ex and knowledge about the field"
+  },
+  {
+    "id": 476,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "you might fall behind in classes due to having no prior knowledge. How will you cope?"
+  },
+  {
+    "id": 477,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "won't you feel left out in discussions?"
+  },
+  {
+    "id": 478,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "companies are promoting LGBTQIA+ what is the need to do so? What people do in their private sphere has no relation to what my company sells. Why do companies need to get involved?"
+  },
+  {
+    "id": 479,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "inclusivity is okay but what is the need to bring it to the workplace? Why do companies need to get involved? Your sexuality is your private affair what's the need to shout it to the world"
+  },
+  {
+    "id": 480,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "but why do companies need to get involved"
+  },
+  {
+    "id": 481,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "More cross-questioning on this, they were mainly trying to understand why companies get involved and are so vocal about it. Why not make changes in their policy and not tell the world"
+  },
+  {
+    "id": 482,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "You have mentioned Mandela's quote in your SOP that ultimate glory lies in rising every time you fail. So we should fail you so that you can rise like a phoenix (again, actual words)"
+  },
+  {
+    "id": 483,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "but then you would come back again stronger so won't it be better?"
+  },
+  {
+    "id": 484,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "Who gave you an idea to write a quote in your SOP"
+  },
+  {
+    "id": 485,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "Why did you feel the need to tell us about Mandela in an SOP that was supposed to tell us about you"
+  },
+  {
+    "id": 486,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "you didn't have maths in graduation, won't it act as a hindrance in an MBA?"
+  },
+  {
+    "id": 487,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "I had also mentioned about cancellation of board examinations and getting a low score through the formula in my SOP"
+  },
+  {
+    "id": 488,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "what was the formula?"
+  },
+  {
+    "id": 489,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "what formula would you have gone with?"
+  },
+  {
+    "id": 490,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "why is 60% 10th boards and 40% 12th prelims not good? Give me an objective answer not subjective"
+  },
+  {
+    "id": 491,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "this is very subjective give me an objective solution"
+  },
+  {
+    "id": 492,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "let me give you a hint. boards are held every year right, prelims are also held every year. Just one year boards weren't held. Now give me an answer."
+  },
+  {
+    "id": 493,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "take a minute and think"
+  },
+  {
+    "id": 494,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "no tell me objectively"
+  },
+  {
+    "id": 495,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "we should consider board exam results for previous years"
+  },
+  {
+    "id": 496,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "didn't let me complete even one sentence and said that's all you can go now."
+  },
+  {
+    "id": 497,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "BA (Hons.) Political Science.",
+    "question": "do you have any questions for us"
+  },
+  {
+    "id": 498,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "General",
+    "question": "Tell us a bit about yourself"
+  },
+  {
+    "id": 499,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "General",
+    "question": "You mentioned reading in your SOP. What's the last book you read? Give a brief summary."
+  },
+  {
+    "id": 500,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAT",
+    "subsection": "General",
+    "question": "You mentioned a PoR (Position of Responsibility) in your SOP. What were the actual tasks involved?"
+  },
+  {
+    "id": 501,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What was one issue you faced during that role? What did you learn from it?"
+  },
+  {
+    "id": 502,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "How can your core value (from SOP) be implemented in a business?"
+  },
+  {
+    "id": 503,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Tell us about your work experience."
+  },
+  {
+    "id": 504,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What do you want to do after MBA? Any particular domain?"
+  },
+  {
+    "id": 505,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Do you know any companies that hire for that role?"
+  },
+  {
+    "id": 506,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What projects are you interested in working on within that company?"
+  },
+  {
+    "id": 507,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "You mentioned entrepreneurship in your SOP. Do you have any business model in mind?"
+  },
+  {
+    "id": 508,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Who should be held accountable for the mass tech layoffs happening today?"
+  },
+  {
+    "id": 509,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "How would you decide which company within the same sector to join? How would you help somebody else make that decision?"
+  },
+  {
+    "id": 510,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "If you got a consulting role (your preferred domain) in your present company and an offer from IIMB, which one would you choose?"
+  },
+  {
+    "id": 511,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Any questions for us?"
+  },
+  {
+    "id": 512,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "Give the full form of NABARD. What are its functions? Does it sanction loans directly or through some other medium?"
+  },
+  {
+    "id": 513,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What is cash credit?"
+  },
+  {
+    "id": 514,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What is IRDA? Name the organizations that it regulates."
+  },
+  {
+    "id": 515,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What are debentures and shares and what is the difference between them?"
+  },
+  {
+    "id": 516,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "When did RRBS come into national focus?"
+  },
+  {
+    "id": 517,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What are Bills of Exchange?"
+  },
+  {
+    "id": 518,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What is the role of NABARD in RRBS?"
+  },
+  {
+    "id": 519,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "How many types of loans are there?"
+  },
+  {
+    "id": 520,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "What is the difference between Interest and Dividend?"
+  },
+  {
+    "id": 521,
+    "category": "Government/Bank/SSC Exams",
+    "subcategory": "Bank Exams",
+    "subsection": "Indian Economy",
+    "question": "How can we maintain Internet banking safety and privacy?"
+  },
+  {
+    "id": 522,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What do you know about ISRO?"
+  },
+  {
+    "id": 523,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What is the literacy rate of your state?"
+  },
+  {
+    "id": 524,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Which glass is used for making spectacles?"
+  },
+  {
+    "id": 525,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What is the difference between PIN and TIN? Which department uses TIN?"
+  },
+  {
+    "id": 526,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Name the four deputy Governors of the RBI."
+  },
+  {
+    "id": 527,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Which method is used to calculate census in India?"
+  },
+  {
+    "id": 528,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Who is the current Governor of the RBI? What is his professional background?"
+  },
+  {
+    "id": 529,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What is the full form of BSE and NSE?"
+  },
+  {
+    "id": 530,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Who built the Lingaraj Temple?"
+  },
+  {
+    "id": 531,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "Malala Yusufzai is in news currently. In which field is she working?"
+  },
+  {
+    "id": 532,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "General",
+    "question": "What is time zone?"
+  },
+  {
+    "id": 533,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "what is the meaning of your name?"
+  },
+  {
+    "id": 534,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Which is your biggest achievement?"
+  },
+  {
+    "id": 535,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Tell me something about yourself."
+  },
+  {
+    "id": 536,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Which is your biggest disappointment?"
+  },
+  {
+    "id": 537,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Tell me something about yourself which is not there in the bio data?"
+  },
+  {
+    "id": 538,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Mention one incident which has radically changed your approach to life."
+  },
+  {
+    "id": 539,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Describe yourself in five words sentences."
+  },
+  {
+    "id": 540,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "What role did your family members play in your academic career?"
+  },
+  {
+    "id": 541,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Tell me something about yourself which will help me select you."
+  },
+  {
+    "id": 542,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "What is your native place?"
+  },
+  {
+    "id": 543,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Why should we select you?"
+  },
+  {
+    "id": 544,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Miscellaneous",
+    "question": "Compare your native place with the present place you are staying?"
+  },
+  {
+    "id": 545,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is a farming system?"
+  },
+  {
+    "id": 546,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What are the various farming systems?"
+  },
+  {
+    "id": 547,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "Differentiate between agro-based and agriculture-allied business."
+  },
+  {
+    "id": 548,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is the name of the instrument used to measure relative humidity?"
+  },
+  {
+    "id": 549,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is vapour pressure?"
+  },
+  {
+    "id": 550,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is Dalton's Law of Partial Pressures?"
+  },
+  {
+    "id": 551,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "Who is the father of genetics?"
+  },
+  {
+    "id": 552,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is a single cross ratio?"
+  },
+  {
+    "id": 553,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What do you mean by dominant genes?"
+  },
+  {
+    "id": 554,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What do you mean by recessive genes?"
+  },
+  {
+    "id": 555,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is horticulture?"
+  },
+  {
+    "id": 556,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is etimology and its relevance today?"
+  },
+  {
+    "id": 557,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Agriculture",
+    "question": "What is Green Revolution?"
+  },
+  {
+    "id": 558,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Bio-Technology",
+    "question": "What is biotechnology?"
+  },
+  {
+    "id": 559,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Bio-Technology",
+    "question": "What is cloning?"
+  },
+  {
+    "id": 560,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Bio-Technology",
+    "question": "Is cloning ethical?"
+  },
+  {
+    "id": 561,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Bio-Technology",
+    "question": "What is the difference between fungi and bacteria?"
+  },
+  {
+    "id": 562,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Bio-Technology",
+    "question": "What is a protein?"
+  },
+  {
+    "id": 563,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Bio-Technology",
+    "question": "What is a gene?"
+  },
+  {
+    "id": 564,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Bio-Technology",
+    "question": "What is gene amplification?"
+  },
+  {
+    "id": 565,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "Can you explain the accounting equation and the general rules of debit and credit entries of account"
+  },
+  {
+    "id": 566,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "Name some fixed assets and current assets?"
+  },
+  {
+    "id": 567,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "Name some current and fixed liabilities?"
+  },
+  {
+    "id": 568,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "Can you explain different components of shareholder's equity?"
+  },
+  {
+    "id": 569,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "What is accrual concept?"
+  },
+  {
+    "id": 570,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "What is the difference between unearned revenue and accrued revenue?"
+  },
+  {
+    "id": 571,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "What is the difference between prepaid expenses and accrued expenses?"
+  },
+  {
+    "id": 572,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "What are the different types of ratios used to analyse a company?"
+  },
+  {
+    "id": 573,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "Define (I) Debt-equity ratio"
+  },
+  {
+    "id": 574,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "(II) Inventory turnover"
+  },
+  {
+    "id": 575,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CMAT",
+    "subsection": "Business Management",
+    "question": "(III)Current ratio"
+  },
+  {
+    "id": 576,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "(IV)Quick ratio"
+  },
+  {
+    "id": 577,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What are quick assets?"
+  },
+  {
+    "id": 578,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What is the cash conversion cycle?"
+  },
+  {
+    "id": 579,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "Name the profitability ratios and solvency ratios?"
+  },
+  {
+    "id": 580,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "Interpret debt-equity ratio?"
+  },
+  {
+    "id": 581,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What does capital employed mean?"
+  },
+  {
+    "id": 582,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "Interpret RoA.. RoE and RoCE?"
+  },
+  {
+    "id": 583,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "Evlain FCFF and FCFE?"
+  },
+  {
+    "id": 584,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What is Market Capitalization?"
+  },
+  {
+    "id": 585,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What is cannibalisation?"
+  },
+  {
+    "id": 586,
+    "category": "MBA Entrance Exams",
+    "subcategory": "GMAT",
+    "subsection": "Business Management",
+    "question": "What is capital budgeting process?"
+  },
+  {
+    "id": 587,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "What is Teflon?"
+  },
+  {
+    "id": 588,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "What are the properties of Teflon?"
+  },
+  {
+    "id": 589,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "Name some Chemical companies."
+  },
+  {
+    "id": 590,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "What is Mass Transfer?"
+  },
+  {
+    "id": 591,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "What is a hortonsphere?"
+  },
+  {
+    "id": 592,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "How is NH3 stored?"
+  },
+  {
+    "id": 593,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "Which is the most toxic gas?"
+  },
+  {
+    "id": 594,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemical Engineering",
+    "question": "What are fluid machines?"
+  },
+  {
+    "id": 595,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "What is Chemistry?"
+  },
+  {
+    "id": 596,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "What is the temperature at which Celsius and Fahrenheit temperatures are equal?"
+  },
+  {
+    "id": 597,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "Define electron. proton and neutron"
+  },
+  {
+    "id": 598,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "What is the weight of an electron?"
+  },
+  {
+    "id": 599,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "How do you measure the density of a solution?"
+  },
+  {
+    "id": 600,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Chemistry",
+    "question": "Why is ice lighter than water?"
+  },
+  {
+    "id": 601,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is the difference between an element and a compound?"
+  },
+  {
+    "id": 602,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is the difference between an alloy and a compound?"
+  },
+  {
+    "id": 603,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is plasma?"
+  },
+  {
+    "id": 604,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is an isotope?"
+  },
+  {
+    "id": 605,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is molecular weight?"
+  },
+  {
+    "id": 606,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Chemistry",
+    "question": "What is Avogadro's law?"
+  },
+  {
+    "id": 607,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What is pre-stressed concrete?"
+  },
+  {
+    "id": 608,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What are the ingredients of pre-stressed concrete?"
+  },
+  {
+    "id": 609,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What does 53 stand for in 53-grade cement?"
+  },
+  {
+    "id": 610,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What are machine foundations?"
+  },
+  {
+    "id": 611,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What are the loads to be considered for the design of bridges?"
+  },
+  {
+    "id": 612,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What type of foundation would be adopted in marshy soils?"
+  },
+  {
+    "id": 613,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "What are the characteristics of the soil that are to be determined to decide upon the kind of foundation?"
+  },
+  {
+    "id": 614,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Civil Engineering",
+    "question": "How do you determine the strength of a soil mass?"
+  },
+  {
+    "id": 615,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What does a balance sheet tell about?"
+  },
+  {
+    "id": 616,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What does a balance sheet consist of? Give 5 examples for each."
+  },
+  {
+    "id": 617,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "Where does loss appear in the balance sheet? Why?"
+  },
+  {
+    "id": 618,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What is a Journal? What is a ledger?"
+  },
+  {
+    "id": 619,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "Difference between Journal and Ledger?"
+  },
+  {
+    "id": 620,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What is Trial balance? Why is it used?"
+  },
+  {
+    "id": 621,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What is the difference between trading account and P;L account?"
+  },
+  {
+    "id": 622,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What does a PL account tell us about?"
+  },
+  {
+    "id": 623,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What is depreciation?"
+  },
+  {
+    "id": 624,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What are the different methods of depreciation?"
+  },
+  {
+    "id": 625,
+    "category": "MBA Entrance Exams",
+    "subcategory": "CAT",
+    "subsection": "Commerce",
+    "question": "What is LIFO and FIFO? What is the difference?"
+  },
+  {
+    "id": 626,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "What is working capital?"
+  },
+  {
+    "id": 627,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "Can you define Net asset and Net worth?"
+  },
+  {
+    "id": 628,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "What are operating ratios?"
+  },
+  {
+    "id": 629,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "What is current ratio?"
+  },
+  {
+    "id": 630,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "Is Goodwill an asset or liability? Why?"
+  },
+  {
+    "id": 631,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Commerce",
+    "question": "What is the difference between capital and revenue expenditures?"
+  },
+  {
+    "id": 632,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "Explain SDLC."
+  },
+  {
+    "id": 633,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What are the storage classes in 'C' Language?"
+  },
+  {
+    "id": 634,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "Explain about extern and register storage classes"
+  },
+  {
+    "id": 635,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "Explain about 'do while loop."
+  },
+  {
+    "id": 636,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "Difference between 'While' and 'do while' loops?"
+  },
+  {
+    "id": 637,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What is an array?"
+  },
+  {
+    "id": 638,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What do you mean by function in 'C'?"
+  },
+  {
+    "id": 639,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What is a pointer?"
+  },
+  {
+    "id": 640,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What is call by value and call by reference?"
+  },
+  {
+    "id": 641,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "Write a program in C language to swap two variables without using temp."
+  },
+  {
+    "id": 642,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Computers",
+    "question": "What are the sorting algorithms available? Explain Bubble sort and Merge Sort."
+  },
+  {
+    "id": 643,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Economics",
+    "question": "What is demand?"
+  },
+  {
+    "id": 644,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Economics",
+    "question": "What is supply?"
+  },
+  {
+    "id": 645,
+    "category": "MBA Entrance Exams",
+    "subcategory": "MAH-MBA/MMS-CET",
+    "subsection": "Economics",
+    "question": "What are Geffen goods?"
+  },
+  {
+    "id": 646,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What are the determinants for demand and supply?"
+  },
+  {
+    "id": 647,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is Law of Diminishing Marginal Utility?"
+  },
+  {
+    "id": 648,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What are complementary goods?"
+  },
+  {
+    "id": 649,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is price elasticity of demand?"
+  },
+  {
+    "id": 650,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is income elasticity of demand?"
+  },
+  {
+    "id": 651,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is cross elasticity of demand?"
+  },
+  {
+    "id": 652,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What do you mean by substitute goods in economics?"
+  },
+  {
+    "id": 653,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is demand forecasting?"
+  },
+  {
+    "id": 654,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What are the methods of demand forecasting?"
+  },
+  {
+    "id": 655,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "Define (a) Monopoly (b)Oligopoly (c) Monophony Give examples"
+  },
+  {
+    "id": 656,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is GDP and how is t measured?"
+  },
+  {
+    "id": 657,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is GNP?"
+  },
+  {
+    "id": 658,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "Difference between GDP and GNP."
+  },
+  {
+    "id": 659,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "Define inflation"
+  },
+  {
+    "id": 660,
+    "category": "MBA Entrance Exams",
+    "subcategory": "XAT",
+    "subsection": "Economics",
+    "question": "What is recession?"
+  },
+  {
+    "id": 661,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "Why is alternating current used rot transmission?"
+  },
+  {
+    "id": 662,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What is corona?"
+  },
+  {
+    "id": 663,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "Why is the voltage stepped up before transmission?"
+  },
+  {
+    "id": 664,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What are the standard transmission and distribution voltages?"
+  },
+  {
+    "id": 665,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "Explain transmission and distribution systems?"
+  },
+  {
+    "id": 666,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What are lightning arrestors?"
+  },
+  {
+    "id": 667,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What is the difference between an insulator and a dielectric?"
+  },
+  {
+    "id": 668,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What is 3-phase supply?"
+  },
+  {
+    "id": 669,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electrical Engineering",
+    "question": "What is a busbar?"
+  },
+  {
+    "id": 670,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What are Flip flops and explain their working?"
+  },
+  {
+    "id": 671,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "Differentiate between flip-flops and latches"
+  },
+  {
+    "id": 672,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What is totem pole?"
+  },
+  {
+    "id": 673,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What is a bit? What is CMOS?"
+  },
+  {
+    "id": 674,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "Define bandwidth?"
+  },
+  {
+    "id": 675,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What is modem? Craw its internal diagram."
+  },
+  {
+    "id": 676,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "Define Zener diodes"
+  },
+  {
+    "id": 677,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What is difference between oscillator and multivibrator?"
+  },
+  {
+    "id": 678,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Electronics Engineering",
+    "question": "What is blue tooth and WAP?"
+  },
+  {
+    "id": 679,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "What are Car not Cycle, Octo Cycle and Diesel Cycle ?"
+  },
+  {
+    "id": 680,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "Which compressor is usually used in AC?"
+  },
+  {
+    "id": 681,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "Why don't CI engines need a spark plug?"
+  },
+  {
+    "id": 682,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "What are MPFI and TPFC systems?"
+  },
+  {
+    "id": 683,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "state the laws of Thermodynamics."
+  },
+  {
+    "id": 684,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Mechanical Engineering",
+    "question": "What are the various thermodynamic systems? What are the basic definitions?"
+  },
+  {
+    "id": 685,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "How is B Pharma different from other science courses?"
+  },
+  {
+    "id": 686,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "What is Forensic Pharmacy? Give us a few examples of ethical practices."
+  },
+  {
+    "id": 687,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "Why should not the dosage of antibiotics stop before completing the entire course?"
+  },
+  {
+    "id": 688,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "What is the difference between research costs and development costs?"
+  },
+  {
+    "id": 689,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "What is a generic drug?"
+  },
+  {
+    "id": 690,
+    "category": "Medical",
+    "subcategory": "NEET",
+    "subsection": "Pharmacy",
+    "question": "What is process patent?"
+  },
+  {
+    "id": 691,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is Boyle's Law?"
+  },
+  {
+    "id": 692,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is Archimedes Principle?"
+  },
+  {
+    "id": 693,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is the difference between mass and weight?"
+  },
+  {
+    "id": 694,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is specific gravity?"
+  },
+  {
+    "id": 695,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is surface tension?"
+  },
+  {
+    "id": 696,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is Newton's First Law of Motion?"
+  },
+  {
+    "id": 697,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is Newton's Second Law of Motion?"
+  },
+  {
+    "id": 698,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is Newton's Third Law of Motion?"
+  },
+  {
+    "id": 699,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is the difference between kinetic and potential energy?"
+  },
+  {
+    "id": 700,
+    "category": "Engineering & Science",
+    "subcategory": "JEE",
+    "subsection": "Physics",
+    "question": "What is poser?"
+  },
+  {
+    "id": 701,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is energy?"
+  },
+  {
+    "id": 702,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is force and impulse?"
+  },
+  {
+    "id": 703,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is centripetal force?"
+  },
+  {
+    "id": 704,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is centrifugal force?"
+  },
+  {
+    "id": 705,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is specific heat?"
+  },
+  {
+    "id": 706,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "Define thermal expansion."
+  },
+  {
+    "id": 707,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "Explain the differences between concave and convex mirrorsSuppose a vehicle falls into a pit."
+  },
+  {
+    "id": 708,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "Explain nuclear fission. Difference between nuclear fission and fusion?"
+  },
+  {
+    "id": 709,
+    "category": "Engineering & Science",
+    "subcategory": "GATE",
+    "subsection": "Physics",
+    "question": "What is Pauli's Exclusion Principle?"
+  }
+]
