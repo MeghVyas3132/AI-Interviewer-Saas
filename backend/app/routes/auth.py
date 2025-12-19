@@ -71,6 +71,13 @@ async def login(
             detail="Invalid email or password",
         )
 
+    # Fetch company name
+    company_result = await session.execute(
+        select(Company).where(Company.id == user.company_id)
+    )
+    company = company_result.scalars().first()
+    company_name = company.name if company else None
+
     # Step 3: JWT generation
     tokens = AuthService.create_tokens(user.id, user.company_id)
 
@@ -106,6 +113,7 @@ async def login(
             full_name=user.name,
             role=user.role,
             company_id=str(user.company_id),
+            company_name=company_name,
             is_active=user.is_active,
             department=user.department,
             created_at=user.created_at.isoformat() if user.created_at else "",
@@ -127,12 +135,88 @@ async def refresh_token(
             detail="Invalid refresh token",
         )
 
-    access_token, refresh_token = result
+    access_token, refresh_token, user_id, company_id = result
+
+    # Fetch user and company for response
+    from sqlalchemy import select
+    user_result = await session.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = user_result.scalars().first()
+    
+    company_result = await session.execute(
+        select(Company).where(Company.id == company_id)
+    )
+    company = company_result.scalars().first()
+    company_name = company.name if company else None
 
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+        user=UserLoginResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.name,
+            role=user.role,
+            company_id=str(user.company_id),
+            company_name=company_name,
+            is_active=user.is_active,
+            department=user.department,
+            created_at=user.created_at.isoformat() if user.created_at else "",
+        ) if user else None,
     )
+
+
+@router.post("/verify")
+async def verify_token(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Verify that the current access token is valid.
+    
+    Returns user information if token is valid.
+    This endpoint is used by the frontend to check authentication state.
+    
+    **Production Notes:**
+    - Endpoint includes comprehensive error handling
+    - Logs verification attempts for security monitoring
+    - Returns consistent error format for frontend handling
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Fetch company name
+        company_result = await session.execute(
+            select(Company).where(Company.id == current_user.company_id)
+        )
+        company = company_result.scalars().first()
+        company_name = company.name if company else None
+
+        logger.info(f"Token verified for user: {current_user.email} (ID: {current_user.id})")
+        
+        return {
+            "valid": True,
+            "user_id": str(current_user.id),
+            "user": UserLoginResponse(
+                id=str(current_user.id),
+                email=current_user.email,
+                full_name=current_user.name,
+                role=current_user.role,
+                company_id=str(current_user.company_id),
+                company_name=company_name,
+                is_active=current_user.is_active,
+                department=current_user.department,
+                created_at=current_user.created_at.isoformat() if current_user.created_at else "",
+            )
+        }
+    except Exception as e:
+        logger.error(f"Error verifying token for user {current_user.id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error verifying token"
+        )
 
 
 @router.post("/logout")
@@ -381,6 +465,7 @@ async def register(
                     full_name=user.name,
                     role=user.role,
                     company_id=str(company.id),
+                    company_name=company.name,
                     is_active=user.is_active,
                     department=user.department,
                     created_at=user.created_at.isoformat() if user.created_at else "",
@@ -595,6 +680,12 @@ async def candidate_login(
         
         await session.commit()
         
+        # Fetch company name for user
+        user_company_result = await session.execute(
+            select(Company).where(Company.id == user.company_id)
+        )
+        user_company = user_company_result.scalars().first()
+        
         return {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
@@ -605,6 +696,7 @@ async def candidate_login(
                 full_name=user.name,
                 role=user.role,
                 company_id=str(user.company_id),
+                company_name=user_company.name if user_company else None,
                 is_active=user.is_active,
                 department=user.department,
                 created_at=user.created_at.isoformat() if user.created_at else "",

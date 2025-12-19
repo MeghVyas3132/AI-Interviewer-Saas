@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.candidate import InterviewStatus
+from app.models.candidate import InterviewStatus, InterviewRound
 
 
 class InterviewBase(BaseModel):
@@ -16,8 +16,10 @@ class InterviewBase(BaseModel):
 
     candidate_id: UUID
     interviewer_id: Optional[UUID] = None
-    scheduled_at: datetime
+    scheduled_time: datetime
+    round: InterviewRound
     notes: Optional[str] = None
+    exam_id: Optional[int] = None
 
 
 class InterviewCreate(InterviewBase):
@@ -46,6 +48,8 @@ class InterviewResponse(InterviewBase):
     status: InterviewStatus
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
+    meeting_link: Optional[str] = None
+    ai_interview_token: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -61,7 +65,7 @@ class InterviewListResponse(BaseModel):
     id: UUID
     candidate_id: UUID
     interviewer_id: Optional[UUID] = None
-    scheduled_at: datetime
+    scheduled_time: datetime
     status: InterviewStatus
     created_at: datetime
 

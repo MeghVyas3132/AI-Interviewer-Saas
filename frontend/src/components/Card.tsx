@@ -3,7 +3,7 @@
 import React from 'react'
 
 interface CardProps {
-  children: React.ReactNode
+  children?: React.ReactNode
   className?: string
   onClick?: () => void
 }
@@ -11,7 +11,7 @@ interface CardProps {
 export function Card({ children, className = '', onClick }: CardProps) {
   return (
     <div
-      className={`bg-white rounded-lg shadow p-6 ${onClick ? 'cursor-pointer hover:shadow-lg transition' : ''} ${className}`}
+      className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${onClick ? 'cursor-pointer hover:shadow-lg transition' : ''} ${className}`}
       onClick={onClick}
     >
       {children}

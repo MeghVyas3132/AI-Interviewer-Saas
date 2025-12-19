@@ -40,7 +40,34 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # CORS
-    cors_origins: List[str] = ["http://localhost:3000"]
+    cors_origins: List[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:9002",
+        "http://127.0.0.1:9002",
+        "http://localhost:9004",
+        "http://127.0.0.1:9004",
+    ]
+
+    @field_validator('cors_origins', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from JSON string if provided as environment variable."""
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse CORS_ORIGINS as JSON, using defaults")
+                return [
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                    "http://localhost:9002",
+                    "http://127.0.0.1:9002",
+                    "http://localhost:9004",
+                    "http://127.0.0.1:9004",
+                ]
+        return v
 
     # Pagination
     default_page_size: int = 20
@@ -74,6 +101,10 @@ class Settings(BaseSettings):
     # Security
     bcrypt_rounds: int = 12
     password_min_length: int = 8
+    
+    # AI Service Integration
+    ai_service_url: str = "http://localhost:9004"
+    ai_service_api_key: str = ""  # Optional: For future security
 
     @field_validator("secret_key")
     @classmethod

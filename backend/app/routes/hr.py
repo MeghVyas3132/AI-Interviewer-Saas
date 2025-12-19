@@ -253,14 +253,100 @@ async def assign_candidate_to_employee(
         )
 
 
-@router.post("/candidates/{candidate_id}/revoke")
-async def revoke_candidate_assignment(
+@router.post("/candidates/{candidate_id}/assign")
+async def assign_candidate(
+    candidate_id: UUID,
+    employee_id: UUID = Query(..., description="Employee ID to assign candidate to"),
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Assign a single candidate to an employee (HR only).
+    This endpoint matches the frontend expectation for single candidate assignment.
+    """
+    try:
+        company_id = current_user.company_id
+
+        # Verify candidate exists and belongs to company
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == company_id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+
+        # Verify employee exists and belongs to company
+        employee_query = select(User).filter(
+            and_(
+                User.id == employee_id,
+                User.company_id == company_id,
+                User.role.in_([UserRole.EMPLOYEE, UserRole.TEAM_LEAD]),
+                User.is_active == True
+            )
+        )
+        result = await db.execute(employee_query)
+        employee = result.scalars().first()
+        
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee not found or not eligible for assignments"
+            )
+
+        # Check current assignment count for employee (max 10)
+        count_query = select(func.count()).select_from(Candidate).filter(
+            and_(
+                Candidate.company_id == company_id,
+                Candidate.assigned_to == employee_id
+            )
+        )
+        result = await db.execute(count_query)
+        current_count = result.scalar() or 0
+        
+        if current_count >= 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Employee already has maximum 10 candidates assigned"
+            )
+
+        # Assign candidate
+        candidate.assigned_to = employee_id
+        await db.commit()
+
+        return {
+            "message": f"Candidate assigned to {employee.name} successfully",
+            "candidate_id": str(candidate_id),
+            "employee_id": str(employee_id),
+            "employee_name": employee.name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error assigning candidate: {str(e)}"
+        )
+
+
+@router.delete("/candidates/{candidate_id}/assign")
+async def unassign_candidate(
     candidate_id: UUID,
     current_user: User = Depends(require_hr),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Revoke candidate assignment from employee (HR only).
+    Unassign candidate from employee (HR only).
+    This endpoint matches the frontend expectation for DELETE /hr/candidates/{id}/assign.
     """
     try:
         company_id = current_user.company_id
@@ -287,12 +373,12 @@ async def revoke_candidate_assignment(
                 detail="Candidate is not assigned to any employee"
             )
 
-        # Revoke assignment
+        # Unassign candidate
         candidate.assigned_to = None
         await db.commit()
 
         return {
-            "message": "Candidate assignment revoked successfully",
+            "message": "Candidate assignment removed successfully",
             "candidate_id": str(candidate_id)
         }
     except HTTPException:
@@ -302,8 +388,22 @@ async def revoke_candidate_assignment(
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error revoking assignment: {str(e)}"
+            detail=f"Error removing assignment: {str(e)}"
         )
+
+
+@router.post("/candidates/{candidate_id}/revoke")
+async def revoke_candidate_assignment(
+    candidate_id: UUID,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Revoke candidate assignment from employee (HR only).
+    DEPRECATED: Use DELETE /candidates/{candidate_id}/assign instead.
+    """
+    # Redirect to unassign endpoint for backward compatibility
+    return await unassign_candidate(candidate_id, current_user, db)
 
 
 @router.post("/candidates/assign-bulk")
@@ -526,3 +626,84 @@ async def get_hr_interviews(
         })
     
     return response_list
+
+
+@router.post("/interviews/generate-ai-token/{candidate_id}")
+async def generate_ai_interview_token(
+    candidate_id: UUID,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate an AI interview token for a candidate.
+    This token will be used by the candidate to access the AI interview room.
+    """
+    import secrets
+    from datetime import datetime, timedelta
+    
+    try:
+        company_id = current_user.company_id
+
+        # Verify candidate exists and belongs to company
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == company_id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+
+        # Generate a secure token
+        token = secrets.token_urlsafe(32)
+        
+        # Create or update an interview record with this token
+        # Check if an interview already exists for this candidate
+        interview_query = select(Interview).filter(
+            and_(
+                Interview.candidate_id == candidate_id,
+                Interview.company_id == company_id,
+                Interview.status == InterviewStatus.SCHEDULED
+            )
+        )
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if interview:
+            interview.ai_interview_token = token
+        else:
+            # Create a new interview record
+            interview = Interview(
+                candidate_id=candidate_id,
+                company_id=company_id,
+                status=InterviewStatus.SCHEDULED,
+                round=InterviewRound.SCREENING,
+                scheduled_time=datetime.utcnow() + timedelta(days=1), # Default to tomorrow
+                timezone="UTC",
+                ai_interview_token=token,
+                created_by=current_user.id
+            )
+            db.add(interview)
+            
+        await db.commit()
+
+        return {
+            "token": token,
+            "candidate_id": str(candidate_id),
+            "interview_id": str(interview.id)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating AI token: {str(e)}"
+        )

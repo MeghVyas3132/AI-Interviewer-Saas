@@ -49,6 +49,8 @@ class InterviewStatus(str, Enum):
     CANCELED = "canceled"
     RESCHEDULED = "rescheduled"
     NO_SHOW = "no_show"
+    EXPIRED = "expired"
+    ABANDONED = "abandoned"
 
 
 class InterviewRound(str, Enum):
@@ -158,6 +160,9 @@ class Candidate(Base):
     # File references
     resume_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # AI Service Integration
+    ai_candidate_id: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+
     # Status and metadata
     status: Mapped[CandidateStatus] = mapped_column(
         SQLEnum(CandidateStatus),
@@ -262,6 +267,10 @@ class Interview(Base):
         default="UTC",
     )
     meeting_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # AI Service Integration
+    ai_interview_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    exam_id: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
 
     # Interview execution
     status: Mapped[InterviewStatus] = mapped_column(

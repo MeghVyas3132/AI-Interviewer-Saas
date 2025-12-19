@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiClient } from '@/lib/api'
 import { Card } from '@/components/Card'
+import { CandidatePipeline } from '@/components/CandidatePipeline'
 
 interface AssignedCandidate {
   id: string
@@ -16,6 +17,8 @@ interface AssignedCandidate {
   domain: string
   status: string
   created_at: string
+  scheduled_at?: string
+  name: string
 }
 
 interface Interview {
@@ -45,8 +48,8 @@ export default function EmployeeDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews'>('candidates')
-  
+  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'pipeline'>('candidates')
+
   // Schedule interview modal
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [selectedCandidate, setSelectedCandidate] = useState<AssignedCandidate | null>(null)
@@ -73,22 +76,29 @@ export default function EmployeeDashboardPage() {
         setLoading(true)
         setError('')
 
-        // Fetch assigned candidates - API returns array directly
+        // Fetch assigned candidates
         const candidatesRes = await apiClient.get<AssignedCandidate[]>('/employee/my-candidates')
-        console.log('Candidates response:', candidatesRes)
-        const candidatesList = Array.isArray(candidatesRes) ? candidatesRes : []
-        setCandidates(candidatesList)
+        const rawCandidatesList = Array.isArray(candidatesRes) ? candidatesRes : []
 
-        // Fetch interviews - API returns array directly
+        // Fetch interviews
         const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-        console.log('Interviews response:', interviewsRes)
         const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
         setInterviews(interviewsList)
+
+        // Map schedules and normalize name
+        const candidatesList = rawCandidatesList.map(c => {
+          const upcoming = interviewsList.find(i => i.candidate_id === c.id && i.status === 'scheduled');
+          return {
+            ...c,
+            name: `${c.first_name} ${c.last_name}`,
+            scheduled_at: upcoming?.scheduled_time
+          }
+        });
+        setCandidates(candidatesList)
 
         // Fetch dashboard metrics
         try {
           const metricsRes = await apiClient.get<any>('/employee/dashboard')
-          console.log('Metrics response:', metricsRes)
           setMetrics({
             total_assigned: metricsRes.total_assigned_candidates || candidatesList.length,
             pending_interviews: metricsRes.scheduled_interviews || interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
@@ -96,7 +106,6 @@ export default function EmployeeDashboardPage() {
             status_breakdown: {}
           })
         } catch {
-          // Dashboard endpoint might not exist, use calculated values
           setMetrics({
             total_assigned: candidatesList.length,
             pending_interviews: interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
@@ -120,8 +129,8 @@ export default function EmployeeDashboardPage() {
     try {
       setError('')
       await apiClient.put(`/employee/my-candidates/${candidateId}/status`, { status: newStatus })
-      
-      setCandidates(candidates.map(c => 
+
+      setCandidates(candidates.map(c =>
         c.id === candidateId ? { ...c, status: newStatus } : c
       ))
       setSuccess('Status updated successfully')
@@ -139,13 +148,13 @@ export default function EmployeeDashboardPage() {
     try {
       setScheduling(true)
       setError('')
-      
+
       await apiClient.post(`/employee/my-candidates/${selectedCandidate.id}/schedule-interview`, scheduleForm)
-      
+
       // Refresh interviews
       const interviewsRes = await apiClient.get<{ interviews: Interview[], total: number }>('/employee/my-interviews')
       setInterviews(interviewsRes.interviews || [])
-      
+
       setShowScheduleModal(false)
       setSelectedCandidate(null)
       setScheduleForm({ round: 'screening', scheduled_time: '', notes: '' })
@@ -270,23 +279,30 @@ export default function EmployeeDashboardPage() {
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('candidates')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'candidates'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'candidates'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
             >
               Candidates ({candidates.length})
             </button>
             <button
               onClick={() => setActiveTab('interviews')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'interviews'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'interviews'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
             >
               Interviews ({interviews.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('pipeline')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'pipeline'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Pipeline
             </button>
           </nav>
         </div>
@@ -390,12 +406,11 @@ export default function EmployeeDashboardPage() {
                             {new Date(interview.scheduled_time).toLocaleString()}
                           </td>
                           <td className="px-4 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              interview.status === 'scheduled' ? 'bg-blue-50 text-blue-700' :
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${interview.status === 'scheduled' ? 'bg-blue-50 text-blue-700' :
                               interview.status === 'completed' ? 'bg-green-50 text-green-700' :
-                              interview.status === 'cancelled' ? 'bg-red-50 text-red-700' :
-                              'bg-gray-50 text-gray-700'
-                            }`}>
+                                interview.status === 'cancelled' ? 'bg-red-50 text-red-700' :
+                                  'bg-gray-50 text-gray-700'
+                              }`}>
                               {interview.status}
                             </span>
                           </td>
@@ -410,6 +425,13 @@ export default function EmployeeDashboardPage() {
               )}
             </div>
           </Card>
+        )}
+
+        {/* Pipeline Tab */}
+        {activeTab === 'pipeline' && (
+          <div className="overflow-hidden">
+            <CandidatePipeline candidates={candidates} />
+          </div>
         )}
       </div>
 

@@ -19,6 +19,7 @@ export interface User {
   full_name: string
   role: UserRole
   company_id: string
+  company_name?: string
   is_active: boolean
   department?: string
   created_at: string
@@ -43,10 +44,13 @@ export interface RefreshTokenRequest {
 export interface Candidate {
   id: string
   email: string
-  full_name: string
+  full_name?: string // Optional to handle backend response variations
+  first_name?: string
+  last_name?: string
   phone?: string
   position?: string
-  status: 'APPLIED' | 'SCREENING' | 'INTERVIEW' | 'OFFER' | 'REJECTED' | 'HIRED'
+  domain?: string
+  status: 'APPLIED' | 'SCREENING' | 'INTERVIEW' | 'OFFER' | 'REJECTED' | 'HIRED' | string
   resume_url?: string
   created_at: string
   updated_at: string
@@ -63,11 +67,16 @@ export interface CreateCandidateRequest {
 export interface Interview {
   id: string
   candidate_id: string
-  round_number: number
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+  round_type: 'SCREENING' | 'TECHNICAL' | 'FINAL' | 'HR' | string
+  round_number?: number // Optional for backward compatibility
+  status: 'scheduled' | 'in_progress' | 'completed' | 'canceled' | 'cancelled' | 'expired' | 'abandoned' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELED' | 'CANCELLED' | 'EXPIRED' | 'ABANDONED' // Support all formats
   scheduled_at: string
-  duration_minutes: number
-  questions: InterviewQuestion[]
+  scheduled_time?: string // Alternative field name
+  duration_minutes?: number
+  timezone?: string
+  meeting_link?: string
+  ai_interview_token?: string
+  questions?: InterviewQuestion[]
   scores?: InterviewScore
   created_at: string
 }

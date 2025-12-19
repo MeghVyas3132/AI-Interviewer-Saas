@@ -26,6 +26,7 @@ class UserLoginResponse(BaseModel):
     full_name: str
     role: UserRole
     company_id: str
+    company_name: Optional[str] = None
     is_active: bool
     department: Optional[str] = None
     created_at: str
@@ -36,6 +37,12 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(..., min_length=8)
+
+
+class CandidateLoginRequest(BaseModel):
+    """Schema for candidate login request (email only)."""
+
+    email: EmailStr
 
 
 class TokenResponse(BaseModel):

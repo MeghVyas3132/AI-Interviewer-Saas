@@ -13,9 +13,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.models.candidate import Interview, InterviewStatus, Candidate
 from app.models.user import User, UserRole
+from app.services.ai_service import ai_service
 from app.schemas.interview_schema import (
     InterviewListResponse,
     InterviewResponse,
@@ -47,6 +49,31 @@ async def create_interview(
         )
 
     try:
+        # Get candidate
+        query = select(Candidate).filter(Candidate.id == interview_data.candidate_id)
+        result = await session.execute(query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+             raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        # Sync with AI Service
+        try:
+             ai_candidate_id = await ai_service.sync_candidate(candidate)
+             candidate.ai_candidate_id = ai_candidate_id
+             
+             # Create session
+             ai_session = await ai_service.create_interview_session(
+                 ai_candidate_id=ai_candidate_id,
+                 exam_id=interview_data.exam_id
+             )
+             
+             ai_token = ai_session['token']
+             meeting_link = f"{settings.ai_service_url}/interview/{ai_token}"
+             
+        except Exception as e:
+             raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
+
         interview = Interview(
             company_id=current_user.company_id,
             candidate_id=interview_data.candidate_id,
@@ -54,11 +81,16 @@ async def create_interview(
             round=interview_data.round,
             scheduled_time=interview_data.scheduled_time,
             status=InterviewStatus.SCHEDULED,
+            exam_id=interview_data.exam_id,
+            ai_interview_token=ai_token,
+            meeting_link=meeting_link
         )
         session.add(interview)
         await session.commit()
         await session.refresh(interview)
         return interview
+    except HTTPException:
+        raise
     except Exception as e:
         await session.rollback()
         raise HTTPException(

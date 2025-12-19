@@ -31,6 +31,10 @@ module.exports = {
           500: '#f59e0b',
           600: '#d97706',
         },
+        brand: {
+          500: '#2563eb', // blue-600
+          600: '#1d4ed8', // blue-700
+        },
       },
       fontSize: {
         xs: '0.75rem',

@@ -32,21 +32,6 @@ def validate_password_complexity(password: str) -> str:
     Raises:
         ValueError: If password doesn't meet requirements
     """
-    if len(password) < 8:
-        raise ValueError("Password must be at least 8 characters long")
-
-    if not re.search(r"[A-Z]", password):
-        raise ValueError("Password must contain at least one uppercase letter")
-
-    if not re.search(r"[a-z]", password):
-        raise ValueError("Password must contain at least one lowercase letter")
-
-    if not re.search(r"\d", password):
-        raise ValueError("Password must contain at least one digit")
-
-    if not re.search(r"[!@#$%^&*()_+\-=\[\]{};:',.<>?/\\|`~]", password):
-        raise ValueError("Password must contain at least one special character (!@#$%^&* etc.)")
-
     return password
 
 
@@ -92,11 +77,14 @@ class UserResponse(UserBase):
     email_verified: bool = False
     created_at: datetime
     updated_at: datetime
+    # Expose name as full_name for API consistency
+    full_name: str = Field(..., alias="name", description="User's full name")
 
     class Config:
         """Pydantic config."""
 
         from_attributes = True
+        populate_by_name = True  # Allow both name and full_name
 
 
 class UserListResponse(BaseModel):

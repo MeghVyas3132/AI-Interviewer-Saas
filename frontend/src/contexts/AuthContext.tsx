@@ -1,9 +1,9 @@
-'use client'
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import Cookies from 'js-cookie'
 import { apiClient } from '@/lib/api'
 import { User, LoginRequest, LoginResponse } from '@/types'
+import { hasPermission, hasAnyPermission, hasAllPermissions, canAccessRoute, canCallApi } from '@/middleware/rbac'
+import { Permission } from '@/components/ai-shared/types'
 
 interface AuthContextType {
   user: User | null
@@ -12,6 +12,12 @@ interface AuthContextType {
   login: (request: LoginRequest) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
+  // Permission checking utilities
+  hasPermission: (permission: Permission) => boolean
+  hasAnyPermission: (permissions: Permission[]) => boolean
+  hasAllPermissions: (permissions: Permission[]) => boolean
+  canAccessRoute: (path: string) => boolean
+  canCallApi: (method: string, path: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -24,12 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = () => {
       const token = Cookies.get('access_token')
-      
+
       if (!token) {
         setIsLoading(false)
         return
       }
-      
+
       // Try to restore user from localStorage
       try {
         const storedUser = localStorage.getItem('user')
@@ -44,10 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         Cookies.remove('access_token')
         Cookies.remove('refresh_token')
       }
-      
+
       setIsLoading(false)
     }
-    
+
     initializeAuth()
   }, [])
 
@@ -55,13 +61,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     try {
       const response = await apiClient.login(request)
-      
+
       if (response.user) {
         setUser(response.user)
         // Persist user to localStorage for session restoration
         localStorage.setItem('user', JSON.stringify(response.user))
       }
-      
+
       // Store refresh token if provided
       if ('refresh_token' in response) {
         Cookies.set('refresh_token', (response as any).refresh_token, {
@@ -102,14 +108,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const value: AuthContextType = {
+  const value = React.useMemo(() => ({
     user,
     isLoading,
     isAuthenticated: !!user,
     login,
     logout,
     refreshUser,
-  }
+    hasPermission: (permission: Permission) => {
+      if (!user) return false;
+      return hasPermission(user.role, permission);
+    },
+    hasAnyPermission: (permissions: Permission[]) => {
+      if (!user) return false;
+      return hasAnyPermission(user.role, permissions);
+    },
+    hasAllPermissions: (permissions: Permission[]) => {
+      if (!user) return false;
+      return hasAllPermissions(user.role, permissions);
+    },
+    canAccessRoute: (path: string) => {
+      if (!user) return false;
+      return canAccessRoute(user.role, path);
+    },
+    canCallApi: (method: string, path: string) => {
+      if (!user) return false;
+      return canCallApi(user.role, method, path);
+    },
+  }), [user, isLoading])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

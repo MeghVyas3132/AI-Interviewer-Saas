@@ -4,6 +4,7 @@ import React, { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { Navigation } from '@/components/Navigation'
+import { getDefaultDashboardRoute } from '@/middleware/rbac'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -12,33 +13,23 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/auth/login')
-    }
-    
-    if (!isLoading && user?.role === 'SYSTEM_ADMIN') {
-      router.push('/admin')
       return
     }
-    
-    if (!isLoading && user?.role === 'HR') {
-      router.push('/hr')
-      return
-    }
-    
-    if (!isLoading && user?.role === 'EMPLOYEE') {
-      router.push('/employee-interviews')
-      return
-    }
-    
-    if (!isLoading && user?.role === 'CANDIDATE') {
-      router.push('/candidate')
-      return
+
+    // Use RBAC utility for role-based routing
+    if (!isLoading && user) {
+      const dashboardRoute = getDefaultDashboardRoute(user.role)
+      router.replace(dashboardRoute)
     }
   }, [isLoading, isAuthenticated, user, router])
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
       </div>
     )
   }

@@ -47,45 +47,25 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     setCandidateLoading(true)
-    
-    alert('Starting candidate login for: ' + candidateEmail)
 
     try {
-      // Use direct fetch to avoid any apiClient interceptors
-      const res = await fetch('http://localhost:8000/api/v1/candidate-portal/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: candidateEmail }),
-      })
+      // Use apiClient for consistent error handling and token management
+      const { apiClient } = await import('@/lib/api')
+      const response = await apiClient.candidateLogin(candidateEmail)
 
-      alert('Fetch completed, status: ' + res.status)
-
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.detail || 'Login failed')
+      // Store candidate-specific data
+      if (response.companies) {
+        localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
+      }
+      if (response.interviews) {
+        localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
       }
 
-      const response = await res.json()
-      alert('Login successful! User: ' + response.user.name)
-
-      // Store tokens
-      Cookies.set('access_token', response.access_token, { expires: 1 })
-      
-      // Store user data
-      localStorage.setItem('user', JSON.stringify(response.user))
-      localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
-      localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
-
-      alert('Data stored! Redirecting to /candidate-portal...')
-
-      // Use window.location for a full page redirect
-      window.location.href = '/candidate-portal'
+      // Redirect to candidate portal
+      router.push('/candidate-portal')
     } catch (err: any) {
-      alert('Error: ' + err.message)
       console.error('Candidate login error:', err)
-      setError(err.message || 'Login failed. No candidate found with this email.')
+      setError(err.response?.data?.detail || err.message || 'Login failed. No candidate found with this email.')
       setCandidateLoading(false)
     }
   }
@@ -100,17 +80,16 @@ export default function LoginPage() {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-white rounded-full blur-3xl"></div>
           <div className="absolute top-1/2 left-1/3 w-64 h-64 bg-white rounded-full blur-3xl"></div>
         </div>
-        
+
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-between w-full p-12">
           {/* Logo */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-            </div>
-            <span className="text-2xl font-bold text-white tracking-tight">AIGENTHIX</span>
+            <img
+              src="/images/logo.png"
+              alt="AIGENTHIX"
+              className="h-10 w-auto"
+            />
           </div>
 
           {/* Center Content */}
@@ -121,7 +100,7 @@ export default function LoginPage() {
             <p className="text-xl text-white/80 leading-relaxed mb-8">
               Streamline interviews, evaluate candidates objectively, and make data-driven hiring decisions with our intelligent platform.
             </p>
-            
+
             {/* Features */}
             <div className="space-y-4">
               <div className="flex items-center space-x-3">
@@ -155,23 +134,18 @@ export default function LoginPage() {
       </div>
 
       {/* Right Side - Form (40%) */}
-      <div className="w-full lg:w-[40%] flex flex-col min-h-screen">
+      <div className="w-full lg:w-[40%] flex flex-col min-h-screen bg-white">
         {/* Top Navigation */}
         <nav className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
           {/* Mobile Logo */}
           <div className="flex items-center space-x-2 lg:hidden">
-            <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-            </div>
-            <span className="text-xl font-bold text-gray-900">AIGENTHIX</span>
+            <img src="/images/logo.png" alt="AIGENTHIX" className="h-8 w-auto" />
           </div>
           <div className="hidden lg:block"></div>
-          
+
           {/* Help Icon */}
-          <button className="w-10 h-10 bg-dark-900 rounded-full flex items-center justify-center hover:bg-dark-800 transition">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100 transition">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
@@ -193,22 +167,20 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => { setActiveTab('employee'); setError(''); }}
-                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 ${
-                  activeTab === 'employee'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'employee'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 Employee / HR
               </button>
               <button
                 type="button"
                 onClick={() => { setActiveTab('candidate'); setError(''); }}
-                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 ${
-                  activeTab === 'candidate'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'candidate'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 Candidate
               </button>
@@ -278,13 +250,13 @@ export default function LoginPage() {
 
                 {/* Links */}
                 <div className="mt-8 space-y-4 text-center">
-                  <Link 
-                    href="/auth/forgot-password" 
+                  <Link
+                    href="/auth/forgot-password"
                     className="block text-brand-500 hover:text-brand-600 font-medium transition"
                   >
                     Reset password
                   </Link>
-                  
+
                   <p className="text-gray-500">
                     Not a member?{' '}
                     <Link href="/auth/register" className="text-brand-500 hover:text-brand-600 font-medium transition">
@@ -349,7 +321,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <footer className="bg-dark-900 px-8 py-6">
+        <footer className="bg-gray-50 px-8 py-6 border-t border-gray-100">
           <p className="text-center text-gray-400 text-sm">
             Copyright © 2025 Aigenthix - All Rights Reserved.
           </p>
