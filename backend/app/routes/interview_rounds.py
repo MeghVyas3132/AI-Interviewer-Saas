@@ -53,8 +53,12 @@ async def schedule_interview_round(
     # Verify candidate belongs to the company
     from app.services.candidate_service import CandidateService
 
-    candidate = await CandidateService.get_candidate_by_user_id(session, round_data.candidate_id)
-    if not candidate or candidate.company_id != current_user.company_id:
+    # Use the CandidateService method that validates company scoping.
+    # Previously this called a non-existent method `get_candidate_by_user_id`.
+    candidate = await CandidateService.get_candidate_by_id(
+        session, round_data.candidate_id, current_user.company_id
+    )
+    if not candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",

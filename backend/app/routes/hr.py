@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus
+from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus, InterviewRound
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
@@ -637,9 +637,14 @@ async def generate_ai_interview_token(
     """
     Generate an AI interview token for a candidate.
     This token will be used by the candidate to access the AI interview room.
+    Also returns the interview questions based on the candidate's assigned job role.
+    Syncs the session to the AI Interview Service for the actual interview.
     """
     import secrets
+    import httpx
     from datetime import datetime, timedelta
+    from app.models.job import JobTemplate, Question
+    from app.core.config import settings
     
     try:
         company_id = current_user.company_id
@@ -663,6 +668,15 @@ async def generate_ai_interview_token(
         # Generate a secure token
         token = secrets.token_urlsafe(32)
         
+        # Get questions for the candidate's job role if assigned
+        questions = []
+        if candidate.job_template_id:
+            questions_query = select(Question).filter(
+                Question.job_template_id == candidate.job_template_id
+            )
+            questions_result = await db.execute(questions_query)
+            questions = [{"id": str(q.id), "text": q.text} for q in questions_result.scalars().all()]
+        
         # Create or update an interview record with this token
         # Check if an interview already exists for this candidate
         interview_query = select(Interview).filter(
@@ -675,16 +689,25 @@ async def generate_ai_interview_token(
         result = await db.execute(interview_query)
         interview = result.scalars().first()
         
+        scheduled_time = None
+        scheduled_end_time = None
+        
         if interview:
             interview.ai_interview_token = token
+            scheduled_time = interview.scheduled_time
+            # Calculate end time (1 hour after scheduled time)
+            if scheduled_time:
+                scheduled_end_time = scheduled_time + timedelta(hours=1)
         else:
             # Create a new interview record
+            scheduled_time = datetime.utcnow() + timedelta(days=1)
+            scheduled_end_time = scheduled_time + timedelta(hours=1)
             interview = Interview(
                 candidate_id=candidate_id,
                 company_id=company_id,
                 status=InterviewStatus.SCHEDULED,
                 round=InterviewRound.SCREENING,
-                scheduled_time=datetime.utcnow() + timedelta(days=1), # Default to tomorrow
+                scheduled_time=scheduled_time,
                 timezone="UTC",
                 ai_interview_token=token,
                 created_by=current_user.id
@@ -692,11 +715,63 @@ async def generate_ai_interview_token(
             db.add(interview)
             
         await db.commit()
+        await db.refresh(interview)
+        
+        # Sync session to AI Interview Service
+        ai_service_url = getattr(settings, 'ai_interview_service_url', 'http://localhost:3001')
+        sync_api_key = getattr(settings, 'sync_api_key', 'ai-interviewer-sync-key-2024')
+        
+        # Build candidate name
+        candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email
+        
+        sync_payload = {
+            "token": token,
+            "candidate_name": candidate_name,
+            "candidate_email": candidate.email,
+            "job_role": candidate.position,
+            "questions": questions,
+            "scheduled_time": scheduled_time.isoformat() if scheduled_time else None,
+            "scheduled_end_time": scheduled_end_time.isoformat() if scheduled_end_time else None,
+            "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+        }
+        
+        # Call AI service to create/sync the interview session
+        interview_url = None
+        sync_success = False
+        sync_error = None
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{ai_service_url}/api/sync/create-session",
+                    json=sync_payload,
+                    headers={"X-API-Key": sync_api_key}
+                )
+                if response.status_code in [200, 201]:
+                    sync_data = response.json()
+                    interview_url = sync_data.get("interview_url", f"{ai_service_url}/interview/{token}")
+                    sync_success = True
+                    print(f"✅ Session synced to AI service: {interview_url}")
+                else:
+                    sync_error = f"AI service returned {response.status_code}: {response.text}"
+                    print(f"⚠️ Failed to sync session: {sync_error}")
+        except Exception as sync_ex:
+            sync_error = str(sync_ex)
+            print(f"⚠️ Could not sync to AI service: {sync_error}")
+        
+        # Generate fallback URL if sync failed
+        if not interview_url:
+            interview_url = f"{ai_service_url}/interview/{token}"
 
         return {
             "token": token,
             "candidate_id": str(candidate_id),
-            "interview_id": str(interview.id)
+            "interview_id": str(interview.id),
+            "job_role": candidate.position,
+            "questions": questions,
+            "interview_url": interview_url,
+            "sync_status": "success" if sync_success else "failed",
+            "sync_error": sync_error
         }
     except HTTPException:
         raise

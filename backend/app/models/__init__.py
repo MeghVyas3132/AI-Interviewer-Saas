@@ -8,6 +8,8 @@ from app.models.role import Role
 from app.models.score import Score
 from app.models.audit_log import AuditLog
 from app.models.candidate import Candidate, Interview, EmailQueue, EmailTracking, CandidateFeedback
+from app.models.ai_report import AIReport
+from app.models.job import JobTemplate, Question
 from app.models.import_job import ImportJob
 from app.models.company_request import CompanyRequest, RequestStatus
 from app.models.company_request import CompanyRequest, RequestStatus
@@ -28,5 +30,8 @@ __all__ = [
     "ImportJob",
     "CompanyRequest",
     "RequestStatus",
+    "AIReport",
+    "JobTemplate",
+    "Question",
 ]
 

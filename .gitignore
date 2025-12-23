@@ -1,6 +1,6 @@
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # Frontend - Node modules and build files
+# Frontend - Node modules and build files
 frontend/node_modules/
-frontend/.next/
+
 frontend/out/
 
 # Documentation files (but keep important docs)
@@ -27,7 +27,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/
 lib64/
 parts/
 sdist/

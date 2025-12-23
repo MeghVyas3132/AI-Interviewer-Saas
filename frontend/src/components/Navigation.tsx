@@ -3,7 +3,7 @@
 import React from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
-import { APP_NAME, USER_ROLES } from '@/lib/constants'
+import { USER_ROLES } from '@/lib/constants'
 
 export function Navigation() {
   const router = useRouter()
@@ -14,47 +14,17 @@ export function Navigation() {
     router.push('/auth/login')
   }
 
-  const canAccessAdminPanel = user?.role === USER_ROLES.ADMIN
-  const canManageCandidates = [USER_ROLES.ADMIN, USER_ROLES.HR].includes(user?.role as any)
-  const canViewInterviews = [USER_ROLES.ADMIN, USER_ROLES.HR, USER_ROLES.EMPLOYEE].includes(user?.role as any)
-
   return (
     <nav className="bg-white shadow sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          {/* Left Side: Logo & Links */}
+          {/* Left Side: Logo */}
           <div className="flex">
             <div
               className="flex flex-shrink-0 items-center cursor-pointer"
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push('/hr')}
             >
               <img src="/images/logo.png" alt="AiGENTHix" className="h-8 w-auto mr-2" />
-            </div>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-              {canManageCandidates && (
-                <button
-                  onClick={() => router.push('/candidates')}
-                  className="text-gray-700 hover:text-primary-600 transition px-3 py-2 text-sm font-medium"
-                >
-                  Candidates
-                </button>
-              )}
-              {canViewInterviews && (
-                <button
-                  onClick={() => router.push('/interviews')}
-                  className="text-gray-700 hover:text-primary-600 transition px-3 py-2 text-sm font-medium"
-                >
-                  Interviews
-                </button>
-              )}
-              {canAccessAdminPanel && (
-                <button
-                  onClick={() => router.push('/admin')}
-                  className="text-gray-700 hover:text-primary-600 transition px-3 py-2 text-sm font-medium"
-                >
-                  Admin
-                </button>
-              )}
             </div>
           </div>
 
@@ -66,7 +36,7 @@ export function Navigation() {
                 <span className="font-semibold text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded capitalize">
                   {user?.role?.toLowerCase().replace('_', ' ')}
                 </span>
-                <span>•</span>
+                <span>-</span>
                 <span className="font-medium">{user?.company_name || 'Company'}</span>
               </div>
             </div>

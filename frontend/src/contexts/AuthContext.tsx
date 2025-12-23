@@ -10,6 +10,7 @@ interface AuthContextType {
   isLoading: boolean
   isAuthenticated: boolean
   login: (request: LoginRequest) => Promise<void>
+  candidateLogin: (email: string) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   // Permission checking utilities
@@ -83,6 +84,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const candidateLogin = async (email: string) => {
+    setIsLoading(true)
+    try {
+      const response = await apiClient.candidateLogin(email)
+
+      if (response.user) {
+        setUser(response.user)
+        localStorage.setItem('user', JSON.stringify(response.user))
+      }
+
+      if (response.companies) {
+        localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
+      }
+      if (response.interviews) {
+        localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
+      }
+
+      // access_token is set by apiClient.candidateLogin
+    } catch (error) {
+      console.error('Candidate login error:', error)
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const logout = async () => {
     setIsLoading(true)
     try {
@@ -90,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       // Clear persisted user data
       localStorage.removeItem('user')
+      localStorage.removeItem('candidate_companies')
+      localStorage.removeItem('candidate_interviews')
     } finally {
       setIsLoading(false)
     }
@@ -97,10 +126,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = async () => {
     try {
-      const isValid = await apiClient.verifyToken()
-      if (!isValid) {
+      const result = await apiClient.verifyToken()
+      // Note: backend verifyToken returns { valid: true, user: ... }
+      if (!result || !(result as any).valid) {
         setUser(null)
         Cookies.remove('access_token')
+      } else if ((result as any).user) {
+        setUser((result as any).user)
+        localStorage.setItem('user', JSON.stringify((result as any).user))
       }
     } catch (error) {
       console.error('Failed to refresh user:', error)
@@ -113,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     isAuthenticated: !!user,
     login,
+    candidateLogin,
     logout,
     refreshUser,
     hasPermission: (permission: Permission) => {

@@ -42,7 +42,7 @@ async def main():
             name="Platform Admin",
             email="admin@aiinterviewer.com",
             password="AdminPass123!@",
-            role=UserRole.ADMIN,
+            role=UserRole.SYSTEM_ADMIN,
             department="Administration",
         )
         admin_user = await UserService.create_user(session, ai_company.id, admin_data)

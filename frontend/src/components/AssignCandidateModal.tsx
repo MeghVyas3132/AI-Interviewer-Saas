@@ -32,7 +32,7 @@ export function AssignCandidateModal({ isOpen, onClose, onSuccess, candidateId, 
 
         try {
             // POST /api/v1/hr/candidates/{id}/assign
-            await apiClient.post(`/hr/candidates/${candidateId}/assign?employee_id=${selectedEmployee}`);
+            await apiClient.post(`/hr/candidates/${candidateId}/assign?employee_id=${selectedEmployee}`, {});
             onSuccess();
             onClose();
         } catch (err: any) {

@@ -18,7 +18,10 @@ interface AssignedCandidate {
   status: string
   created_at: string
   scheduled_at?: string
+  interview_token?: string
+  interview_id?: string
   name: string
+  job_role_id?: string
 }
 
 interface Interview {
@@ -30,6 +33,8 @@ interface Interview {
   scheduled_time: string
   status: string
   notes: string
+  interview_token?: string
+  questions?: string[]
 }
 
 interface DashboardMetrics {
@@ -39,16 +44,26 @@ interface DashboardMetrics {
   status_breakdown: Record<string, number>
 }
 
+interface Job {
+  id: string
+  title: string
+  description: string
+  department: string
+  location: string
+  status: string
+}
+
 export default function EmployeeDashboardPage() {
   const router = useRouter()
   const { user, isLoading: authLoading } = useAuth()
   const [candidates, setCandidates] = useState<AssignedCandidate[]>([])
   const [interviews, setInterviews] = useState<Interview[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'pipeline'>('candidates')
+  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'pipeline' | 'jobs'>('candidates')
 
   // Schedule interview modal
   const [showScheduleModal, setShowScheduleModal] = useState(false)
@@ -59,6 +74,12 @@ export default function EmployeeDashboardPage() {
     notes: ''
   })
   const [scheduling, setScheduling] = useState(false)
+
+  // View questions modal
+  const [showQuestionsModal, setShowQuestionsModal] = useState(false)
+  const [selectedJobForQuestions, setSelectedJobForQuestions] = useState<Job | null>(null)
+  const [jobQuestions, setJobQuestions] = useState<{ id: string; text: string }[]>([])
+  const [loadingQuestions, setLoadingQuestions] = useState(false)
 
   // Check if user is EMPLOYEE
   useEffect(() => {
@@ -85,13 +106,24 @@ export default function EmployeeDashboardPage() {
         const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
         setInterviews(interviewsList)
 
+        // Fetch jobs for assigning to candidates
+        try {
+          const jobsRes = await apiClient.get<{ items?: Job[], jobs?: Job[] } | Job[]>('/jobs')
+          const jobsList = Array.isArray(jobsRes) ? jobsRes : (jobsRes.items || jobsRes.jobs || [])
+          setJobs(jobsList)
+        } catch {
+          setJobs([])
+        }
+
         // Map schedules and normalize name
         const candidatesList = rawCandidatesList.map(c => {
           const upcoming = interviewsList.find(i => i.candidate_id === c.id && i.status === 'scheduled');
           return {
             ...c,
             name: `${c.first_name} ${c.last_name}`,
-            scheduled_at: upcoming?.scheduled_time
+            scheduled_at: upcoming?.scheduled_time,
+            interview_token: upcoming?.interview_token,
+            interview_id: upcoming?.id
           }
         });
         setCandidates(candidatesList)
@@ -123,6 +155,22 @@ export default function EmployeeDashboardPage() {
 
     fetchData()
   }, [authLoading, user])
+
+  // Assign job role to candidate
+  const handleAssignJobRole = async (candidateId: string, jobId: string) => {
+    try {
+      setError('')
+      await apiClient.put(`/employee/my-candidates/${candidateId}/assign-job`, { job_id: jobId })
+
+      setCandidates(candidates.map(c =>
+        c.id === candidateId ? { ...c, job_role_id: jobId } : c
+      ))
+      setSuccess('Job role assigned successfully')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to assign job role')
+    }
+  }
 
   // Update candidate status
   const handleUpdateStatus = async (candidateId: string, newStatus: string) => {
@@ -164,6 +212,22 @@ export default function EmployeeDashboardPage() {
       setError(err.response?.data?.detail || 'Failed to schedule interview')
     } finally {
       setScheduling(false)
+    }
+  }
+
+  // View interview questions
+  const handleViewQuestions = async (job: Job) => {
+    try {
+      setLoadingQuestions(true)
+      setSelectedJobForQuestions(job)
+      setShowQuestionsModal(true)
+      const questions = await apiClient.get<{ id: string; text: string }[]>(`/jobs/${job.id}/questions`)
+      setJobQuestions(Array.isArray(questions) ? questions : [])
+    } catch (err: any) {
+      setJobQuestions([])
+      setError('Failed to load questions for this job')
+    } finally {
+      setLoadingQuestions(false)
     }
   }
 
@@ -304,6 +368,15 @@ export default function EmployeeDashboardPage() {
             >
               Pipeline
             </button>
+            <button
+              onClick={() => setActiveTab('jobs')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'jobs'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Job Listing ({jobs.length})
+            </button>
           </nav>
         </div>
 
@@ -324,18 +397,32 @@ export default function EmployeeDashboardPage() {
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Name</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Email</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Position</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Job Role</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Interview Scheduled</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {candidates.map((candidate) => (
-                        <tr key={candidate.id} className="hover:bg-gray-50">
+                        <tr key={candidate.id} className={`hover:bg-gray-50 ${candidate.scheduled_at ? 'bg-green-50/30' : ''}`}>
                           <td className="px-4 py-4 text-sm text-gray-900">
                             {candidate.first_name} {candidate.last_name}
                           </td>
                           <td className="px-4 py-4 text-sm text-gray-600">{candidate.email}</td>
                           <td className="px-4 py-4 text-sm text-gray-600">{candidate.position || '-'}</td>
+                          <td className="px-4 py-4">
+                            <select
+                              value={candidate.job_role_id || ''}
+                              onChange={(e) => handleAssignJobRole(candidate.id, e.target.value)}
+                              className="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-primary-500 focus:border-primary-500"
+                            >
+                              <option value="">Select Job Role</option>
+                              {jobs.map(job => (
+                                <option key={job.id} value={job.id}>{job.title}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td className="px-4 py-4">
                             <select
                               value={candidate.status}
@@ -350,16 +437,48 @@ export default function EmployeeDashboardPage() {
                               <option value="rejected">Rejected</option>
                             </select>
                           </td>
+                          <td className="px-4 py-4">
+                            {candidate.scheduled_at ? (
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                  </svg>
+                                  Scheduled
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(candidate.scheduled_at).toLocaleDateString()} at {new Date(candidate.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                Not Scheduled
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-4 text-sm space-x-2">
-                            <button
-                              onClick={() => {
-                                setSelectedCandidate(candidate)
-                                setShowScheduleModal(true)
-                              }}
-                              className="px-3 py-1 bg-primary-600 text-white rounded text-sm hover:bg-primary-700"
-                            >
-                              Schedule Interview
-                            </button>
+                            {candidate.scheduled_at ? (
+                              <button
+                                onClick={() => {
+                                  // Show interview details or reschedule
+                                  setSelectedCandidate(candidate)
+                                  setShowScheduleModal(true)
+                                }}
+                                className="px-3 py-1 bg-orange-600 text-white rounded text-sm hover:bg-orange-700"
+                              >
+                                Reschedule
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setSelectedCandidate(candidate)
+                                  setShowScheduleModal(true)
+                                }}
+                                className="px-3 py-1 bg-primary-600 text-white rounded text-sm hover:bg-primary-700"
+                              >
+                                Schedule Interview
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -432,6 +551,47 @@ export default function EmployeeDashboardPage() {
           <div className="overflow-hidden">
             <CandidatePipeline candidates={candidates} />
           </div>
+        )}
+
+        {/* Jobs Tab */}
+        {activeTab === 'jobs' && (
+          <Card>
+            <div className="p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Available Job Roles</h2>
+              <p className="text-sm text-gray-500 mb-6">
+                Assign a job role to each candidate so the AI interviewer asks relevant questions for that position. Click on a job to view interview questions set by HR.
+              </p>
+              {jobs.length === 0 ? (
+                <p className="text-gray-600 py-8 text-center">
+                  No job listings available. Contact HR to create job postings.
+                </p>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {jobs.map((job) => (
+                    <div key={job.id} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition">
+                      <h3 className="font-semibold text-gray-900 mb-2">{job.title}</h3>
+                      <p className="text-sm text-gray-600 mb-2 line-clamp-2">{job.description || 'No description'}</p>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="bg-gray-100 px-2 py-1 rounded">{job.department || 'General'}</span>
+                        <span className="bg-gray-100 px-2 py-1 rounded">{job.location || 'Remote'}</span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="text-xs text-gray-400">
+                          {candidates.filter(c => c.job_role_id === job.id).length} candidate(s) assigned
+                        </span>
+                        <button
+                          onClick={() => handleViewQuestions(job)}
+                          className="text-xs px-3 py-1 bg-primary-50 text-primary-600 rounded hover:bg-primary-100 font-medium transition"
+                        >
+                          View Questions
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
         )}
       </div>
 
@@ -506,6 +666,72 @@ export default function EmployeeDashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Interview Questions Modal */}
+      {showQuestionsModal && selectedJobForQuestions && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Interview Questions for {selectedJobForQuestions.title}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowQuestionsModal(false)
+                  setSelectedJobForQuestions(null)
+                  setJobQuestions([])
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              These questions were set by HR for candidates applying to this position.
+            </p>
+
+            {loadingQuestions ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              </div>
+            ) : jobQuestions.length === 0 ? (
+              <div className="py-8 text-center">
+                <svg className="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-gray-500">No interview questions have been set for this job yet.</p>
+                <p className="text-sm text-gray-400 mt-1">Contact HR to generate questions.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {jobQuestions.map((q, index) => (
+                  <div key={q.id} className="flex gap-3 p-3 bg-gray-50 rounded-lg">
+                    <span className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center text-sm font-medium">
+                      {index + 1}
+                    </span>
+                    <p className="text-gray-700">{q.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowQuestionsModal(false)
+                  setSelectedJobForQuestions(null)
+                  setJobQuestions([])
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

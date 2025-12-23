@@ -42,7 +42,7 @@ async def create_interview(
     Create a new interview.
     Only ADMIN and TEAM_LEAD can create interviews.
     """
-    if current_user.role not in [UserRole.ADMIN, UserRole.TEAM_LEAD]:
+    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.TEAM_LEAD]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators and team leads can create interviews",
@@ -230,7 +230,7 @@ async def update_interview(
     Update an interview.
     Only the assigned interviewer or an admin can update.
     """
-    if current_user.role not in [UserRole.ADMIN, UserRole.TEAM_LEAD]:
+    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.TEAM_LEAD]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators and team leads can update interviews",

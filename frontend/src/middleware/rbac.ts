@@ -3,7 +3,22 @@
  * Defines permissions for each role and provides utilities for permission checking
  */
 
-import { UserRole, Permission } from '../ai-shared/types';
+export type UserRole = 'CANDIDATE' | 'EMPLOYEE' | 'TEAM_LEAD' | 'HR' | 'SYSTEM_ADMIN';
+
+export type Permission =
+    // HR & Admin Permissions
+    | 'VIEW_ALL_CANDIDATES'
+    | 'MANAGE_EMPLOYEES'
+    | 'CONFIGURE_AI'
+    | 'VIEW_AI_ANALYTICS'
+    // Candidate Permissions
+    | 'VIEW_OWN_APPLICATION'
+    | 'SUBMIT_APPLICATION'
+    | 'START_AI_INTERVIEW'
+    | 'VIEW_OWN_RESULTS'
+    // Employee Permissions
+    | 'VIEW_ASSIGNED_CANDIDATES'
+    | 'SCHEDULE_INTERVIEWS';
 
 // ============================================================================
 // Permission Definitions
@@ -11,50 +26,39 @@ import { UserRole, Permission } from '../ai-shared/types';
 
 export const PERMISSIONS: Record<Permission, UserRole[]> = {
     // HR & Admin Permissions
-    VIEW_ALL_CANDIDATES: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
-    MANAGE_EMPLOYEES: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
-    CONFIGURE_AI: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
-    VIEW_AI_ANALYTICS: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
+    VIEW_ALL_CANDIDATES: ['HR', 'SYSTEM_ADMIN'],
+    MANAGE_EMPLOYEES: ['HR', 'SYSTEM_ADMIN'],
+    CONFIGURE_AI: ['HR', 'SYSTEM_ADMIN'],
+    VIEW_AI_ANALYTICS: ['HR', 'SYSTEM_ADMIN'],
 
     // Candidate Permissions
     VIEW_OWN_APPLICATION: ['CANDIDATE'],
+    SUBMIT_APPLICATION: ['CANDIDATE'],
     START_AI_INTERVIEW: ['CANDIDATE'],
     VIEW_OWN_RESULTS: ['CANDIDATE'],
 
     // Employee Permissions
-    VIEW_ASSIGNED_CANDIDATES: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'ADMIN', 'SYSTEM_ADMIN'],
-    SCHEDULE_INTERVIEWS: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'ADMIN', 'SYSTEM_ADMIN'],
+    VIEW_ASSIGNED_CANDIDATES: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
+    SCHEDULE_INTERVIEWS: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
 };
 
 // ============================================================================
 // Permission Checking Functions
 // ============================================================================
 
-/**
- * Check if a role has a specific permission
- */
 export function hasPermission(role: UserRole, permission: Permission): boolean {
     const allowedRoles = PERMISSIONS[permission];
     return allowedRoles.includes(role);
 }
 
-/**
- * Check if a role has any of the specified permissions
- */
 export function hasAnyPermission(role: UserRole, permissions: Permission[]): boolean {
     return permissions.some(permission => hasPermission(role, permission));
 }
 
-/**
- * Check if a role has all of the specified permissions
- */
 export function hasAllPermissions(role: UserRole, permissions: Permission[]): boolean {
     return permissions.every(permission => hasPermission(role, permission));
 }
 
-/**
- * Get all permissions for a specific role
- */
 export function getRolePermissions(role: UserRole): Permission[] {
     return Object.entries(PERMISSIONS)
         .filter(([_, roles]) => roles.includes(role))
@@ -72,31 +76,30 @@ export interface RoutePermission {
 }
 
 export const ROUTE_PERMISSIONS: RoutePermission[] = [
-    // HR Routes
     {
         path: '/hr',
-        allowedRoles: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
+        allowedRoles: ['HR', 'SYSTEM_ADMIN'],
         requiredPermissions: ['VIEW_ALL_CANDIDATES'],
     },
     {
+        path: '/admin',
+        allowedRoles: ['SYSTEM_ADMIN'],
+    },
+    {
         path: '/hr/ai-config',
-        allowedRoles: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
+        allowedRoles: ['HR', 'SYSTEM_ADMIN'],
         requiredPermissions: ['CONFIGURE_AI'],
     },
     {
         path: '/hr/analytics',
-        allowedRoles: ['HR', 'ADMIN', 'SYSTEM_ADMIN'],
+        allowedRoles: ['HR', 'SYSTEM_ADMIN'],
         requiredPermissions: ['VIEW_AI_ANALYTICS'],
     },
-
-    // Employee Routes
     {
         path: '/employee-interviews',
-        allowedRoles: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'ADMIN', 'SYSTEM_ADMIN'],
+        allowedRoles: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
         requiredPermissions: ['VIEW_ASSIGNED_CANDIDATES'],
     },
-
-    // Candidate Routes
     {
         path: '/candidate-portal',
         allowedRoles: ['CANDIDATE'],
@@ -109,25 +112,19 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
     },
 ];
 
-/**
- * Check if a role can access a specific route
- */
 export function canAccessRoute(role: UserRole, path: string): boolean {
     const routePermission = ROUTE_PERMISSIONS.find(route =>
         path.startsWith(route.path)
     );
 
     if (!routePermission) {
-        // If route not defined in permissions, allow by default (can be changed to deny by default)
         return true;
     }
 
-    // Check if role is allowed
     if (!routePermission.allowedRoles.includes(role)) {
         return false;
     }
 
-    // Check required permissions if any
     if (routePermission.requiredPermissions) {
         return hasAllPermissions(role, routePermission.requiredPermissions);
     }
@@ -135,15 +132,12 @@ export function canAccessRoute(role: UserRole, path: string): boolean {
     return true;
 }
 
-/**
- * Get the default dashboard route for a role
- */
 export function getDefaultDashboardRoute(role: UserRole): string {
     switch (role) {
         case 'HR':
-        case 'ADMIN':
-        case 'SYSTEM_ADMIN':
             return '/hr';
+        case 'SYSTEM_ADMIN':
+            return '/admin';
         case 'EMPLOYEE':
         case 'TEAM_LEAD':
             return '/employee-interviews';
@@ -154,11 +148,7 @@ export function getDefaultDashboardRoute(role: UserRole): string {
     }
 }
 
-/**
- * Get unauthorized redirect path
- */
 export function getUnauthorizedRedirect(role: UserRole): string {
-    // Redirect to their default dashboard if accessing unauthorized route
     return getDefaultDashboardRoute(role);
 }
 
@@ -173,7 +163,6 @@ export interface ApiEndpointPermission {
 }
 
 export const API_PERMISSIONS: ApiEndpointPermission[] = [
-    // Candidate Management
     {
         method: 'GET',
         path: '/api/v1/candidates',
@@ -189,8 +178,6 @@ export const API_PERMISSIONS: ApiEndpointPermission[] = [
         path: '/api/v1/candidates/:id',
         requiredPermissions: ['VIEW_ALL_CANDIDATES'],
     },
-
-    // Employee Management
     {
         method: 'GET',
         path: '/api/v1/hr/employees',
@@ -201,8 +188,6 @@ export const API_PERMISSIONS: ApiEndpointPermission[] = [
         path: '/api/v1/hr/employees',
         requiredPermissions: ['MANAGE_EMPLOYEES'],
     },
-
-    // AI Configuration
     {
         method: 'GET',
         path: '/api/v1/ai/config',
@@ -213,8 +198,6 @@ export const API_PERMISSIONS: ApiEndpointPermission[] = [
         path: '/api/v1/ai/config',
         requiredPermissions: ['CONFIGURE_AI'],
     },
-
-    // Interview Management
     {
         method: 'POST',
         path: '/api/v1/ai/interview/start',
@@ -227,9 +210,6 @@ export const API_PERMISSIONS: ApiEndpointPermission[] = [
     },
 ];
 
-/**
- * Check if a role can call a specific API endpoint
- */
 export function canCallApi(
     role: UserRole,
     method: string,
@@ -240,16 +220,12 @@ export function canCallApi(
     );
 
     if (!apiPermission) {
-        // If not defined, allow (can be changed to deny by default)
         return true;
     }
 
     return hasAllPermissions(role, apiPermission.requiredPermissions);
 }
 
-/**
- * Simple path matching for API routes (supports :id params)
- */
 function matchPath(pattern: string, path: string): boolean {
     const patternParts = pattern.split('/');
     const pathParts = path.split('/');
@@ -258,10 +234,7 @@ function matchPath(pattern: string, path: string): boolean {
         return false;
     }
 
-    return patternParts.every((part, i) => {
-        if (part.startsWith(':')) {
-            return true; // Param match
-        }
-        return part === pathParts[i];
+    return patternParts.every((part, index) => {
+        return part.startsWith(':') || part === pathParts[index];
     });
 }

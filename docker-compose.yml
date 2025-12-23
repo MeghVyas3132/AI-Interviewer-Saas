@@ -48,8 +48,14 @@ services:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:9002","http://localhost:9004"]'
-      SECRET_KEY: dev_secret_key_change_in_prod
+      SECRET_KEY: your-super-secret-256bit-key-for-prod-deployment-12345678
       ALGORITHM: HS256
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+      AI_SERVICE_MODEL: ${AI_SERVICE_MODEL}
+      # AI Interview Coach Service integration
+      AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
+      SYNC_API_KEY: ai-interviewer-sync-key-2024
     ports:
       - "8000:8000"
     healthcheck:
@@ -71,6 +77,8 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
       NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:3001
+      # For server-side API proxies (container-to-container communication)
+      AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
     ports:
       - "3000:3000"
     networks:
@@ -108,9 +116,31 @@ services:
     container_name: ai_interviewer_ws_proxy
     command: node ws-proxy-server.js
     environment:
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-dummy_key}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-8579e234fc6147ba8be07d23c0b153ec}
+      # Allow WS proxy to know AI service URL if it needs to call backend
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
     ports:
       - "9003:9003"
+    networks:
+      - app-network
+
+  # Celery worker for background tasks (emails, imports, AI processing if needed)
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_interviewer_celery
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
+      REDIS_URL: redis://redis:6379/0
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+    command: ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info"]
     networks:
       - app-network
 

@@ -160,7 +160,7 @@ async def require_hr_or_admin(
     Returns:
         Current user
     """
-    if current_user.role not in [UserRole.HR, UserRole.ADMIN]:
+    if current_user.role not in [UserRole.HR, UserRole.SYSTEM_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="HR or Admin role required",
@@ -183,7 +183,7 @@ async def require_admin(
     Raises:
         HTTPException: If user is not an admin
     """
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role != UserRole.SYSTEM_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required",

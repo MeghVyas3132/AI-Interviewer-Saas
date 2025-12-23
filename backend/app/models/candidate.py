@@ -144,6 +144,14 @@ class Candidate(Base):
         nullable=True,
         index=True,
     )
+    
+    # Job template for interview questions
+    job_template_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("job_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Core fields
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

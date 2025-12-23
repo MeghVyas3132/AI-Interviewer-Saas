@@ -23,7 +23,6 @@ class UserRole(str, Enum):
     """User role enumeration."""
 
     SYSTEM_ADMIN = "SYSTEM_ADMIN"  # Global system administrator (sees all companies)
-    ADMIN = "ADMIN"  # Company HR/Admin (deprecated - use HR instead)
     HR = "HR"  # Company HR/Admin (sees all company data)
     TEAM_LEAD = "TEAM_LEAD"  # Senior employee (batch operations)
     EMPLOYEE = "EMPLOYEE"  # Regular employee

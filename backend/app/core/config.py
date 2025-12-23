@@ -105,6 +105,13 @@ class Settings(BaseSettings):
     # AI Service Integration
     ai_service_url: str = "http://localhost:9004"
     ai_service_api_key: str = ""  # Optional: For future security
+    # AI Interview Coach Service (for actual interviews)
+    # In Docker: use container name, outside Docker: use localhost:3001
+    ai_interview_service_url: str = "http://ai-interviewer-coach:3000"
+    sync_api_key: str = "ai-interviewer-sync-key-2024"
+    # Groq (optional)
+    groq_api_key: str = ""
+    groq_api_url: str = "https://api.groq.ai"
 
     @field_validator("secret_key")
     @classmethod

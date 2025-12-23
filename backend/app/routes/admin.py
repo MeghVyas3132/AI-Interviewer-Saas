@@ -206,6 +206,9 @@ from sqlalchemy import select
 from app.models.company_request import CompanyRequest, RequestStatus
 from app.models.company import Company
 from app.services.auth_service import AuthService
+# Async email queueing service (Celery)
+from app.services.email_async_service import EmailService as AsyncEmailService
+from app.models.candidate import EmailType, EmailPriority
 
 
 class CompanyRequestResponse(BaseModel):
@@ -427,7 +430,35 @@ async def approve_request(
         )
         
         await session.commit()
-        
+        # Queue a welcome / approval email to the requester via Celery
+        try:
+            login_link = "http://localhost:3000/auth/login"  # TODO: read from config
+            await AsyncEmailService.queue_email(
+                session=session,
+                company_id=company.id,
+                recipient_email=user.email,
+                template_id="welcome",
+                subject=f"Your company '{company.name}' has been approved",
+                body=(
+                    f"<p>Hi {user.name},</p>"
+                    f"<p>Your company <strong>{company.name}</strong> has been approved by the administrator."
+                    " You can now sign in to your account using the credentials you provided during registration.</p>"
+                    f"<p><a href=\"{login_link}\">Sign in to AI Interviewer</a></p>"
+                ),
+                email_type=EmailType.WELCOME,
+                variables={
+                    "recipient_name": user.name,
+                    "company_name": company.name,
+                    "login_link": login_link,
+                },
+                recipient_id=user.id,
+                priority=EmailPriority.MEDIUM,
+            )
+        except Exception:
+            # If email queueing fails, log but do not fail the approval
+            import logging
+            logging.getLogger(__name__).exception("Failed to queue approval email to requester")
+
         return {
             "message": "Company request approved successfully",
             "company_id": str(company.id),

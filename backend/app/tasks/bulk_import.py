@@ -149,11 +149,38 @@ def _process_bulk_import_sync(
         
         logger.info(f"✅ Parsed {len(parsed_candidates)} candidates from {filename}")
         
-        # Add default domain if provided
-        if default_domain:
-            for candidate in parsed_candidates:
-                if "domain" not in candidate or not candidate["domain"]:
-                    candidate["domain"] = default_domain
+        # Auto-detect domain from email and apply default domain if needed
+        for candidate in parsed_candidates:
+            # Auto-detect domain from email if not explicitly set
+            if ("domain" not in candidate or not candidate["domain"]) and candidate.get("email"):
+                email = candidate.get("email", "")
+                if "@" in email:
+                    email_domain = email.split("@")[1].lower() if email else ""
+                    # Map common email domains to tech domains (customize as needed)
+                    domain_mapping = {
+                        # Tech companies
+                        "google.com": "Software Engineering",
+                        "microsoft.com": "Software Engineering",
+                        "amazon.com": "Software Engineering",
+                        "apple.com": "Software Engineering",
+                        "meta.com": "Software Engineering",
+                        "facebook.com": "Software Engineering",
+                        # Generic email providers - don't auto-assign domain
+                        "gmail.com": None,
+                        "yahoo.com": None,
+                        "hotmail.com": None,
+                        "outlook.com": None,
+                        "icloud.com": None,
+                    }
+                    mapped_domain = domain_mapping.get(email_domain)
+                    if mapped_domain:
+                        candidate["domain"] = mapped_domain
+                    elif default_domain:
+                        # Use default domain for generic emails
+                        candidate["domain"] = default_domain
+            elif default_domain and ("domain" not in candidate or not candidate["domain"]):
+                # Fallback to default domain if provided
+                candidate["domain"] = default_domain
         
         # Process candidates in batches
         created_candidates = []

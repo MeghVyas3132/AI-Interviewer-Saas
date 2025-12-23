@@ -69,7 +69,7 @@ export default function AdminDashboard() {
       try {
         setLoading(true)
         setError('')
-        
+
         // Fetch all companies
         try {
           const companiesData = await apiClient.get<any>('/admin/companies')
@@ -160,16 +160,16 @@ export default function AdminDashboard() {
 
     try {
       const result = await apiClient.post<any>(`/admin/requests/${requestId}/approve`, {})
-      
+
       // Remove from pending list
       setPendingRequests(pendingRequests.filter(r => r.id !== requestId))
-      
+
       // Refresh companies list
       const companiesData = await apiClient.get<any>('/admin/companies')
       setCompanies(Array.isArray(companiesData) ? companiesData : [])
-      
+
       setSuccessMessage(`Company "${result.company_name}" approved! User ${result.user_email} can now login.`)
-      
+
       // Refresh metrics
       const metricsData = await apiClient.get<SystemMetrics>('/admin/system/metrics')
       setMetrics(metricsData || null)
@@ -203,7 +203,7 @@ export default function AdminDashboard() {
       await apiClient.post<any>(`/admin/requests/${requestId}/reject`, {
         reason: rejectReason
       })
-      
+
       // Remove from pending list
       setPendingRequests(pendingRequests.filter(r => r.id !== requestId))
       setSuccessMessage('Request rejected successfully')
@@ -227,7 +227,7 @@ export default function AdminDashboard() {
 
   const handleDeleteCompany = async () => {
     if (!showDeleteModal) return
-    
+
     if (!adminCode.trim()) {
       setError('Please enter the admin code')
       return
@@ -241,13 +241,13 @@ export default function AdminDashboard() {
       const result = await apiClient.delete<any>(`/admin/companies/${showDeleteModal.id}`, {
         admin_code: adminCode
       })
-      
+
       // Remove from companies list
       setCompanies(companies.filter(c => c.id !== showDeleteModal.id))
       setSuccessMessage(result.message || `Company "${showDeleteModal.name}" deleted successfully`)
       setShowDeleteModal(null)
       setAdminCode('')
-      
+
       // Refresh metrics
       try {
         const metricsData = await apiClient.get<SystemMetrics>('/admin/system/metrics')
@@ -366,7 +366,7 @@ export default function AdminDashboard() {
                 {pendingRequests.length} pending
               </span>
             </div>
-            
+
             <div className="bg-white rounded-lg shadow overflow-hidden border-2 border-orange-200">
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -467,7 +467,7 @@ export default function AdminDashboard() {
                   <p className="text-sm text-red-600 font-medium">This action cannot be undone</p>
                 </div>
               </div>
-              
+
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
                 <p className="text-sm text-red-800">
                   You are about to permanently delete <strong>{showDeleteModal.name}</strong> and ALL associated data including:
@@ -599,11 +599,10 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{(company as any).email_domain || (company as any).email || '-'}</td>
                       <td className="px-6 py-4 text-sm">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          company.is_active 
-                            ? 'bg-green-100 text-green-800' 
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${company.is_active
+                            ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
-                        }`}>
+                          }`}>
                           {company.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>

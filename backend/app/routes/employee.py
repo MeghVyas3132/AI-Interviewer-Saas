@@ -217,6 +217,78 @@ async def update_candidate_status(
         )
 
 
+class AssignJobRoleRequest(BaseModel):
+    job_id: str
+
+
+@router.put("/my-candidates/{candidate_id}/assign-job")
+async def assign_job_role(
+    candidate_id: UUID,
+    request: AssignJobRoleRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Assign a job role to a candidate. This determines what questions the AI interviewer will ask.
+    The job_id refers to a JobTemplate which contains the AI-generated interview questions.
+    """
+    try:
+        # Verify candidate is assigned to this employee
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found or not assigned to you"
+            )
+
+        # Verify job template exists and belongs to the same company
+        from app.models.job import JobTemplate
+        job_query = select(JobTemplate).filter(
+            and_(
+                JobTemplate.id == request.job_id,
+                JobTemplate.company_id == current_user.company_id
+            )
+        )
+        job_result = await db.execute(job_query)
+        job = job_result.scalars().first()
+
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found or not in your company"
+            )
+
+        # Update candidate's job role and link to job template
+        candidate.position = job.title
+        candidate.job_template_id = job.id
+        await db.commit()
+
+        return {
+            "message": f"Job role '{job.title}' assigned to candidate",
+            "candidate_id": str(candidate_id),
+            "job_id": str(job.id),
+            "job_title": job.title
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error assigning job role: {str(e)}"
+        )
+
+
 class ScheduleInterviewRequest(BaseModel):
     scheduled_time: str  # ISO format datetime
     round: str = "screening"

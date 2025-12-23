@@ -1,5 +1,5 @@
 // Auth Types
-export type UserRole = 'SYSTEM_ADMIN' | 'ADMIN' | 'HR' | 'TEAM_LEAD' | 'EMPLOYEE' | 'CANDIDATE'
+export type UserRole = 'SYSTEM_ADMIN' | 'HR' | 'TEAM_LEAD' | 'EMPLOYEE' | 'CANDIDATE'
 
 export interface LoginRequest {
   email: string
@@ -17,6 +17,8 @@ export interface User {
   id: string
   email: string
   full_name: string
+  // compatibility alias: some UI components expect `user.name`
+  name?: string
   role: UserRole
   company_id: string
   company_name?: string

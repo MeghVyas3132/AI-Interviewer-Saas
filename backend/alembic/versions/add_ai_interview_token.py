@@ -1,7 +1,7 @@
 """Add ai_interview_token to interviews table
 
-Revision ID: add_ai_interview_token
-Revises: 
+Revision ID: 008
+Revises: 007
 Create Date: 2025-12-18 01:50:00
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'add_ai_interview_token'
-down_revision = None
+revision = '008'
+down_revision = '007'
 branch_labels = None
 depends_on = None
 

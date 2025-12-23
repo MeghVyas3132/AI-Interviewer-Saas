@@ -7,80 +7,75 @@ import { apiClient } from '@/lib/api'
 
 export default function RegisterPage() {
   const router = useRouter()
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
-  const [step, setStep] = useState(1) // Step 1: Company info, Step 2: Personal info
+  const [step, setStep] = useState<number>(1)
   const [formData, setFormData] = useState({
+    mode: 'create' as 'create' | 'join',
     company_name: '',
-    company_email: '',
+    join_code: '',
     full_name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    phone: '',
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setFormData((p) => ({ ...p, [name]: value }))
   }
 
   const handleNextStep = () => {
-    if (!formData.company_name) {
+    if (formData.mode === 'create' && !formData.company_name) {
       setError('Company name is required')
+      return
+    }
+    if (formData.mode === 'join' && !formData.join_code) {
+      setError('Join code is required to join an existing company')
       return
     }
     setError('')
     setStep(2)
   }
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
-    // Validation
     if (!formData.email || !formData.password || !formData.full_name) {
       setError('All fields are required')
       return
     }
-
     if (formData.password.length < 8) {
       setError('Password must be at least 8 characters')
       return
     }
-
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match')
       return
     }
 
+    const payload: Record<string, string> = {
+      email: formData.email,
+      password: formData.password,
+      full_name: formData.full_name,
+    }
+    if (formData.mode === 'create') payload.company_name = formData.company_name
+    else payload.company_id = formData.join_code
+
     try {
       setIsLoading(true)
-      const response = await apiClient.post<any>('/auth/register', {
-        email: formData.email,
-        password: formData.password,
-        full_name: formData.full_name,
-        company_name: formData.company_name,
-        company_email: formData.company_email,
-        phone: formData.phone,
-      })
-
-      router.push('/dashboard')
+      await apiClient.post('/auth/register', payload)
+      router.push('/auth/login')
     } catch (err: any) {
-      setError(
-        err.response?.data?.detail || 
-        'Registration failed. Please try again.'
-      )
+      setError(err?.response?.data?.detail || 'Registration failed')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="h-screen flex overflow-hidden">
       {/* Left Side - Branding (60%) */}
       <div className="hidden lg:flex lg:w-[60%] bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
         {/* Background Pattern */}
@@ -89,17 +84,16 @@ export default function RegisterPage() {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-white rounded-full blur-3xl"></div>
           <div className="absolute top-1/2 left-1/3 w-64 h-64 bg-white rounded-full blur-3xl"></div>
         </div>
-        
+
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-between w-full p-12">
           {/* Logo */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-            </div>
-            <span className="text-2xl font-bold text-white tracking-tight">AIGENTHIX</span>
+            <img
+              src="/images/logo.png"
+              alt="AIGENTHIX"
+              className="h-10 w-auto"
+            />
           </div>
 
           {/* Center Content */}
@@ -108,10 +102,10 @@ export default function RegisterPage() {
               Start Your AI-Powered Hiring Journey
             </h1>
             <p className="text-xl text-white/80 leading-relaxed mb-8">
-              Join thousands of companies using Aigenthix to streamline their interview process and find the best talent.
+              Create your company account or join an existing team to revolutionize your recruitment process.
             </p>
-            
-            {/* Benefits */}
+
+            {/* Features */}
             <div className="space-y-4">
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
@@ -119,7 +113,7 @@ export default function RegisterPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-white/90">Free 14-day trial</span>
+                <span className="text-white/90">Quick Setup in Minutes</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
@@ -127,7 +121,7 @@ export default function RegisterPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-white/90">No credit card required</span>
+                <span className="text-white/90">Invite Team Members Instantly</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
@@ -135,23 +129,7 @@ export default function RegisterPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-white/90">Unlimited interviews during trial</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Testimonial */}
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
-            <p className="text-white/90 italic mb-4">
-              "Aigenthix reduced our time-to-hire by 60% and improved candidate quality significantly. It's a game-changer."
-            </p>
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white font-semibold">
-                JD
-              </div>
-              <div>
-                <p className="text-white font-medium">Jane Doe</p>
-                <p className="text-white/70 text-sm">Head of HR, TechCorp</p>
+                <span className="text-white/90">Enterprise-Grade Security</span>
               </div>
             </div>
           </div>
@@ -159,96 +137,108 @@ export default function RegisterPage() {
       </div>
 
       {/* Right Side - Form (40%) */}
-      <div className="w-full lg:w-[40%] flex flex-col min-h-screen bg-white">
+      <div className="w-full lg:w-[40%] flex flex-col h-screen bg-white overflow-hidden">
         {/* Top Navigation */}
-        <nav className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
-          {/* Mobile Logo */}
-          <div className="flex items-center space-x-2 lg:hidden">
-            <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
-            </div>
-            <span className="text-xl font-bold text-gray-900">AIGENTHIX</span>
-          </div>
-          <div className="hidden lg:block"></div>
-          
+        <nav className="flex items-center justify-end px-8 py-6 border-b border-gray-100">
           {/* Help Icon */}
-          <button className="w-10 h-10 bg-dark-900 rounded-full flex items-center justify-center hover:bg-dark-800 transition">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100 transition">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
         </nav>
 
         {/* Form Container */}
-        <div className="flex-1 flex items-center justify-center px-8 py-12 overflow-y-auto">
+        <div className="flex-1 flex items-center justify-center px-8 py-12">
           <div className="w-full max-w-md">
-            {/* Progress Steps */}
-            <div className="flex items-center justify-center mb-8">
-              <div className="flex items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 1 ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                  1
-                </div>
-                <div className={`w-16 h-1 mx-2 ${step >= 2 ? 'bg-brand-500' : 'bg-gray-200'}`}></div>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${step >= 2 ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                  2
-                </div>
-              </div>
-            </div>
-
             {/* Header */}
             <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-3">
-                {step === 1 ? 'Create your company' : 'Your details'}
-              </h2>
+              <h2 className="text-3xl font-bold text-gray-900 mb-3">Create your account</h2>
               <p className="text-gray-500">
-                {step === 1 
-                  ? 'Set up your company account to get started with Aigenthix.'
-                  : 'Complete your personal information to finish registration.'}
+                {step === 1 ? 'Choose how you want to get started' : 'Complete your profile details'}
               </p>
+            </div>
+
+            {/* Step Indicator */}
+            <div className="flex items-center justify-center mb-8">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= 1 ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                1
+              </div>
+              <div className={`w-16 h-1 ${step >= 2 ? 'bg-brand-500' : 'bg-gray-200'}`}></div>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= 2 ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                2
+              </div>
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="mb-6 p-4 bg-error-50 border border-error-200 rounded-xl text-error-600 text-sm">
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
                 {error}
               </div>
             )}
 
-            {/* Step 1: Company Info */}
-            {step === 1 && (
+            {step === 1 ? (
               <div className="space-y-6">
+                {/* Mode Selector */}
                 <div>
-                  <label htmlFor="company_name" className="block text-sm font-medium text-gray-700 mb-2">
-                    Company Name *
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    I want to
                   </label>
-                  <input
-                    id="company_name"
-                    name="company_name"
-                    type="text"
-                    required
-                    value={formData.company_name}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
-                    placeholder="Enter your company name"
-                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData((p) => ({ ...p, mode: 'create' }))}
+                      className={`p-4 border-2 rounded-xl text-left transition-all ${
+                        formData.mode === 'create'
+                          ? 'border-brand-500 bg-brand-50 text-brand-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-medium mb-1">Create Company</div>
+                      <div className="text-xs text-gray-500">Start a new organization</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData((p) => ({ ...p, mode: 'join' }))}
+                      className={`p-4 border-2 rounded-xl text-left transition-all ${
+                        formData.mode === 'join'
+                          ? 'border-brand-500 bg-brand-50 text-brand-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-medium mb-1">Join Company</div>
+                      <div className="text-xs text-gray-500">Use an invite code</div>
+                    </button>
+                  </div>
                 </div>
 
-                <div>
-                  <label htmlFor="company_email" className="block text-sm font-medium text-gray-700 mb-2">
-                    Company Email (optional)
-                  </label>
-                  <input
-                    id="company_email"
-                    name="company_email"
-                    type="email"
-                    value={formData.company_email}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
-                    placeholder="hr@company.com"
-                  />
-                </div>
+                {formData.mode === 'create' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Company Name
+                    </label>
+                    <input
+                      name="company_name"
+                      value={formData.company_name}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
+                      placeholder="Enter your company name"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Join Code
+                    </label>
+                    <input
+                      name="join_code"
+                      value={formData.join_code}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
+                      placeholder="Enter your company's join code"
+                    />
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -258,84 +248,53 @@ export default function RegisterPage() {
                   Continue
                 </button>
               </div>
-            )}
-
-            {/* Step 2: Personal Info */}
-            {step === 2 && (
+            ) : (
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name *
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Full Name
                   </label>
                   <input
-                    id="full_name"
                     name="full_name"
-                    type="text"
-                    required
                     value={formData.full_name}
                     onChange={handleChange}
                     className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
                     placeholder="Enter your full name"
                   />
                 </div>
-
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                    Work Email *
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email
                   </label>
                   <input
-                    id="email"
                     name="email"
                     type="email"
-                    required
                     value={formData.email}
                     onChange={handleChange}
                     className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
-                    placeholder="you@company.com"
+                    placeholder="Enter your email"
                   />
                 </div>
-
                 <div>
-                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                    Phone Number (optional)
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Password
                   </label>
                   <input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
-                    placeholder="+1 (555) 000-0000"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                    Password *
-                  </label>
-                  <input
-                    id="password"
                     name="password"
                     type="password"
-                    required
                     value={formData.password}
                     onChange={handleChange}
                     className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
-                    placeholder="Create a strong password"
+                    placeholder="Create a password (min 8 characters)"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Minimum 8 characters</p>
                 </div>
-
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                    Confirm Password *
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Confirm Password
                   </label>
                   <input
-                    id="confirmPassword"
                     name="confirmPassword"
                     type="password"
-                    required
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition placeholder:text-gray-400"
@@ -343,11 +302,11 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                <div className="flex space-x-4">
+                <div className="flex gap-3 pt-2">
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="flex-1 px-4 py-3.5 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition"
+                    className="flex-1 border border-gray-200 text-gray-700 py-3.5 rounded-xl font-semibold hover:bg-gray-50 transition-all"
                   >
                     Back
                   </button>
@@ -372,15 +331,7 @@ export default function RegisterPage() {
               </form>
             )}
 
-            {/* Terms */}
-            <p className="mt-6 text-center text-xs text-gray-500">
-              By creating an account, you agree to our{' '}
-              <a href="#" className="text-brand-500 hover:text-brand-600">Terms of Service</a>
-              {' '}and{' '}
-              <a href="#" className="text-brand-500 hover:text-brand-600">Privacy Policy</a>
-            </p>
-
-            {/* Login Link */}
+            {/* Links */}
             <div className="mt-8 text-center">
               <p className="text-gray-500">
                 Already have an account?{' '}
@@ -393,9 +344,9 @@ export default function RegisterPage() {
         </div>
 
         {/* Footer */}
-        <footer className="bg-dark-900 px-8 py-6">
+        <footer className="bg-gray-50 px-8 py-6 border-t border-gray-100">
           <p className="text-center text-gray-400 text-sm">
-            Copyright © 2025 Aigenthix - All Rights Reserved.
+            Copyright 2025 Aigenthix - All Rights Reserved.
           </p>
         </footer>
       </div>

@@ -20,6 +20,7 @@ from app.models.candidate import (
     InterviewStatus,
 )
 from app.services.email_async_service import EmailService
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,35 @@ class CandidateService:
             
             session.add(candidate)
             await session.flush()
+
+            # Ensure there's a corresponding user record for the candidate so
+            # interview_rounds which reference users.id as candidate_id will
+            # not violate foreign key constraints. Some flows (candidate portal)
+            # expect a User row for candidates with a placeholder password.
+            try:
+                user_query = await session.execute(
+                    select(User).where(User.email == email, User.role == UserRole.CANDIDATE)
+                )
+                existing_user = user_query.scalars().first()
+            except Exception:
+                existing_user = None
+
+            if not existing_user:
+                # Create a candidate user with the same UUID as the candidate so
+                # candidate_id -> users.id FK works when scheduling rounds.
+                candidate_user = User(
+                    id=candidate.id,
+                    company_id=company_id,
+                    name=(f"{first_name or ''} {last_name or ''}".strip() or email),
+                    email=email,
+                    password_hash="CANDIDATE_NO_PASSWORD",
+                    role=UserRole.CANDIDATE,
+                    is_active=True,
+                    email_verified=True,
+                )
+                session.add(candidate_user)
+                # flush to ensure the user row exists for any subsequent FK checks
+                await session.flush()
             
             logger.info(f"✅ Candidate created: {email} (ID: {candidate.id}) in {company_id}")
             

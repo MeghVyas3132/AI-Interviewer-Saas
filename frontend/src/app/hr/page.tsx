@@ -9,10 +9,12 @@ import { Button } from '@/components/Button'
 import { EmployeeModal } from '@/components/EmployeeModal'
 import { AssignCandidateModal } from '@/components/AssignCandidateModal'
 import { Navigation } from '@/components/Navigation'
-import { CandidatePipeline } from '@/components/CandidatePipeline'
+import { KanbanCandidatePipeline } from '@/components/KanbanCandidatePipeline'
 import { AIConfigManager } from '@/components/ai-admin'
 import { AIAnalyticsDashboard } from '@/components/ai-analytics'
 import { aiServiceClient } from '@/services/ai-service-client'
+import BulkImportModal from '@/components/BulkImportModal'
+import CandidateProfileModal from '@/components/CandidateProfileModal'
 
 interface Candidate {
   id: string
@@ -51,6 +53,31 @@ export default function HRDashboard() {
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'candidates' | 'employees' | 'pipeline' | 'ai-tools' | 'ai-reports'>('overview')
   const [activeFilter, setActiveFilter] = useState<'all' | 'assigned' | 'unassigned'>('all')
+  // Kanban pipeline state
+  const [pendingPipeline, setPendingPipeline] = useState<Record<string, string>>({})
+  const [pipelineDirty, setPipelineDirty] = useState(false)
+
+  const handleStageChange = (candidateId: string, newStage: string) => {
+    setPendingPipeline(prev => ({ ...prev, [candidateId]: newStage }))
+    setPipelineDirty(true)
+  }
+  const handleUndoPipeline = () => {
+    setPendingPipeline({})
+    setPipelineDirty(false)
+  }
+  const handleConfirmPipeline = async () => {
+    // For each candidate with a changed stage, send update to backend
+    try {
+      await Promise.all(Object.entries(pendingPipeline).map(([id, status]) =>
+        apiClient.patch(`/candidates/${id}`, { status })
+      ))
+      setPendingPipeline({})
+      setPipelineDirty(false)
+      fetchData()
+    } catch (err) {
+      alert('Failed to update pipeline. Please try again.')
+    }
+  }
 
   // Filter Selection Logic
   const filteredCandidates = candidates.filter(candidate => {
@@ -75,6 +102,8 @@ export default function HRDashboard() {
   // Modal States
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false)
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false)
+  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false)
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
 
   // Check if user has HR or Admin access
@@ -155,6 +184,11 @@ export default function HRDashboard() {
     setIsAssignModalOpen(true)
   }
 
+  const handleCandidateClick = (candidateId: string) => {
+    setSelectedCandidateId(candidateId)
+    setIsProfileModalOpen(true)
+  }
+
   const handleCreateAIInterview = async (candidateId: string) => {
     try {
       const resp = await apiClient.post(`/hr/interviews/generate-ai-token/${candidateId}`, {});
@@ -204,9 +238,23 @@ export default function HRDashboard() {
           {/* Navigation Tabs (Window Style) - Global */}
           <div className="mb-8">
             <div className="bg-gray-100/50 border border-gray-200 rounded-2xl p-1.5 inline-flex gap-1 shadow-sm backdrop-blur-sm">
-              {['Overview', 'Candidates', 'Pipeline', 'Employees', 'AI Tools', 'AI Reports'].map((tab) => {
+              {['Overview', 'Candidates', 'Pipeline', 'Job Listing', 'Employees', 'AI Tools', 'AI Reports'].map((tab) => {
                 const tabKey = tab.toLowerCase().replace(' ', '-') as typeof activeTab;
                 const isActive = activeTab === tabKey;
+                if (tab === 'Job Listing') {
+                  return (
+                    <a
+                      key={tabKey}
+                      href="/hr/jobs"
+                      className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${isActive
+                        ? 'bg-white text-primary-600 shadow-lg ring-1 ring-black/5 scale-105'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
+                        }`}
+                    >
+                      {tab}
+                    </a>
+                  );
+                }
                 return (
                   <button
                     key={tabKey}
@@ -335,10 +383,10 @@ export default function HRDashboard() {
                         <div key={c.id} className="flex items-center justify-between p-5 bg-gray-50/50 rounded-2xl border border-gray-100 hover:bg-white hover:shadow-md transition-all group">
                           <div className="flex items-center gap-5">
                             <div className="w-14 h-14 rounded-2xl bg-white shadow-sm flex items-center justify-center font-bold text-gray-400 border border-gray-100 group-hover:bg-primary-50 group-hover:text-primary-600 transition-colors">
-                              {c.name.charAt(0)}
+                              {c.name?.charAt(0) || '?'}
                             </div>
                             <div>
-                              <p className="text-lg font-bold text-gray-900">{c.name}</p>
+                              <p className="text-lg font-bold text-gray-900">{c.name || 'Unknown'}</p>
                               <p className="text-base text-gray-500 font-medium">Applied for Frontend Developer</p>
                             </div>
                           </div>
@@ -381,7 +429,7 @@ export default function HRDashboard() {
                       </div>
                     </div>
                     <div className="flex gap-3">
-                      <Button variant="outline" className="rounded-xl px-6 font-bold text-gray-600 bg-white border-gray-200">Import CSV</Button>
+                      <Button variant="outline" className="rounded-xl px-6 font-bold text-gray-600 bg-white border-gray-200" onClick={() => setIsBulkImportModalOpen(true)}>Import CSV</Button>
                       <Button className="rounded-xl px-6 font-bold" onClick={() => router.push('/candidates/new')}>+ Add Candidate</Button>
                     </div>
                   </div>
@@ -397,14 +445,14 @@ export default function HRDashboard() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {filteredCandidates.map((candidate) => (
-                          <tr key={candidate.id} className="group hover:bg-gray-50/50 transition-colors cursor-pointer">
+                          <tr key={candidate.id} className="group hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => handleCandidateClick(candidate.id)}>
                             <td className="px-6 py-5 whitespace-nowrap">
                               <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center font-bold text-gray-400 border border-gray-100">
-                                  {candidate.name.charAt(0)}
+                                  {candidate.name?.charAt(0) || '?'}
                                 </div>
                                 <div>
-                                  <div className="text-base font-bold text-gray-900">{candidate.name}</div>
+                                  <div className="text-base font-bold text-gray-900">{candidate.name || 'Unknown'}</div>
                                   <div className="text-sm text-gray-400 font-medium">{candidate.email}</div>
                                 </div>
                               </div>
@@ -441,7 +489,13 @@ export default function HRDashboard() {
 
             {activeTab === 'pipeline' && (
               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 ring-1 ring-gray-50">
-                <CandidatePipeline candidates={candidates} />
+                <KanbanCandidatePipeline
+                  candidates={candidates}
+                  pendingChanges={pendingPipeline}
+                  onStageChange={handleStageChange}
+                  onUndo={pipelineDirty ? handleUndoPipeline : undefined}
+                  onConfirm={pipelineDirty ? handleConfirmPipeline : undefined}
+                />
               </div>
             )}
 
@@ -456,10 +510,10 @@ export default function HRDashboard() {
                     <div key={emp.id} className="p-6 bg-gray-50/50 rounded-3xl border border-gray-100 hover:bg-white hover:shadow-xl hover:border-transparent transition-all group">
                       <div className="flex items-center gap-5">
                         <div className="w-16 h-16 bg-white shadow-md rounded-2xl flex items-center justify-center font-bold text-2xl text-primary-600 border border-gray-100 group-hover:scale-105 transition-transform group-hover:bg-primary-50">
-                          {emp.name.charAt(0)}
+                          {emp.name?.charAt(0) || '?'}
                         </div>
                         <div>
-                          <p className="text-lg font-bold text-gray-900 leading-tight">{emp.name}</p>
+                          <p className="text-lg font-bold text-gray-900 leading-tight">{emp.name || 'Unknown'}</p>
                           <p className="text-sm text-gray-500 font-bold mt-1 uppercase tracking-wider">{emp.role}</p>
                           <p className="text-xs text-primary-600 font-black mt-1 bg-primary-50 inline-block px-2 py-0.5 rounded-lg">{emp.department || 'General'}</p>
                         </div>
@@ -500,6 +554,22 @@ export default function HRDashboard() {
         candidateId={selectedCandidateId}
         employees={employees}
         onSuccess={fetchData}
+      />
+
+      <BulkImportModal
+        isOpen={isBulkImportModalOpen}
+        onClose={() => setIsBulkImportModalOpen(false)}
+        onSuccess={fetchData}
+      />
+
+      <CandidateProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => {
+          setIsProfileModalOpen(false)
+          setSelectedCandidateId(null)
+        }}
+        candidateId={selectedCandidateId}
+        onCreateAIInterview={handleCreateAIInterview}
       />
     </div>
   )

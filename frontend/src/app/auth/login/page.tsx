@@ -10,7 +10,7 @@ type LoginTab = 'employee' | 'candidate'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, isLoading } = useAuth()
+  const { login, candidateLogin, isLoading } = useAuth()
   const [activeTab, setActiveTab] = useState<LoginTab>('employee')
   const [error, setError] = useState('')
   const [candidateLoading, setCandidateLoading] = useState(false)
@@ -49,19 +49,7 @@ export default function LoginPage() {
     setCandidateLoading(true)
 
     try {
-      // Use apiClient for consistent error handling and token management
-      const { apiClient } = await import('@/lib/api')
-      const response = await apiClient.candidateLogin(candidateEmail)
-
-      // Store candidate-specific data
-      if (response.companies) {
-        localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
-      }
-      if (response.interviews) {
-        localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
-      }
-
-      // Redirect to candidate portal
+      await candidateLogin(candidateEmail)
       router.push('/candidate-portal')
     } catch (err: any) {
       console.error('Candidate login error:', err)
@@ -71,7 +59,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="h-screen flex overflow-hidden">
       {/* Left Side - Branding (60%) */}
       <div className="hidden lg:flex lg:w-[60%] bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
         {/* Background Pattern */}
@@ -134,15 +122,9 @@ export default function LoginPage() {
       </div>
 
       {/* Right Side - Form (40%) */}
-      <div className="w-full lg:w-[40%] flex flex-col min-h-screen bg-white">
+      <div className="w-full lg:w-[40%] flex flex-col h-screen bg-white overflow-hidden">
         {/* Top Navigation */}
-        <nav className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
-          {/* Mobile Logo */}
-          <div className="flex items-center space-x-2 lg:hidden">
-            <img src="/images/logo.png" alt="AIGENTHIX" className="h-8 w-auto" />
-          </div>
-          <div className="hidden lg:block"></div>
-
+        <nav className="flex items-center justify-end px-8 py-6 border-b border-gray-100">
           {/* Help Icon */}
           <button className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100 transition">
             <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,7 +253,7 @@ export default function LoginPage() {
             {activeTab === 'candidate' && (
               <>
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
-                  <p className="font-medium mb-1">📧 Email-only Login</p>
+                  <p className="font-medium mb-1">Email-only Login</p>
                   <p>Enter the email address that was used when a company added you as a candidate. No password required.</p>
                 </div>
 
@@ -310,11 +292,6 @@ export default function LoginPage() {
                     )}
                   </button>
                 </form>
-
-                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm">
-                  <p className="font-semibold text-gray-700 mb-2">🔐 Test Candidate:</p>
-                  <p className="text-xs text-gray-600">alex.smith@example.com</p>
-                </div>
               </>
             )}
           </div>
@@ -323,7 +300,7 @@ export default function LoginPage() {
         {/* Footer */}
         <footer className="bg-gray-50 px-8 py-6 border-t border-gray-100">
           <p className="text-center text-gray-400 text-sm">
-            Copyright © 2025 Aigenthix - All Rights Reserved.
+            Copyright 2025 Aigenthix - All Rights Reserved.
           </p>
         </footer>
       </div>

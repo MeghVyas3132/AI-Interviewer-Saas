@@ -184,7 +184,7 @@ bob.wilson@example.com,Bob,Wilson,Software Developer,2`
             onClick={downloadSampleCSV}
             className="text-primary-600 hover:text-primary-800 text-xs font-medium underline"
           >
-            📥 Download Sample CSV
+            Download Sample CSV
           </button>
         </div>
 

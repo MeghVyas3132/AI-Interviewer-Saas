@@ -273,6 +273,7 @@ async def update_candidate(
                     setattr(candidate, field, value)
         
         await session.commit()
+        await session.refresh(candidate)
         
         return CandidateResponse.model_validate(candidate)
         
@@ -833,16 +834,39 @@ async def bulk_import_candidates_csv(
         text_content = content.decode('utf-8')
         csv_reader = csv.DictReader(StringIO(text_content))
         
+        # Helper function to auto-detect domain from email
+        def detect_domain_from_email(email: str) -> str | None:
+            if not email or "@" not in email:
+                return None
+            email_domain = email.split("@")[1].lower()
+            # Map common company email domains to tech domains
+            domain_mapping = {
+                "google.com": "Software Engineering",
+                "microsoft.com": "Software Engineering",
+                "amazon.com": "Software Engineering",
+                "apple.com": "Software Engineering",
+                "meta.com": "Software Engineering",
+                "facebook.com": "Software Engineering",
+            }
+            # Return mapped domain or None for generic emails
+            return domain_mapping.get(email_domain)
+        
         candidates_data = []
         for row in csv_reader:
             if not row.get('email'):
                 continue
             
+            email = row.get('email', '')
+            # Auto-detect domain from email if not provided in CSV
+            auto_domain = detect_domain_from_email(email)
+            csv_domain = row.get('domain', '').strip() if row.get('domain') else None
+            
             candidates_data.append({
-                'email': row.get('email', ''),
+                'email': email,
                 'first_name': row.get('first_name', ''),
                 'last_name': row.get('last_name', ''),
                 'position': row.get('position', ''),
+                'domain': csv_domain or auto_domain,  # Use CSV domain if provided, else auto-detect
                 'experience_years': int(row.get('experience_years', 0)) if row.get('experience_years', '').isdigit() else 0,
                 'created_by': current_user.id,
             })

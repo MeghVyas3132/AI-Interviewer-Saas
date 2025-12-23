@@ -22,6 +22,35 @@ celery_app = Celery(
     backend=settings.celery_result_backend_url,
 )
 
+# Ensure task modules are imported so worker registers tasks defined in app.tasks
+# Set explicit imports so the worker imports the module on startup
+celery_app.conf.imports = tuple(list(getattr(celery_app.conf, "imports", ())) + ["app.tasks.ai_tasks"])
+
+# Also import the tasks module directly to ensure decorators run and register tasks in this process
+try:
+    import app.tasks.ai_tasks  # noqa: F401 (import for side-effects)
+    logger.info("Imported app.tasks.ai_tasks for Celery task registration")
+except Exception:
+    logger.exception("Failed to import app.tasks.ai_tasks for Celery task registration")
+else:
+    # Ensure any task objects defined in the module are registered with this Celery app.
+    try:
+        import importlib
+
+        tasks_mod = importlib.import_module("app.tasks.ai_tasks")
+        for attr in dir(tasks_mod):
+            obj = getattr(tasks_mod, attr)
+            # celery task proxies have 'name' and 'run' attributes
+            if hasattr(obj, "name") and hasattr(obj, "run"):
+                if obj.name not in celery_app.tasks:
+                    try:
+                        celery_app.register_task(obj)
+                        logger.info(f"Registered Celery task: {obj.name}")
+                    except Exception:
+                        logger.exception(f"Failed to register task: {obj}")
+    except Exception:
+        logger.exception("Error while registering tasks from app.tasks.ai_tasks")
+
 
 class ContextTask(Task):
     """Make celery tasks work with FastAPI context"""

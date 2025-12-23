@@ -1,8 +1,9 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { InterviewSession } from '@/components/ai-interview';
+import ProctoringRulesModal from '@/components/ProctoringRulesModal';
 import Cookies from 'js-cookie';
 
 export default function InterviewRoomPage() {
@@ -11,6 +12,10 @@ export default function InterviewRoomPage() {
   const sessionToken = params.token as string;
   const [loading, setLoading] = useState(true);
   const [candidateId, setCandidateId] = useState<string | null>(null);
+  const [showProctoringModal, setShowProctoringModal] = useState(true);
+  const [interviewStarted, setInterviewStarted] = useState(false);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [windowBlurCount, setWindowBlurCount] = useState(0);
 
   useEffect(() => {
     // Verify authentication
@@ -35,6 +40,40 @@ export default function InterviewRoomPage() {
     }
   }, [router]);
 
+  // Proctoring: Track visibility changes (tab switches)
+  useEffect(() => {
+    if (!interviewStarted) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setTabSwitchCount(prev => prev + 1);
+        console.warn('🚨 Proctoring: Tab switch detected!');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setWindowBlurCount(prev => prev + 1);
+      console.warn('🚨 Proctoring: Window blur detected!');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [interviewStarted]);
+
+  const handleAcceptProctoring = useCallback(() => {
+    setShowProctoringModal(false);
+    setInterviewStarted(true);
+  }, []);
+
+  const handleDeclineProctoring = useCallback(() => {
+    router.push('/candidate-portal');
+  }, [router]);
+
   if (loading || !candidateId) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -45,7 +84,23 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="bg-white shadow-sm p-4 flex justify-between items-center z-10 border-b">
+      {/* Proctoring Rules Modal */}
+      <ProctoringRulesModal
+        isOpen={showProctoringModal}
+        onAccept={handleAcceptProctoring}
+        onDecline={handleDeclineProctoring}
+      />
+
+      {/* Proctoring Warning Banner */}
+      {interviewStarted && (tabSwitchCount > 0 || windowBlurCount > 0) && (
+        <div className="fixed top-0 left-0 right-0 bg-red-600 text-white py-2 px-4 text-center text-sm font-medium z-40">
+          ⚠️ Warning: {tabSwitchCount > 0 && `${tabSwitchCount} tab switch(es) detected`}
+          {tabSwitchCount > 0 && windowBlurCount > 0 && ', '}
+          {windowBlurCount > 0 && `${windowBlurCount} window focus loss(es) detected`}
+        </div>
+      )}
+
+      <div className={`bg-white shadow-sm p-4 flex justify-between items-center z-10 border-b ${(tabSwitchCount > 0 || windowBlurCount > 0) ? 'mt-10' : ''}`}>
         <div className="flex items-center">
           <img src="/images/logo.png" alt="Logo" className="h-8 mr-4" />
           <h1 className="text-xl font-semibold text-gray-800">AI Interview Session</h1>
@@ -58,11 +113,13 @@ export default function InterviewRoomPage() {
         </button>
       </div>
       <div className="h-[calc(100vh-73px)]">
-        <InterviewSession
-          sessionId={sessionToken}
-          candidateId={candidateId}
-          mode="voice"
-        />
+        {interviewStarted && (
+          <InterviewSession
+            sessionId={sessionToken}
+            candidateId={candidateId}
+            mode="voice"
+          />
+        )}
       </div>
     </div>
   );

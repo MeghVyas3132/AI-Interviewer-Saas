@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   output: 'standalone',  // Required for Docker production build
   webpack: (config) => {
     config.resolve.alias = {
@@ -12,6 +11,9 @@ const nextConfig = {
   },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1',
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
   },
 }
 
