@@ -12,8 +12,8 @@ from app.models.ai_report import AIReport
 from app.models.job import JobTemplate, Question
 from app.models.import_job import ImportJob
 from app.models.company_request import CompanyRequest, RequestStatus
-from app.models.company_request import CompanyRequest, RequestStatus
 from app.models.interview_round import InterviewRound
+from app.models.employee_availability import EmployeeAvailability, ScheduledSlot, AutoScheduleConfig, DayOfWeek
 
 __all__ = [
     "Company",
@@ -33,5 +33,9 @@ __all__ = [
     "AIReport",
     "JobTemplate",
     "Question",
+    "EmployeeAvailability",
+    "ScheduledSlot",
+    "AutoScheduleConfig",
+    "DayOfWeek",
 ]
 

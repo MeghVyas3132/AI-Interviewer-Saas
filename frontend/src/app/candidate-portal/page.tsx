@@ -40,9 +40,8 @@ export default function CandidatePortalPage() {
 
   const handleLaunchInterview = (interview: Interview) => {
     if (interview.ai_interview_token) {
-      // Redirect to AI Interview service with the full interview flow
-      // This includes resume upload, interview room, and completion
-      window.open(`http://localhost:3001/interview/${interview.ai_interview_token}`, '_blank')
+      // Navigate to our internal AI Interview page (same UI)
+      router.push(`/interview/${interview.ai_interview_token}`)
     } else if (interview.meeting_link) {
       window.open(interview.meeting_link, '_blank')
     }
@@ -93,13 +92,16 @@ export default function CandidatePortalPage() {
       }
 
       try {
-        // Fetch companies (applications) and interviews from backend
-        const [companies, interviews] = await Promise.all([
-          apiClient.get<Company[]>('/api/v1/candidates/companies'),
-          apiClient.get<Interview[]>(`/api/v1/interviews?candidate_id=${user.id}`),
-        ])
-        setCompanies(companies || [])
-        setInterviews(interviews || [])
+        // Fetch dashboard data which includes interviews with company info
+        const dashboardData = await apiClient.get<{
+          interviews: Interview[]
+          companies: Company[]
+          position_applied: string
+        }>('/candidate-portal/my-interviews')
+        
+        // Set interviews from the response
+        setInterviews(dashboardData?.interviews || [])
+        setCompanies(dashboardData?.companies || [])
       } catch (err) {
         setCompanies([])
         setInterviews([])
@@ -193,12 +195,23 @@ export default function CandidatePortalPage() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {user?.name?.split(' ')[0]}!</h1>
             <p className="text-gray-500">You have {interviews.filter(i => i.status === 'scheduled').length} upcoming interviews.</p>
-            <a
-              href="/candidate-portal/ats"
-              className="inline-block mt-4 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition"
-            >
-              ATS Checker
-            </a>
+            <div className="flex gap-3 mt-4">
+              <a
+                href="/candidate-portal/ats"
+                className="inline-block px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition"
+              >
+                ATS Checker
+              </a>
+              <a
+                href="/candidate-portal/results"
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                View Results
+              </a>
+            </div>
           </div>
           <div className="mt-4 md:mt-0">
             {(() => {

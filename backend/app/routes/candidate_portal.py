@@ -156,11 +156,16 @@ async def get_my_interviews(
         company_query = select(Company).filter(Company.id == current_user.company_id)
         company_result = await db.execute(company_query)
         company = company_result.scalars().first()
+        
+        company_name = company.name if company else "Unknown Company"
+        position = candidate.position or "Not Specified"
 
         return {
             "interviews": [
                 {
                     "id": str(i.id),
+                    "company_name": company_name,
+                    "position": position,
                     "round": i.round.value if i.round else None,
                     "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
                     "timezone": i.timezone,
@@ -172,9 +177,9 @@ async def get_my_interviews(
             ],
             "mentor": mentor_info,
             "company": {
-                "name": company.name if company else None,
-            } if company else None,
-            "position_applied": candidate.position,
+                "name": company_name,
+            },
+            "position_applied": position,
         }
     except HTTPException:
         raise
@@ -443,3 +448,147 @@ async def candidate_login(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Candidate login failed: {str(e)}"
         )
+
+
+@router.get("/my-results")
+async def get_my_interview_results(
+    current_user: User = Depends(require_candidate),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get interview results for the candidate including verdicts and scores.
+    """
+    from app.models.ai_report import AIReport
+    from app.models.candidate import InterviewStatus
+    
+    try:
+        # Get candidate record by email
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.email == current_user.email,
+                Candidate.company_id == current_user.company_id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate profile not found"
+            )
+
+        # Get company info
+        company_query = select(Company).filter(Company.id == current_user.company_id)
+        company_result = await db.execute(company_query)
+        company = company_result.scalars().first()
+        company_name = company.name if company else "Unknown Company"
+
+        # Get completed interviews
+        interviews_query = select(Interview).filter(
+            and_(
+                Interview.candidate_id == candidate.id,
+                Interview.status == InterviewStatus.COMPLETED
+            )
+        ).order_by(Interview.scheduled_time.desc())
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+
+        if not interviews:
+            return {
+                "results": [],
+                "company_name": company_name,
+                "position": candidate.position,
+                "message": "No completed interviews yet"
+            }
+
+        # Get AI reports for these interviews
+        interview_ids = [i.id for i in interviews]
+        reports_query = select(AIReport).filter(
+            and_(
+                AIReport.interview_id.in_(interview_ids),
+                AIReport.report_type == "interview_verdict"
+            )
+        )
+        reports_result = await db.execute(reports_query)
+        reports = reports_result.scalars().all()
+        
+        # Map reports to interviews
+        reports_dict = {}
+        for report in reports:
+            reports_dict[report.interview_id] = report
+
+        results = []
+        for interview in interviews:
+            report = reports_dict.get(interview.id)
+            provider_response = report.provider_response if report else {}
+            
+            results.append({
+                "interview_id": str(interview.id),
+                "round": interview.round.value if interview.round else "Interview",
+                "completed_at": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "verdict": provider_response.get("verdict") if report else None,
+                "score": report.score if report else None,
+                "summary": report.summary if report else None,
+                "completion_score": provider_response.get("completion_score") if report else None,
+                "detail_score": provider_response.get("detail_score") if report else None,
+                "total_questions": provider_response.get("total_questions") if report else None,
+                "total_answers": provider_response.get("total_answers") if report else None,
+                "duration_seconds": provider_response.get("duration_seconds") if report else None,
+                "feedback": _generate_candidate_feedback(
+                    provider_response.get("verdict") if report else None,
+                    report.score if report else None,
+                    provider_response.get("completion_score") if report else None,
+                    provider_response.get("detail_score") if report else None
+                ) if report else None,
+            })
+
+        return {
+            "results": results,
+            "company_name": company_name,
+            "position": candidate.position,
+            "total_completed": len(results),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interview results: {str(e)}"
+        )
+
+
+def _generate_candidate_feedback(verdict: str, score: float, completion_score: float, detail_score: float) -> str:
+    """Generate encouraging feedback for the candidate based on their performance."""
+    if not verdict:
+        return "Your interview has been completed. Results are being processed."
+    
+    feedback_parts = []
+    
+    if verdict == "PASS":
+        feedback_parts.append("Congratulations! You performed excellently in this interview.")
+        if completion_score and completion_score >= 90:
+            feedback_parts.append("You answered all questions thoroughly.")
+        if detail_score and detail_score >= 70:
+            feedback_parts.append("Your responses showed great depth and understanding.")
+        feedback_parts.append("We'll be in touch soon about next steps!")
+        
+    elif verdict == "REVIEW":
+        feedback_parts.append("Thank you for completing the interview.")
+        feedback_parts.append("Your responses are being reviewed by our team.")
+        if completion_score and completion_score < 80:
+            feedback_parts.append("Consider providing more complete answers in future interviews.")
+        if detail_score and detail_score < 50:
+            feedback_parts.append("Adding more specific examples and details can strengthen your responses.")
+        feedback_parts.append("We'll notify you once the review is complete.")
+        
+    else:  # FAIL
+        feedback_parts.append("Thank you for taking the time to interview with us.")
+        feedback_parts.append("While this particular interview didn't meet our requirements, we encourage you to:")
+        feedback_parts.append("- Practice answering technical questions more thoroughly")
+        feedback_parts.append("- Prepare specific examples from your experience")
+        feedback_parts.append("- Consider reapplying for other positions that match your skills")
+    
+    return " ".join(feedback_parts)

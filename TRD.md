@@ -1,1340 +1,890 @@
 # Technical Requirements Document (TRD)
-## AI Interviewer Platform - Backend
 
-**Version:** 1.0.0
-**Document Classification:** Internal
-**Date:** November 11, 2025
+## AI Interviewer Platform
+
+**Version:** 2.0.0  
+**Last Updated:** December 2024  
+**Document Owner:** Engineering Team  
 **Status:** Production Ready
-**Last Updated:** November 15, 2025 - Backend Critical Fixes Applied
 
 ---
 
-## Recent Updates (November 15, 2025)
+## Table of Contents
 
-### Critical Backend Fixes
-
-The following critical issues have been identified and fixed:
-
-#### 1. Duplicate Interview Model Conflict
-- **Issue:** Two `Interview` model definitions caused SQLAlchemy "Table already defined" error
-- **Root Cause:** `interview.py` and `candidate.py` both defined `interviews` table
-- **Solution:** Consolidated to single definition in `candidate.py`, removed `interview.py`
-- **Files Modified:**
-  - Deleted: `backend/app/models/interview.py`
-  - Updated: `backend/app/models/__init__.py`
-  - Updated: `backend/app/schemas/interview_schema.py`
-  - Updated: `backend/app/services/interview_service.py`
-  - Updated: `backend/print_all_tables.py`
-
-#### 2. Email Service Syntax Error
-- **Issue:** Malformed async method definition in `email_async_service.py`
-- **Error:** `async def EmailService._send_via_provider()` - invalid syntax
-- **Solution:** Corrected to `async def _send_via_provider()` - proper static method
-- **Impact:** Backend startup was failing; now starts successfully
-
-#### 3. Celery Configuration Mismatch
-- **Issue:** Field names in `celery_config.py` didn't match `config.py` definitions
-- **Error:** `AttributeError: 'Settings' object has no attribute 'CELERY_BROKER_URL'` (uppercase)
-- **Solution:** Updated to use lowercase field names (`celery_broker_url`, `celery_result_backend_url`)
-- **Files Modified:** `backend/app/core/celery_config.py`
-
-#### 4. Database Import Path Error
-- **Issue:** `email_async_service.py` imported `get_db_session` which doesn't exist
-- **Error:** `ImportError: cannot import name 'get_db_session'`
-- **Solution:** Corrected to `get_db` (actual function name in `database.py`)
-- **Files Modified:** `backend/app/services/email_async_service.py`
-
-#### 5. Database Migration vs Auto-Create Conflict
-- **Issue:** Backend's `init_db()` auto-creates tables on startup; alembic migrations also tried to create them
-- **Result:** "relation already exists" error when running migrations
-- **Solution:** Updated `integration_test.sh` to skip alembic and rely on backend auto-initialization
-- **Rationale:** Both approaches duplicate work; backend auto-create is simpler for development/testing
-
-#### 6. User Creation Authorization Fix
-- **Issue:** `POST /api/v1/users` endpoint required HR role, but ADMIN users couldn't create users
-- **Error:** `403 Forbidden: "HR role required"`
-- **Solution:** Added new middleware `require_hr_or_admin` to allow both roles
-- **Files Modified:**
-  - `backend/app/middleware/auth.py` - Added `require_hr_or_admin()` function
-  - `backend/app/routes/users.py` - Updated to use new middleware
-
-### Impact on Integration Tests
-
-**Before Fixes:** Tests failing at multiple points
-- Backend startup failed (syntax error, config mismatch, import errors)
-- Database initialization failed (migration conflicts)
-- Employee creation endpoint returned 403 (auth issue)
-
-**After Fixes:** All tests passing
-- ✅ Phase 0: 8/8 tests passing
-- ✅ Phase 1: 5/5 tests passing
-- ✅ Phase 2: Infrastructure ready
+1. [System Overview](#1-system-overview)
+2. [Architecture](#2-architecture)
+3. [Technology Stack](#3-technology-stack)
+4. [API Specifications](#4-api-specifications)
+5. [Database Design](#5-database-design)
+6. [Security Architecture](#6-security-architecture)
+7. [Infrastructure Requirements](#7-infrastructure-requirements)
+8. [Integration Points](#8-integration-points)
+9. [Performance Requirements](#9-performance-requirements)
+10. [Monitoring and Observability](#10-monitoring-and-observability)
+11. [Deployment Guidelines](#11-deployment-guidelines)
+12. [Known Issues and Mitigations](#12-known-issues-and-mitigations)
 
 ---
 
-## 1. Executive Summary
+## 1. System Overview
 
-This document outlines the technical requirements for the backend of the AI Interviewer Platform, a comprehensive, enterprise-grade microservices architecture designed to manage interview workflows, candidate assessments, and team collaboration.
+### 1.1 Purpose
 
-### Key Highlights
+This document provides comprehensive technical specifications for the AI Interviewer Platform, a microservices-based application designed to automate technical interviews using artificial intelligence.
 
-- **Architecture:** Microservices with async/await patterns
-- **Database:** PostgreSQL 15 with optimized indexing and migrations
-- **Authentication:** Production-grade JWT with HTTP-only secure cookies
-- **Security:** Enterprise-level with audit logging and role-based access control
-- **Performance:** Sub-500ms API response times, supports 10K+ concurrent users
-- **Compliance:** GDPR, SOC2, and ISO 27001 ready
-- **Scalability:** Horizontally scalable with Redis caching and async processing
-- **Code Quality:** 96.5% test coverage can be achived with automated CI/CD
+### 1.2 Scope
 
----
+The system encompasses:
+- RESTful API backend (FastAPI/Python)
+- Single-page application frontend (Next.js/React)
+- AI service for interview processing
+- Real-time communication via WebSockets
+- Asynchronous task processing (Celery)
+- Data persistence (PostgreSQL)
+- Caching layer (Redis)
 
-## 2. System Architecture
-
-### 2.1 Enterprise Technology Stack
-
-| Layer | Component | Technology | Version | Rationale |
-|-------|-----------|-----------|---------|-----------|
-| **Web Framework** | API Server | FastAPI | 0.104.1 | Async-first, automatic API docs, Pydantic validation |
-| **Application Server**| WSGI/ASGI | Uvicorn | 0.24.0 | High-performance async server, H11/H2 support |
-| **Primary Database** | Relational | PostgreSQL | 15.0 | ACID compliance, JSON support, advanced indexing |
-| **Cache Layer** | In-Memory | Redis | 7.0 | Session management, token caching, distributed locking |
-| **ORM** | Object Mapping | SQLAlchemy | 2.0.23 | Async support, query optimization, migration support |
-| **Authentication** | Token Auth | JWT (PyJWT) | 2.10.1 | Stateless, scalable, industry standard |
-| **Password Hashing** | Security | bcrypt | 4.1.1 | Adaptive hashing, resistant to GPU attacks |
-| **Migration Tool** | Database | Alembic | 1.13.0 | Version control for schema, automatic migrations |
-| **Async Driver** | Database | asyncpg | 0.29.0 | Native PostgreSQL async, zero-copy protocol |
-| **Testing** | QA | pytest | 7.4.3 | Comprehensive test framework, extensive plugins |
-| **Container** | Deployment | Docker | 20.10+ | Reproducible builds, production parity |
-
-### 2.2 Microservices Architecture
+### 1.3 System Boundaries
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     CLIENT LAYER                            │
-│                     (Web Browser)                           │
-└─────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ HTTPS/REST
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   API GATEWAY LAYER                         │
-│                                                             │
-│  - Request validation, rate limiting, logging               │
-│  - SSL/TLS termination, request routing                     │
-│  - API key management, CORS handling                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         │                    │                    │
-         ▼                    ▼                    ▼
-    ┌─────────────┐   ┌──────────────┐   ┌──────────────┐
-    │   AUTH      │   │  INTERVIEW   │   │   SCORING    │
-    │  SERVICE    │   │   SERVICE    │   │   SERVICE    │
-    │ Port: 8000  │   │ Port: 8001   │   │ Port: 8002   │
-    │             │   │              │   │              │
-    │ - Login     │   │ - Schedule   │   │ - Evaluate   │
-    │ - Tokens    │   │ - Track      │   │ - Score      │
-    │ - Sessions  │   │ - Manage     │   │ - Report     │
-    └─────────────┘   └──────────────┘   └──────────────┘
-         │                    │                    │
-         └────────────────────┼────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         │                    │                    │
-         ▼                    ▼                    ▼
-    ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-    │  PostgreSQL  │   │    Redis     │   │ Message Queue│
-    │     15       │   │      7       │   │  (ELK Slack) │
-    │              │   │              │   │              │
-    │ - Users      │   │ - Sessions   │   │ - Async Jobs │
-    │ - Interviews │   │ - Cache      │   │ - Notifications
-    │ - Scores     │   │ - Locks      │   │ - Workflows  │
-    └──────────────┘   └──────────────┘   └──────────────┘
-```
-
-### 2.3 Technology Rationale
-
-**Why FastAPI?**
-- Automatic OpenAPI/Swagger documentation
-- Native async/await support (non-blocking I/O)
-- Built-in Pydantic validation with type hints
-- 2-3x faster than Flask/Django for async operations
-- Excellent for microservices architecture
-
-**Why PostgreSQL?**
-- ACID compliance ensures data integrity
-- Advanced indexing (B-tree, Hash, GiST) for performance
-- JSON/JSONB support for audit logs
-- Replication and failover capabilities
-- Enterprise-grade security features
-
-**Why Redis?**
-- Sub-millisecond response times
-- Distributed session management
-- Token blacklisting and caching
-- Rate limiting counters
-- Atomic operations for distributed locking
-
-**Why asyncpg?**
-- Native PostgreSQL async driver (not psycopg2 wrapper)
-- 5-10x faster than blocking drivers
-- Zero-copy protocol implementation
-- Connection pooling for concurrency
-
----
-
-## 3. Authentication & Security Architecture
-
-### 3.1 Authentication Flow Sequence Diagram
-
-```
-CLIENT                          API SERVER                    DATABASE
-  │                                 │                             │
-  │  POST /auth/login               │                             │
-  │  {email, password}              │                             │
-  ├────────────────────────────────>│                             │
-  │                                 │                             │
-  │                                 │ SELECT * FROM users         │
-  │                                 │ WHERE email = ?             │
-  │                                 ├────────────────────────────>│
-  │                                 │                    (Email Check)
-  │                                 │<────────────────────────────┤
-  │                                 │ User found                  │
-  │                                 │                             │
-  │                             [Verify bcrypt hash]              │
-  │                             password == hash(stored_password) │
-  │                                 │                             │
-  │                            [Password Valid]                   │
-  │                                 │                             │
-  │                            [Generate JWT]                     │
-  │                            access_token (15m)                 │
-  │                            refresh_token (7d)                 │
-  │                                 │                             │
-  │                          [Log Action]                         │
-  │                                 │  INSERT audit_logs          │
-  │                                 ├────────────────────────────>│
-  │                                 │                             │
-  │  {access_token}                 │                             │
-  │  {refresh_token}                │                             │
-  │  Set-Cookie: refresh_token      │                             │
-  │<────────────────────────────────┤                             │
-  │ Status: 200 OK                  │                             │
-  │
-  │ GET /api/v1/users               │                             │
-  │ Authorization: Bearer {token}   │                             │
-  ├────────────────────────────────>│                             │
-  │                                 │ [Verify JWT]                │
-  │                                 │ - Check signature           │
-  │                                 │ - Check expiration          │
-  │                                 │ - Extract user_id           │
-  │                                 │                             │
-  │                                 │ SELECT * FROM users         │
-  │                                 │ WHERE id = ?                │
-  │                                 ├────────────────────────────>│
-  │                                 │<────────────────────────────┤
-  │                                 │ User data                   │
-  │                                 │                             │
-  │  [Protected Resource]           │                             │
-  │<────────────────────────────────┤                             │
-  │ Status: 200 OK                  │                             │
-```
-
-### 3.2 Authentication Flow - Detailed Steps
-
-#### Step 1: Email Verification
-- User submits email and password via POST `/api/v1/auth/login`
-- System queries PostgreSQL: `SELECT * FROM users WHERE email = $1`
-- If no match: Return 401 with generic "Invalid email or password"
-- Prevents username enumeration attacks
-
-#### Step 2: Password Verification
-- System retrieves stored password hash from database
-- Uses bcrypt constant-time comparison: `bcrypt.checkpw(password, hash)`
-- Protects against timing attacks
-- If mismatch: Return 401 (same generic message)
-
-#### Step 3: JWT Token Generation
-- Create **access_token** (15-minute lifetime):
-  ```json
-  {
-    "sub": "user_id_uuid",
-    "company_id": "company_uuid",
-    "iat": 1704067200,
-    "exp": 1704068100
-  }
-  ```
-- Create **refresh_token** (7-day lifetime):
-  ```json
-  {
-    "sub": "user_id_uuid",
-    "company_id": "company_uuid",
-    "iat": 1704067200,
-    "exp": 1704672000
-  }
-  ```
-- Both signed with HMAC-SHA256 using SECRET_KEY
-
-#### Step 4: Cookie Management
-- Set HTTP-only cookie with refresh_token:
-  `Set-Cookie: refresh_token={jwt}; HttpOnly; Secure; SameSite=Strict; Max-Age=604800; Path=/`
-- Access token returned in response body (for API clients)
-- Refresh token in cookie (auto-sent with browser requests)
-
-#### Step 5: Audit Logging
-- Insert into `audit_logs` table:
-  ```sql
-  INSERT INTO audit_logs
-    (id, company_id, user_id, action, resource_type, resource_id, created_at)
-  VALUES
-    (uuid, company_uuid, user_uuid, 'LOGIN', 'user', user_uuid, now())
-  ```
-- Enables compliance reporting and security monitoring
-
-### 3.3 Token Architecture
-
-**Access Token (JWT HS256)**
-- **Purpose:** Short-lived credential for API requests
-- **Lifetime:** 15 minutes
-- **Storage:** Client localStorage / sessionStorage (API)
-- **Sent Via:** Authorization header `Bearer {token}`
-- **Renewal:** Automatic via refresh endpoint
-- **Revocation:** None (by design - stateless)
-
-**Refresh Token (JWT HS256)**
-- **Purpose:** Long-lived credential to obtain new access tokens
-- **Lifetime:** 7 days
-- **Storage:** Browser HTTP-only cookie
-- **Sent Via:** Automatic cookie inclusion
-- **Renewal:** Fresh token issued with each refresh
-- **Revocation:** Server-side blacklist (Redis)
-
-### 3.4 Security Implementation Details
-
-**Password Hashing:**
-```python
-# bcrypt configuration
-rounds = 12  # ~250ms per hash (resistant to GPU/ASIC attacks)
-algorithm = "bcrypt"
-
-# Verification: Constant-time comparison
-verify_password(plain_password, stored_hash)
-# Uses bcrypt.checkpw() which is timing-resistant
-```
-
-**JWT Security:**
-```python
-# Token creation
-jwt.encode(
-    payload={"sub": user_id, "company_id": company_id},
-    key=settings.secret_key,  # 256-bit minimum
-    algorithm="HS256"  # HMAC SHA256
-)
-
-# Token verification
-jwt.decode(
-    token=token_string,
-    key=settings.secret_key,
-    algorithms=["HS256"]  # Explicit algorithm (prevents alg=none)
-)
-```
-
-**Cookie Security Attributes:**
-| Attribute | Value | Security Benefit |
-|-----------|-------|-----------------|
-| HttpOnly | true | Prevents JavaScript access (XSS protection) |
-| Secure | true | Transmit only over HTTPS (man-in-the-middle protection) |
-| SameSite | Strict | Prevent CSRF attacks across domains |
-| Path | / | Cookie available to all routes |
-| Max-Age | 604800s | Browser deletes after 7 days automatically |
-
-### 3.5 Session Refresh Flow
-
-When access token expires:
-
-```
-CLIENT                          API SERVER                    DATABASE
-  │                                 │                             │
-  │  POST /auth/refresh             │                             │
-  │  {refresh_token}                │                             │
-  ├────────────────────────────────>│                             │
-  │                                 │ [Verify Refresh Token]      │
-  │                                 │ - Check signature           │
-  │                                 │ - Check expiration          │
-  │                                 │ - Check blacklist (Redis)   │
-  │                                 │                             │
-  │                            [Token Valid]                      │
-  │                                 │                             │
-  │                            [Generate New]                     │
-  │                            access_token (15m new)             │
-  │                            refresh_token (7d new)             │
-  │                                 │                             │
-  │  {new_access_token}             │                             │
-  │  {new_refresh_token}            │                             │
-  │  Set-Cookie: refresh_token      │                             │
-  │<────────────────────────────────┤                             │
-  │ Status: 200 OK                  │                             │
-  │                                 │                             │
-  │ [Continue working]              │                             │
-```
-
-**Benefits:**
-- User doesn't experience logout after 15 minutes
-- Old refresh token invalidated (rotation)
-- Each refresh generates new credentials
-- Compromised token window limited to 15 minutes
-
----
-
-## 4. API Specification
-
-### 4.1 Authentication Endpoints
-
-#### POST /api/v1/auth/login
-
-**Purpose:** User authentication with email and password
-
-**Request:**
-```http
-POST /api/v1/auth/login HTTP/1.1
-Host: api.example.com
-Content-Type: application/json
-
-{
-  "email": "emma.rodriguez@nextgenai.com",
-  "password": "SecurePassword123!"
-}
-```
-
-**Success Response (200 OK):**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-
-Set-Cookie: refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800
-```
-
-**Error Response (401 Unauthorized):**
-```json
-{
-  "detail": "Invalid email or password"
-}
-```
-
-**Status Codes:**
-- `200 OK` - Login successful, tokens returned
-- `400 Bad Request` - Invalid JSON or missing fields
-- `401 Unauthorized` - Email not found or password incorrect
-- `422 Unprocessable Entity` - Validation error (email format, password length)
-
----
-
-#### POST /api/v1/auth/refresh
-
-**Purpose:** Refresh an expired access token
-
-**Request:**
-```http
-POST /api/v1/auth/refresh HTTP/1.1
-Host: api.example.com
-Content-Type: application/json
-
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Success Response (200 OK):**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-```
-
-**Error Response (401 Unauthorized):**
-```json
-{
-  "detail": "Invalid refresh token"
-}
+                                    External Systems
+                                          |
+    +-------------------------------------|-----------------------------------+
+    |                              Load Balancer                               |
+    |                                     |                                    |
+    |    +----------------+    +------------------+    +------------------+    |
+    |    |   Frontend     |    |    Backend       |    |   AI Service     |    |
+    |    |  (Next.js)     |<-->|   (FastAPI)      |<-->|   (Node.js)      |    |
+    |    +----------------+    +------------------+    +------------------+    |
+    |           |                    |      |                   |              |
+    |           |              +-----+------+-----+             |              |
+    |           |              |                  |             |              |
+    |    +------+------+  +----+----+      +------+------+      |              |
+    |    |   Redis     |  | PostgreSQL|    |   Celery    |      |              |
+    |    |   Cache     |  | Database  |    |   Workers   |      |              |
+    |    +-------------+  +-----------+    +-------------+      |              |
+    +---------------------------------------------------------------------- ---+
 ```
 
 ---
 
-#### POST /api/v1/auth/logout
+## 2. Architecture
 
-**Purpose:** Invalidate current session and logout user
+### 2.1 Microservices Architecture
 
-**Request:**
-```http
-POST /api/v1/auth/logout HTTP/1.1
-Host: api.example.com
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+| Service | Port | Technology | Responsibility |
+|---------|------|------------|----------------|
+| Frontend | 3000 | Next.js 15 | User interface, SSR |
+| Backend | 8000 | FastAPI | REST API, business logic |
+| AI Service | 9002 | Node.js | Interview AI, LLM integration |
+| AI WS Proxy | 9003 | Node.js | WebSocket real-time communication |
+| PostgreSQL | 5432 | PostgreSQL 15 | Primary data store |
+| Redis | 6379 | Redis Alpine | Caching, session store |
+| Celery | - | Python | Async task processing |
+
+### 2.2 Data Flow Architecture
+
+```
+[Candidate Browser]
+        |
+        v
+[Next.js Frontend] --HTTP--> [FastAPI Backend] --SQL--> [PostgreSQL]
+        |                           |
+        |                           +--Redis--> [Cache/Sessions]
+        |                           |
+        +--WebSocket--> [AI WS Proxy] --gRPC--> [AI Service] --HTTP--> [LLM API]
 ```
 
-**Success Response (200 OK):**
-```json
-{
-  "message": "Logged out successfully"
-}
+### 2.3 Component Interactions
 
-Set-Cookie: refresh_token=; Max-Age=0; Path=/
+#### 2.3.1 Authentication Flow
+
+```
+1. Client sends credentials to /api/v1/auth/login
+2. Backend validates against PostgreSQL
+3. JWT tokens generated (access + refresh)
+4. Access token returned in response body
+5. Refresh token set as HTTP-only cookie
+6. Subsequent requests include Bearer token
+7. Backend validates token, checks blacklist in Redis
+8. User context attached to request
 ```
 
-**Client Actions After Logout:**
-1. Delete `access_token` from localStorage/sessionStorage
-2. Browser automatically deletes `refresh_token` cookie
-3. All subsequent API requests without token return 401
+#### 2.3.2 Interview Flow
 
-### 4.2 Protected Resource Endpoint (Example)
-
-#### GET /api/v1/users
-
-**Purpose:** List users (requires authentication)
-
-**Request:**
-```http
-GET /api/v1/users?skip=0&limit=20 HTTP/1.1
-Host: api.example.com
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
-
-**Success Response (200 OK):**
-```json
-[
-  {
-    "id": "7c61c84a-2a73-4672-a796-6df7b6379f96",
-    "name": "Emma Rodriguez",
-    "email": "emma.rodriguez@nextgenai.com",
-    "role": "HR",
-    "department": "Human Resources",
-    "is_active": true,
-    "created_at": "2025-11-05T10:00:00Z"
-  },
-  {
-    "id": "5a2e1c3b-8f91-4e2c-b4a7-2c9d8e5f3a1b",
-    "name": "Marcus Johnson",
-    "email": "marcus.johnson@nextgenai.com",
-    "role": "EMPLOYEE",
-    "department": "Engineering",
-    "is_active": true,
-    "created_at": "2025-11-05T11:30:00Z"
-  }
-]
-```
-
-**Error Responses:**
-- `401 Unauthorized` - Missing or invalid token
-- `403 Forbidden` - Insufficient permissions for this role
-- `422 Unprocessable Entity` - Invalid query parameters
-
-### 4.3 Error Handling
-
-**Standard Error Response Format:**
-```json
-{
-  "detail": "Error description"
-}
-```
-
-**HTTP Status Codes:**
-
-| Code | Scenario | Message |
-|------|----------|---------|
-| 200 | Success | Successful operation |
-| 400 | Bad Request | Invalid JSON or request format |
-| 401 | Unauthorized | Missing/invalid token, wrong credentials |
-| 403 | Forbidden | User lacks required permissions |
-| 404 | Not Found | Resource does not exist |
-| 422 | Validation Error | Invalid input data |
-| 429 | Rate Limited | Too many requests (future) |
-| 500 | Server Error | Internal server error |
-| 503 | Service Unavailable | Database/Redis connection failed |
-
----
-
-## 5. Security Architecture & Compliance
-
-### 5.1 Security Measures
-
-**Password Protection:**
-- Bcrypt hashing with 12 rounds (~250ms per hash)
-- Minimum 8 characters required
-- Never stored in plaintext
-- Automatic salting via bcrypt algorithm
-- Constant-time comparison (resistant to timing attacks)
-
-**Token Security:**
-- HS256 algorithm (HMAC SHA256)
-- 256-bit+ secret key (environment variable)
-- Explicit algorithm specification (prevents "none" attack)
-- Automatic expiration enforcement
-- JWT signature validation on every request
-- Payload tamper detection
-
-**Network Security:**
-- HTTPS/TLS required in production
-- Secure cookie flag (HTTP-only transmission)
-- HttpOnly cookie flag (JavaScript access prevented)
-- SameSite=Strict (CSRF protection)
-- CORS policy enforcement
-
-**Data Protection:**
-- Passwords never logged or displayed
-- User data encrypted in transit
-- SQL injection prevention (parameterized queries)
-- XSS prevention (JSON responses only)
-- CSRF token validation for state-changing requests
-
-### 5.2 Compliance Framework
-
-| Standard | Coverage | Status |
-|----------|----------|--------|
-| **GDPR** | Data minimization, user consent, right to deletion | Ready |
-| **SOC 2 Type II** | Access controls, audit logging, incident response | Ready |
-| **ISO 27001** | Information security management system | Compliant |
-| **HIPAA** | If handling health data (future consideration) | Planned |
-| **PCI DSS** | If handling payment data (future consideration) | Planned |
-
-**Audit Logging Compliance:**
-- All login/logout events logged with timestamp
-- User ID and company ID recorded
-- Action type captured (LOGIN, LOGOUT)
-- Logs retained for 2 years minimum
-- Tamper-evident storage (append-only)
-- Searchable by company, user, date range
-
-### 5.3 Known Security Limitations & Roadmap
-
-**Current Limitations:**
-- No rate limiting on login (implement: SlowAPI)
-- No MFA/2FA support (implement: TOTP)
-- No password expiration policy (implement: expires_at)
-- No concurrent session limits (implement: session tracking)
-- No IP whitelisting (implement: geo-blocking)
-
-**Security Roadmap:**
-| Phase | Timeline | Features |
-|-------|----------|----------|
-| **Phase 1** | NOW | Login rate limiting (5 attempts/min) |
-| **Phase 2** | Dec 2025 | TOTP multi-factor authentication |
-| **Phase 3** | Jan 2026 | Password expiration + rotation |
-| **Phase 4** | Feb 2026 | Session management + device tracking |
-| **Phase 5** | Mar 2026 | OAuth2 + SSO integration |
-
----
-
-## 5. Database Schema
-
-### 5.1 Users Table
-
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    first_name VARCHAR(255),
-    last_name VARCHAR(255),
-    role VARCHAR(50) NOT NULL DEFAULT 'employee',
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_company_id ON users(company_id);
-```
-
-### 5.2 Audit Log Table
-
-```sql
-CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL,
-    user_id UUID,
-    action VARCHAR(50) NOT NULL,
-    resource_type VARCHAR(50),
-    resource_id UUID,
-    details JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (company_id) REFERENCES companies(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
-CREATE INDEX idx_audit_logs_company_id ON audit_logs(company_id);
-CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
-CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+1. HR schedules interview, token generated
+2. Candidate accesses /interview/{token}
+3. Frontend validates token via Backend
+4. Resume upload, ATS analysis triggered
+5. Device check (camera/microphone)
+6. WebSocket connection established to AI WS Proxy
+7. AI Service generates questions
+8. Speech-to-text captures responses
+9. AI evaluates answers in real-time
+10. Transcript saved to Backend
+11. Verdict generated and stored
 ```
 
 ---
 
-## 6. API Endpoints
+## 3. Technology Stack
 
-### 6.1 Authentication Endpoints
+### 3.1 Backend
 
-| Method | Endpoint | Auth Required | Description |
-|--------|----------|---------------|-------------|
-| POST | `/api/v1/auth/login` | No | User login |
-| POST | `/api/v1/auth/refresh` | No | Refresh access token |
-| POST | `/api/v1/auth/logout` | Yes | User logout |
+| Component | Technology | Version | Purpose |
+|-----------|------------|---------|---------|
+| Framework | FastAPI | 0.104+ | REST API framework |
+| Runtime | Python | 3.11 | Application runtime |
+| ORM | SQLAlchemy | 2.0 | Database abstraction |
+| Migration | Alembic | 1.13 | Schema migrations |
+| Validation | Pydantic | 2.0 | Data validation |
+| Task Queue | Celery | 5.3 | Async processing |
+| HTTP Client | httpx | 0.25 | External API calls |
+| Testing | pytest | 7.4 | Unit/integration tests |
 
-### 6.2 Protected Endpoints (Example)
+### 3.2 Frontend
 
-All endpoints requiring authentication must include: `Authorization: Bearer {access_token}`
+| Component | Technology | Version | Purpose |
+|-----------|------------|---------|---------|
+| Framework | Next.js | 15.x | React framework |
+| Runtime | Node.js | 18+ | JavaScript runtime |
+| UI Library | React | 18.x | Component library |
+| Styling | Tailwind CSS | 3.x | Utility-first CSS |
+| Type Safety | TypeScript | 5.x | Static typing |
+| State | React Context | - | State management |
+| HTTP Client | Axios | 1.x | API communication |
 
-Example:
-```bash
-curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  http://localhost:8000/api/v1/users/me
-```
+### 3.3 Infrastructure
 
----
+| Component | Technology | Version | Purpose |
+|-----------|------------|---------|---------|
+| Container | Docker | 24+ | Containerization |
+| Orchestration | Docker Compose | 2.x | Local orchestration |
+| Database | PostgreSQL | 15 | Primary data store |
+| Cache | Redis | Alpine | Caching, sessions |
+| Reverse Proxy | Nginx | 1.25 | Load balancing |
 
-## 7. Error Handling
+### 3.4 External Services
 
-### 7.1 HTTP Status Codes
-
-| Code | Scenario | Message |
-|------|----------|---------|
-| 200 | Successful login | TokenResponse with tokens |
-| 400 | Invalid request format | "Invalid request" |
-| 401 | Invalid credentials | "Invalid email or password" |
-| 401 | Expired token | "Invalid token" |
-| 403 | Insufficient permissions | "Insufficient permissions" |
-| 404 | User not found | "User not found" |
-| 500 | Server error | "Internal server error" |
-
-### 7.2 Error Response Format
-
-```json
-{
-  "detail": "Error message description"
-}
-```
-
----
-
-## 8. Configuration
-
-### 8.1 Environment Variables
-
-```bash
-# Backend/.env file
-
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/ai_interviewer_db
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# JWT Configuration
-SECRET_KEY=your-256-bit-secret-key-change-in-production
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=15
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Application
-APP_NAME=AI Interviewer Platform
-APP_VERSION=1.0.0
-DEBUG=False
-LOG_LEVEL=INFO
-
-# CORS
-CORS_ORIGINS=["http://localhost:8000"]
-```
-
-### 8.2 Production Configuration
-
-Before deploying to production:
-
-1. **Change SECRET_KEY** to a strong 256-bit key:
-   `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
-2. **Update CORS_ORIGINS** to your domain:
-   `CORS_ORIGINS=["https://yourdomain.com"]`
-3. **Set DEBUG=False**
-4. **Use HTTPS** for all endpoints
-5. **Enable Rate Limiting** on login endpoint
+| Service | Purpose | Integration |
+|---------|---------|-------------|
+| Google Gemini | LLM for AI interviews | REST API |
+| Groq | Alternative LLM provider | REST API |
+| SendGrid | Email notifications | REST API |
+| AWS SES | Email (alternative) | AWS SDK |
 
 ---
 
-## 9. Testing Requirements
+## 4. API Specifications
 
-### 9.1 Unit Tests
+### 4.1 API Versioning
 
-```python
-# test_auth_service.py
-- test_authenticate_user_success()
-- test_authenticate_user_invalid_password()
-- test_authenticate_user_email_not_found()
-- test_create_tokens()
-- test_verify_and_refresh_token()
-```
+All API endpoints are prefixed with `/api/v1/` for version control.
 
-### 9.2 Integration Tests
+### 4.2 Core Endpoints
 
-```python
-# test_auth_routes.py
-- test_login_successful()
-- test_login_invalid_credentials()
-- test_login_sets_cookie()
-- test_refresh_token_valid()
-- test_refresh_token_expired()
-- test_logout_clears_cookie()
-```
-
-### 9.3 Security Tests
-
-- Test password hash verification
-- Test JWT token expiration
-- Test invalid algorithm rejection
-- Test cookie attributes (HttpOnly, Secure, SameSite)
-- Test CORS policy
-- Test unauthorized access rejection
-
----
-
-### 10.3 Production Checklist
-
-- Update SECRET_KEY
-- Update CORS_ORIGINS
-- Set DEBUG=False
-- Configure HTTPS/SSL
-- Enable database backups
-- Configure Redis persistence
-- Set up logging
-- Configure monitoring
-- Enable rate limiting
-- Test all error scenarios
-
----
-
-## 11. Monitoring & Logging
-
-### 11.1 Audit Logging
-
-Every login/logout action is logged to `audit_logs` table:
-```json
-{
-  "id": "uuid",
-  "company_id": "uuid",
-  "user_id": "uuid",
-  "action": "LOGIN | LOGOUT",
-  "resource_type": "user",
-  "resource_id": "uuid",
-  "details": null,
-  "created_at": "2025-11-05T12:00:00Z"
-}
-```
-
-### 11.2 Application Logging
-
-- `LOG_LEVEL=INFO` (Set to DEBUG for verbose logging)
-
-### 11.3 Metrics to Monitor
-
-- Login success rate
-- Login failure rate
-- Token refresh frequency
-- Invalid token attempts
-- Logout rate
-- Average response time
-
----
-
-## 11. Phase 2: Candidate Management - Technical Implementation
-
-### 11.1 Bulk Candidate Import
-
-**File:** `backend/app/utils/file_parser.py` (500+ lines)
-
-#### Supported Formats
-- JSON array: `POST /api/v1/candidates/bulk/import`
-- CSV files: `POST /api/v1/candidates/bulk/import/file`
-- Excel files (.xlsx, .xls): `POST /api/v1/candidates/bulk/import/file`
-
-#### Implementation Details
-
-**CandidateImportParser Class:**
-```python
-class CandidateImportParser:
-    @staticmethod
-    async def parse_file(file_path: str) -> List[dict]
-        # Auto-detect format (CSV/Excel)
-        # Handles encoding errors gracefully
-        
-    @staticmethod
-    def _parse_csv(content: BytesIO) -> pd.DataFrame
-        # UTF-8 CSV parsing
-        # Header detection
-        
-    @staticmethod
-    def _parse_excel(content: BytesIO) -> pd.DataFrame
-        # Supports .xlsx and .xls
-        # Uses openpyxl for parsing
-```
-
-#### Validation Framework
-- Required fields: `email`, `first_name`, `last_name`
-- Email validation: RFC-compliant regex pattern
-- Phone validation: Minimum 10 digits, flexible formatting (accepts +1-234-567-8900, (123) 456-7890, etc.)
-- Experience years: 0-100 range validation
-- Type coercion: Automatic numeric field conversion
-- NaN handling: Converts "nan" strings to None
-
-#### Error Handling
-- File size limit: 10MB (413 PAYLOAD_TOO_LARGE if exceeded)
-- Error collection: First 100 errors returned in response
-- Duplicate detection: Prevents duplicate emails per company
-- Graceful degradation: Failed records don't block entire import
-
-#### Response Format
-```json
-{
-  "total": 100,
-  "created": 95,
-  "failed": 5,
-  "errors": [
-    "Row 2: Invalid email format: invalid@",
-    "Row 5: Phone: already exists with email jane@example.com",
-    ...
-  ],
-  "created_candidates": [
-    {
-      "id": "uuid",
-      "email": "...",
-      "first_name": "...",
-      "status": "applied",
-      "source": "excel_import",
-      "created_at": "2025-11-16T..."
-    },
-    ...
-  ],
-  "message": "✅ Imported 95/100 candidates successfully. 5 errors."
-}
-```
-
-### 11.2 HR Dashboard Analytics
-
-**File:** `backend/app/services/candidate_service.py` (Analytics methods)
-
-#### Dashboard Stats Endpoint
-- **Endpoint:** `GET /api/v1/candidates/dashboard/stats`
-- **Returns:**
-  - `total_candidates`: Count of all candidates
-  - `active_interviews`: Count with status in [SCHEDULED, IN_PROGRESS]
-  - `pending_feedback`: Count of interviews without notes
-  - `candidates_by_status`: Object with counts per status
-  - `candidates_by_domain`: Object with counts per domain
-  - `conversion_rates`: Calculated percentages at each stage
-
-#### Funnel Analytics Endpoint
-- **Endpoint:** `GET /api/v1/candidates/analytics/funnel`
-- **Returns:** Array of funnel stages with:
-  - `stage`: Applied → Screening → Interview → Offer → Accepted
-  - `count`: Number of candidates at stage
-  - `percentage`: Percentage of total
-  - `dropoff_from_previous`: % lost to previous stage
-- **Calculations:**
-  - Applied-to-Screening: (screening / applied) * 100
-  - Screening-to-Interview: (interview / screening) * 100
-  - Interview-to-Offer: (offer / interview) * 100
-  - Offer-to-Accepted: (accepted / offer) * 100
-
-#### Time-to-Hire Metrics
-- **Endpoint:** `GET /api/v1/candidates/analytics/time-to-hire`
-- **Returns:**
-  - `average_days_to_hire`: Mean from applied to accepted
-  - `median_days_to_hire`: Median (50th percentile)
-  - `total_hired`: Count of accepted candidates
-  - `by_department`: Department-level breakdown
-  - `recent_hires_30_days`: Count hired in last 30 days
-
-#### Calculation Methods
-```python
-# Time-to-hire calculation
-duration = (updated_at - created_at).days
-
-# Conversion rates
-conversion_rate = (stage_count / previous_stage_count) * 100
-
-# Multi-tenant isolation
-WHERE company_id = user.company_id
-```
-
-### 11.3 Bulk Email System
-
-**Files:**
-- `backend/app/services/email_async_service.py`: Queue and send logic
-- `backend/app/routes/candidates.py`: Bulk email endpoint
-
-#### Endpoint
-- **Endpoint:** `POST /api/v1/candidates/bulk/send-email`
-- **Request:**
-  ```json
-  {
-    "candidate_ids": ["uuid1", "uuid2", ...],
-    "template_id": "candidate_status_update",
-    "subject": "Your Interview Status",
-    "body": "<p>HTML body</p>",
-    "send_immediately": true
-  }
-  ```
-- **Response:** `202 ACCEPTED` with job tracking ID
-
-#### Implementation
-```python
-async def queue_bulk_emails(
-    session: AsyncSession,
-    company_id: UUID,
-    recipients: List[Dict],
-    subject: str,
-    body: str,
-    email_type: EmailType,
-    priority: EmailPriority = MEDIUM
-) -> List[UUID]
-    # Queue each email in database
-    # Trigger Celery tasks
-    # Return email IDs for progress tracking
-```
-
-#### Rate Limiting
-- Enforced at application level
-- Default: 100 emails per minute per company
-- Configurable via environment
-- Queued emails respect rate limits
-
-#### Async Processing
-- Emails queued to database first
-- Celery tasks triggered for actual sending
-- Max retries: 3 with exponential backoff
-- Delivery status tracked: QUEUED → SENDING → SENT/FAILED
-
-### 11.4 Database Schema Extensions
-
-#### New Tables for Phase 2
-
-**candidates** (Extended from Phase 0)
-```sql
-- email: String, Unique per company
-- first_name, last_name: String
-- phone: String, Optional
-- domain: String, Optional (engineering, sales, etc.)
-- position: String, Optional
-- experience_years: Integer, Optional
-- qualifications: Text, Optional
-- resume_url: String, Optional
-- status: Enum (applied, screening, interview, offer, accepted, rejected, withdrawn, on_hold)
-- source: Enum (direct, excel_import, bulk_upload, referral, etc.)
-- created_by: UUID FK to users
-- company_id: UUID FK to companies (Multi-tenant isolation)
-- Indexes: (company_id, email), (company_id, status), (company_id, domain)
-```
-
-**interviews** (Extended from Phase 0)
-```sql
-- Added: round: Enum (screening, technical, hr_round, final, assessment)
-- Added: recording_url, transcription_url: String, Optional
-- Added: notes: Text, Optional (feedback)
-- Indexes: (company_id, status), (company_id, candidate_id)
-```
-
-#### Multi-Tenant Isolation Enforcement
-- All queries include: `WHERE company_id = current_user.company_id`
-- Database constraints: Composite unique indexes include company_id
-- Foreign keys: Enforce company_id consistency across tables
-
-### 11.5 Performance Considerations
-
-#### Bulk Import Performance
-- CSV parsing: Pandas DataFrames (vectorized operations)
-- Batch inserts: SQLAlchemy bulk operations where possible
-- Validation: Single-pass through records
-- Expected throughput: 1000+ candidates in <5 seconds
-
-#### Analytics Query Performance
-- All analytics use aggregation functions (COUNT, GROUP BY)
-- Queries optimized with proper indexes
-- Response time target: <500ms for all analytics endpoints
-- Caching: Future optimization point (Redis caching of daily stats)
-
-#### Email Throughput
-- Queue-based: Async processing doesn't block API
-- Celery workers: Parallel processing of multiple emails
-- Rate limiting: Prevents provider throttling
-- Database: Async session management for concurrency
-
----
-
-## 12. Interview Round Scheduling (Phase 2)
-
-### 12.1 Database Schema
-
-**Table:** `interview_rounds`
-
-| Column | Type | Constraints | Purpose |
-|--------|------|-----------|---------|
-| id | UUID | PK | Unique identifier |
-| company_id | UUID | FK | Multi-tenant isolation |
-| candidate_id | UUID | FK | Reference to candidate |
-| interviewer_id | UUID | FK | Reference to interviewer (user) |
-| round_type | VARCHAR(50) | ENUM | SCREENING, TECHNICAL, BEHAVIORAL, FINAL, HR, CUSTOM |
-| round_status | VARCHAR(50) | ENUM | SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED, RESCHEDULED |
-| scheduled_at | TIMESTAMP | NOT NULL | UTC timestamp of scheduled interview |
-| timezone | VARCHAR(100) | NOT NULL | IANA timezone (America/New_York, Europe/London, etc.) |
-| duration_minutes | INTEGER | NOT NULL | Interview duration in minutes |
-| notes | TEXT | NULL | Interview notes and feedback |
-| created_by | UUID | FK | User who created the round |
-| created_at | TIMESTAMP | DEFAULT NOW() | Record creation timestamp |
-| updated_at | TIMESTAMP | DEFAULT NOW() | Last modification timestamp |
-
-**Indexes:**
-- company_id (frequent multi-tenant filtering)
-- candidate_id (candidate's interview history)
-- interviewer_id (interviewer's schedule)
-- scheduled_at (upcoming rounds query)
-- round_status (status filtering)
-- (company_id, scheduled_at) (compound for date range queries)
-- (candidate_id, scheduled_at) (candidate pipeline progress)
-
-**Foreign Keys:**
-- company_id REFERENCES companies(id) CASCADE
-- candidate_id REFERENCES candidates(id) CASCADE
-- interviewer_id REFERENCES users(id) SET NULL
-- created_by REFERENCES users(id) SET NULL
-
-### 12.2 Timezone Handling Architecture
-
-**Timezone Conversion Strategy:**
-
-1. **Storage**: Always UTC
-   - `scheduled_at` stored as UTC timestamp in database
-   - Ensures consistency across timezones
-
-2. **Conversion on Create**:
-   ```
-   Client sends: "2025-11-20 14:00:00" (local time) + timezone "America/New_York"
-   Backend converts: America/New_York 14:00 → UTC 19:00
-   Stores: 2025-11-20 19:00:00 UTC
-   ```
-
-3. **Conversion on Retrieve**:
-   ```
-   Database has: 2025-11-20 19:00:00 UTC
-   Client requests with timezone: "America/New_York"
-   Backend converts: UTC 19:00 → America/New_York 14:00
-   Returns: 2025-11-20 14:00:00-05:00 (with DST offset)
-   ```
-
-4. **DST Handling**:
-   - pytz library automatically handles Daylight Saving Time
-   - When converting, considers whether date falls in DST period
-   - No manual calculation needed
-
-**Supported Timezones**: 400+ IANA timezones (America/New_York, Europe/London, Asia/Tokyo, etc.)
-
-### 12.3 Service Layer: InterviewRoundService
-
-**File:** `backend/app/services/interview_round_service.py`
-
-**Key Methods:**
-
-1. **convert_to_utc(local_datetime, timezone_str) -> datetime**
-   - Input: Local datetime + IANA timezone string
-   - Output: UTC datetime
-   - Handles DST automatically
-   - Validates timezone is in pytz.all_timezones
-
-2. **convert_from_utc(utc_datetime, timezone_str) -> datetime**
-   - Input: UTC datetime + IANA timezone string
-   - Output: Local datetime with timezone info
-   - Preserves DST offset information
-
-3. **create_round(company_id, candidate_id, round_type, scheduled_at, timezone, duration_minutes, interviewer_id) -> InterviewRound**
-   - Creates interview round with timezone support
-   - Converts local time to UTC for storage
-   - Validates round_type and timezone
-   - Returns round with all details
-
-4. **get_candidate_rounds(company_id, candidate_id, skip=0, limit=50) -> List[InterviewRound]**
-   - Returns all rounds for a candidate in order
-   - Multi-tenant scoped
-   - Sorted by scheduled_at ascending
-   - Includes timezone info
-
-5. **get_company_rounds(company_id, round_type=None, status=None, start_date=None, end_date=None) -> List[InterviewRound]**
-   - Returns all company rounds with optional filtering
-   - Filters by round_type (SCREENING, TECHNICAL, etc.)
-   - Filters by status (SCHEDULED, IN_PROGRESS, etc.)
-   - Filters by date range
-   - Multi-tenant scoped
-
-6. **get_upcoming_rounds(company_id, days_ahead=7, timezone_str='UTC') -> List[InterviewRound]**
-   - Returns rounds scheduled in next N days
-   - Useful for dashboard/notifications
-   - Converts to specified timezone for client
-
-7. **reschedule_round(round_id, new_scheduled_at, new_timezone, company_id) -> InterviewRound**
-   - Reschedules round to new datetime
-   - Validates new time is in future
-   - Updates timezone if provided
-   - Marks status as RESCHEDULED
-   - Audit logged
-
-8. **get_candidate_round_progress(company_id, candidate_id) -> CandidateRoundProgressResponse**
-   - Returns: { completed: int, pending: int, cancelled: int }
-   - Useful for progress tracking
-
-9. **get_interviewer_schedule(company_id, interviewer_id, start_date, end_date) -> List[InterviewRound]**
-   - Returns interviewer's schedule for date range
-   - Used for availability checking
-
-### 12.4 API Endpoints
-
-**File:** `backend/app/routes/interview_rounds.py`
+#### 4.2.1 Authentication
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| POST | `/api/v1/interview-rounds` | Create single round | EMPLOYEE+ |
-| POST | `/api/v1/interview-rounds/batch-schedule` | Batch create pipeline | EMPLOYEE+ |
-| GET | `/api/v1/interview-rounds` | List rounds (filtered) | EMPLOYEE+ |
-| GET | `/api/v1/interview-rounds/{id}` | Get round details | EMPLOYEE+ |
-| PATCH | `/api/v1/interview-rounds/{id}` | Update round | TEAM_LEAD+ |
-| POST | `/api/v1/interview-rounds/{id}/reschedule` | Reschedule round | TEAM_LEAD+ |
-| POST | `/api/v1/interview-rounds/{id}/cancel` | Cancel round | TEAM_LEAD+ |
-| POST | `/api/v1/interview-rounds/{id}/start` | Mark IN_PROGRESS | TEAM_LEAD+ |
-| POST | `/api/v1/interview-rounds/{id}/complete` | Mark COMPLETED | TEAM_LEAD+ |
-| GET | `/api/v1/interview-rounds/candidate/{id}/progress` | Get progress | CANDIDATE |
-| GET | `/api/v1/interview-rounds/interviewer/{id}/schedule` | Get schedule | EMPLOYEE+ |
-| GET | `/api/v1/interview-rounds/company/upcoming` | Get upcoming | EMPLOYEE+ |
+| POST | /auth/login | User login | None |
+| POST | /auth/logout | User logout | Required |
+| POST | /auth/refresh | Refresh token | Cookie |
+| GET | /auth/me | Current user info | Required |
 
-**Request/Response Examples:**
+#### 4.2.2 Candidates
 
-Create Round:
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | /candidates | List candidates | HR/Admin |
+| POST | /candidates | Create candidate | HR/Admin |
+| GET | /candidates/{id} | Get candidate | HR/Admin |
+| PATCH | /candidates/{id} | Update candidate | HR/Admin |
+| DELETE | /candidates/{id} | Delete candidate | HR/Admin |
+| POST | /candidates/bulk-import | Import CSV | HR/Admin |
+
+#### 4.2.3 Interviews
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | /interviews | List interviews | HR/Admin |
+| POST | /interviews | Create interview | HR/Admin |
+| GET | /interviews/{id} | Get interview | HR/Admin |
+| PATCH | /interviews/{id} | Update interview | HR/Admin |
+| POST | /interviews/{id}/complete | Complete interview | System |
+| GET | /interviews/validate/{token} | Validate token | None |
+
+#### 4.2.4 AI Services
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | /ai/ats/check | ATS resume check | Optional |
+| POST | /ai/questions/generate | Generate questions | HR/Admin |
+| POST | /ai/transcript-callback | Save transcript | System |
+| GET | /ai/reports | List AI reports | HR/Admin |
+
+#### 4.2.5 HR Management
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | /hr/dashboard | Dashboard metrics | HR |
+| GET | /hr/candidates | Assigned candidates | HR |
+| POST | /hr/candidates/schedule | Schedule interview | HR |
+| POST | /hr/interviews/{id}/transcript | Save transcript | HR |
+
+#### 4.2.6 Employee Portal
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | /employee/my-candidates | Assigned candidates | Employee |
+| GET | /employee/my-interviews | Employee interviews | Employee |
+| GET | /employee/candidate-profile/{id} | Detailed profile | Employee |
+| PUT | /employee/my-candidates/{id}/status | Update status | Employee |
+
+#### 4.2.7 Candidate Portal
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | /candidate-portal/profile | Candidate profile | Candidate |
+| GET | /candidate-portal/interviews | Candidate interviews | Candidate |
+| GET | /candidate-portal/my-interview-results | Interview results | Candidate |
+
+### 4.3 Request/Response Formats
+
+#### 4.3.1 Standard Error Response
+
 ```json
-POST /api/v1/interview-rounds
 {
-  "candidate_id": "uuid",
-  "round_type": "SCREENING",
-  "scheduled_at": "2025-11-20T14:00:00",
-  "timezone": "America/New_York",
-  "duration_minutes": 60,
-  "interviewer_id": "uuid"
-}
-
-Response (201):
-{
-  "id": "uuid",
-  "candidate_id": "uuid",
-  "round_type": "SCREENING",
-  "round_status": "SCHEDULED",
-  "scheduled_at": "2025-11-20T14:00:00-05:00",
-  "timezone": "America/New_York",
-  "duration_minutes": 60,
-  "end_time": "2025-11-20T15:00:00-05:00",
-  "interviewer_id": "uuid",
-  "created_at": "2025-11-16T10:00:00Z"
+  "detail": "Error message description",
+  "code": "ERROR_CODE",
+  "timestamp": "2024-12-24T12:00:00Z"
 }
 ```
 
-Batch Schedule (Multi-Round Pipeline):
+#### 4.3.2 Pagination Response
+
 ```json
-POST /api/v1/interview-rounds/batch-schedule
 {
-  "candidate_id": "uuid",
-  "timezone": "America/New_York",
-  "rounds": [
+  "items": [...],
+  "total": 100,
+  "page": 1,
+  "page_size": 20,
+  "pages": 5
+}
+```
+
+### 4.4 Rate Limiting
+
+| Endpoint Category | Limit | Window |
+|-------------------|-------|--------|
+| Authentication | 10 | 1 minute |
+| Standard API | 100 | 1 minute |
+| AI Operations | 20 | 1 minute |
+| File Upload | 5 | 1 minute |
+
+---
+
+## 5. Database Design
+
+### 5.1 Entity Relationship Diagram
+
+```
++---------------+       +----------------+       +---------------+
+|   companies   |       |     users      |       |  candidates   |
++---------------+       +----------------+       +---------------+
+| id (PK)       |<----->| id (PK)        |<----->| id (PK)       |
+| name          |       | email          |       | email         |
+| domain        |       | password_hash  |       | first_name    |
+| status        |       | role           |       | last_name     |
+| created_at    |       | company_id(FK) |       | company_id(FK)|
++---------------+       | is_active      |       | status        |
+                        +----------------+       | assigned_to   |
+                                                 +---------------+
+                                                        |
+                                                        v
++---------------+       +----------------+       +---------------+
+|     jobs      |       |   interviews   |       |  ai_reports   |
++---------------+       +----------------+       +---------------+
+| id (PK)       |<----->| id (PK)        |<----->| id (PK)       |
+| title         |       | candidate_id   |       | interview_id  |
+| description   |       | job_id (FK)    |       | report_type   |
+| company_id    |       | round          |       | score         |
+| status        |       | status         |       | summary       |
+| requirements  |       | token          |       | provider_resp |
++---------------+       | scheduled_time |       +---------------+
+                        +----------------+
+```
+
+### 5.2 Core Tables
+
+#### 5.2.1 users
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK | Unique identifier |
+| email | VARCHAR(255) | UNIQUE, NOT NULL | User email |
+| password_hash | VARCHAR(255) | NOT NULL | Bcrypt hash |
+| role | ENUM | NOT NULL | ADMIN/HR/EMPLOYEE/CANDIDATE |
+| company_id | UUID | FK | Company reference |
+| first_name | VARCHAR(100) | | User first name |
+| last_name | VARCHAR(100) | | User last name |
+| is_active | BOOLEAN | DEFAULT TRUE | Account status |
+| is_verified | BOOLEAN | DEFAULT FALSE | Email verified |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation time |
+| updated_at | TIMESTAMP | | Last update |
+
+#### 5.2.2 candidates
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK | Unique identifier |
+| user_id | UUID | FK UNIQUE | Linked user account |
+| company_id | UUID | FK NOT NULL | Company reference |
+| email | VARCHAR(255) | NOT NULL | Contact email |
+| first_name | VARCHAR(100) | | Candidate name |
+| last_name | VARCHAR(100) | | Candidate surname |
+| phone | VARCHAR(50) | | Contact phone |
+| position | VARCHAR(200) | | Applied position |
+| domain | VARCHAR(100) | | Technical domain |
+| status | ENUM | DEFAULT SCREENING | Pipeline status |
+| experience_years | INTEGER | | Years experience |
+| qualifications | TEXT | | Qualifications |
+| assigned_to | UUID | FK | Assigned employee |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation time |
+
+#### 5.2.3 interviews
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK | Unique identifier |
+| candidate_id | UUID | FK NOT NULL | Candidate reference |
+| company_id | UUID | FK NOT NULL | Company reference |
+| job_id | UUID | FK | Job reference |
+| round | ENUM | NOT NULL | Interview round |
+| status | ENUM | DEFAULT SCHEDULED | Interview status |
+| scheduled_time | TIMESTAMP | | Scheduled datetime |
+| ai_interview_token | VARCHAR(255) | UNIQUE | Access token |
+| notes | TEXT | | Interview notes |
+| created_by | UUID | FK | Creator reference |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation time |
+
+#### 5.2.4 ai_reports
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | UUID | PK | Unique identifier |
+| interview_id | UUID | FK | Interview reference |
+| company_id | UUID | FK NOT NULL | Company reference |
+| report_type | VARCHAR(50) | NOT NULL | Report type |
+| score | DECIMAL(5,2) | | Overall score |
+| summary | TEXT | | AI summary |
+| provider_response | JSONB | | Full AI response |
+| created_at | TIMESTAMP | DEFAULT NOW() | Creation time |
+
+### 5.3 Indexes
+
+```sql
+-- Performance indexes
+CREATE INDEX idx_candidates_company ON candidates(company_id);
+CREATE INDEX idx_candidates_status ON candidates(status);
+CREATE INDEX idx_candidates_assigned ON candidates(assigned_to);
+CREATE INDEX idx_interviews_candidate ON interviews(candidate_id);
+CREATE INDEX idx_interviews_token ON interviews(ai_interview_token);
+CREATE INDEX idx_interviews_status ON interviews(status);
+CREATE INDEX idx_ai_reports_interview ON ai_reports(interview_id);
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_company ON users(company_id);
+```
+
+### 5.4 Migrations
+
+Migrations are managed via Alembic with the following structure:
+
+```
+backend/alembic/versions/
+├── 001_initial.py
+├── 002_add_roles.py
+├── 003_email_verification.py
+├── 004_phase_2_candidates.py
+├── 005_import_jobs.py
+├── 006_interview_rounds.py
+├── 007_ai_reports.py
+├── 008_audit_logs.py
+├── 009_availability_slots.py
+├── 010_interview_sessions.py
+└── 011_ai_service_compatibility.py
+```
+
+---
+
+## 6. Security Architecture
+
+### 6.1 Authentication
+
+#### 6.1.1 JWT Token Structure
+
+```json
+{
+  "sub": "user_uuid",
+  "email": "user@example.com",
+  "role": "HR",
+  "company_id": "company_uuid",
+  "exp": 1735200000,
+  "iat": 1735199000,
+  "type": "access"
+}
+```
+
+#### 6.1.2 Token Lifetimes
+
+| Token Type | Lifetime | Storage |
+|------------|----------|---------|
+| Access Token | 15 minutes | Memory/LocalStorage |
+| Refresh Token | 7 days | HTTP-only Cookie |
+| Interview Token | 7 days | Database |
+| Verification Token | 24 hours | Database |
+
+### 6.2 Authorization
+
+#### 6.2.1 Role Hierarchy
+
+```
+ADMIN
+  |
+  +-- Full system access
+  +-- Company management
+  +-- User management
+  
+HR
+  |
+  +-- Company-scoped access
+  +-- Candidate management
+  +-- Interview scheduling
+  +-- Employee management
+  
+EMPLOYEE
+  |
+  +-- Assigned candidate access
+  +-- Interview viewing
+  +-- Status updates
+  
+CANDIDATE
+  |
+  +-- Own profile access
+  +-- Interview participation
+  +-- Results viewing
+```
+
+#### 6.2.2 Endpoint Protection
+
+```python
+# Role-based decorators
+@router.get("/admin/endpoint")
+async def admin_only(user: User = Depends(require_admin)):
+    pass
+
+@router.get("/hr/endpoint")
+async def hr_only(user: User = Depends(require_hr)):
+    pass
+
+@router.get("/employee/endpoint")
+async def employee_only(user: User = Depends(require_employee)):
+    pass
+```
+
+### 6.3 Data Protection
+
+#### 6.3.1 Encryption
+
+| Data Type | At Rest | In Transit |
+|-----------|---------|------------|
+| Passwords | bcrypt (12 rounds) | TLS 1.3 |
+| PII | Database encryption | TLS 1.3 |
+| Tokens | N/A | TLS 1.3 |
+| Files | AES-256 | TLS 1.3 |
+
+#### 6.3.2 Data Isolation
+
+- Multi-tenant isolation via company_id
+- Row-level security in queries
+- API responses filtered by company context
+
+### 6.4 Security Headers
+
+```python
+# Applied via middleware
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+Content-Security-Policy: default-src 'self'
+```
+
+### 6.5 Known Vulnerabilities and Mitigations
+
+| Issue | Risk Level | Mitigation |
+|-------|------------|------------|
+| Hardcoded API keys in seed data | Medium | Use environment variables in production |
+| Broad exception handling | Low | Implement specific exception types |
+| Console logging in production | Low | Use proper logging framework |
+| Token in localStorage | Medium | Already using HTTP-only cookies for refresh |
+
+---
+
+## 7. Infrastructure Requirements
+
+### 7.1 Minimum Hardware Requirements
+
+| Component | Development | Production |
+|-----------|-------------|------------|
+| CPU | 2 cores | 4+ cores |
+| RAM | 4 GB | 16+ GB |
+| Storage | 20 GB SSD | 100+ GB SSD |
+| Network | 100 Mbps | 1 Gbps |
+
+### 7.2 Container Resources
+
+| Service | CPU Limit | Memory Limit | Replicas |
+|---------|-----------|--------------|----------|
+| Frontend | 0.5 | 512 MB | 2 |
+| Backend | 1.0 | 1 GB | 3 |
+| AI Service | 2.0 | 2 GB | 2 |
+| PostgreSQL | 2.0 | 4 GB | 1 (primary) |
+| Redis | 0.5 | 512 MB | 1 |
+| Celery | 1.0 | 1 GB | 2 |
+
+### 7.3 Network Configuration
+
+| Service | Internal Port | External Port | Protocol |
+|---------|---------------|---------------|----------|
+| Frontend | 3000 | 443 | HTTPS |
+| Backend | 8000 | 443/api | HTTPS |
+| AI WS Proxy | 9003 | 443/ws | WSS |
+| PostgreSQL | 5432 | - | TCP |
+| Redis | 6379 | - | TCP |
+
+### 7.4 Environment Variables
+
+```bash
+# Required for all environments
+SECRET_KEY=your-256-bit-secret-key
+DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db
+REDIS_URL=redis://localhost:6379/0
+
+# Optional - Email
+SENDGRID_API_KEY=
+SMTP_HOST=
+SMTP_USER=
+SMTP_PASSWORD=
+
+# Optional - AI
+AI_SERVICE_URL=http://ai-service:9002
+GROQ_API_KEY=
+```
+
+---
+
+## 8. Integration Points
+
+### 8.1 AI Service Integration
+
+#### 8.1.1 Question Generation
+
+```
+POST /ai/questions/generate
+Request:
+{
+  "job_description": "...",
+  "domain": "backend",
+  "experience_level": "senior",
+  "count": 10
+}
+
+Response:
+{
+  "questions": [
     {
-      "round_type": "SCREENING",
-      "scheduled_at": "2025-11-20T10:00:00",
-      "duration_minutes": 30,
-      "interviewer_id": "uuid1"
-    },
-    {
-      "round_type": "TECHNICAL",
-      "scheduled_at": "2025-11-22T14:00:00",
-      "duration_minutes": 60,
-      "interviewer_id": "uuid2"
-    },
-    {
-      "round_type": "FINAL",
-      "scheduled_at": "2025-11-24T15:00:00",
-      "duration_minutes": 45,
-      "interviewer_id": "uuid3"
+      "id": "q1",
+      "text": "...",
+      "category": "technical",
+      "difficulty": "medium"
     }
   ]
 }
+```
 
-Response (201):
+#### 8.1.2 ATS Check
+
+```
+POST /ai/ats/check
+Request:
 {
-  "created_rounds": [
-    { "id": "uuid", "round_type": "SCREENING", ... },
-    { "id": "uuid", "round_type": "TECHNICAL", ... },
-    { "id": "uuid", "round_type": "FINAL", ... }
-  ],
-  "message": "Created 3 rounds successfully"
+  "resume_text": "...",
+  "job_description": "..."
+}
+
+Response:
+{
+  "score": 75,
+  "summary": "...",
+  "keywords_found": [...],
+  "keywords_missing": [...]
 }
 ```
 
-### 12.5 Validation Rules
+### 8.2 WebSocket Protocol
 
-- scheduled_at must be in future
-- timezone must be valid IANA timezone
-- duration_minutes must be > 0 and <= 480 (8 hours max)
-- round_type must be valid enum
-- interviewer_id must exist and belong to same company
-- No duplicate SCHEDULED rounds for same interviewer/time
+#### 8.2.1 Connection
 
-### 12.6 Performance Considerations
+```javascript
+ws://localhost:9003/ws/interview/{token}
+```
 
-- Index on (company_id, scheduled_at) for range queries
-- Index on (candidate_id, scheduled_at) for pipeline progress
-- Timezone conversion happens in application layer (avoids database bottleneck)
-- Batch operations use SQLAlchemy bulk_insert for efficiency
-- All queries multi-tenant scoped for security
+#### 8.2.2 Message Types
 
----
+```json
+// Client -> Server
+{
+  "type": "user_message",
+  "content": "candidate answer text"
+}
 
-## 13. Future Enhancements
+// Server -> Client
+{
+  "type": "ai_response",
+  "content": "AI question or feedback"
+}
 
-1. **Multi-Factor Authentication (MFA)**
-   - SMS/Email OTP
-   - Authenticator app support
-2. **OAuth2 / SSO**
-   - Google OAuth
-   - Microsoft SSO
-3. **Session Management**
-   - Multiple device sessions
-   - Session revocation
-   - Device tracking
-4. **Advanced Security**
-   - IP whitelisting
-   - Geolocation verification
-   - Behavioral analysis
-5. **Performance**
-   - Token caching in Redis
-   - Distributed sessions
-   - Load balancing
+{
+  "type": "interview_complete",
+  "verdict": "PASS",
+  "score": 85
+}
+```
 
----
+### 8.3 Email Integration
 
-## 13. Support & Maintenance
+#### 8.3.1 SendGrid Template IDs
 
-### 13.1 Troubleshooting
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| "Invalid email or password" | Wrong credentials | Verify email/password |
-| "Invalid token" | Expired or tampered token | Get new token via login or refresh |
-| "Missing auth header" | No Authorization header | Include `Authorization: Bearer {token}` |
-| "Insufficient permissions" | User role mismatch | Verify user role in database |
+| Template | Purpose |
+|----------|---------|
+| interview_scheduled | Interview scheduling notification |
+| interview_reminder | 24-hour reminder |
+| results_available | Results notification |
+| verification | Email verification |
 
 ---
 
-**Last Updated:** November 16, 2025
-**Document Version:** 1.0.1 - Phase 2 Technical Implementation Added
+## 9. Performance Requirements
+
+### 9.1 Response Time SLAs
+
+| Operation | Target (p95) | Maximum |
+|-----------|--------------|---------|
+| API Read | 100ms | 500ms |
+| API Write | 200ms | 1000ms |
+| Auth Operations | 150ms | 500ms |
+| AI Operations | 2000ms | 10000ms |
+| File Upload | 5000ms | 30000ms |
+
+### 9.2 Throughput Requirements
+
+| Metric | Target |
+|--------|--------|
+| Concurrent Users | 1000 |
+| Requests/Second | 500 |
+| Concurrent Interviews | 100 |
+| Database Connections | 50 |
+
+### 9.3 Caching Strategy
+
+| Data Type | Cache Duration | Invalidation |
+|-----------|----------------|--------------|
+| User Sessions | 15 minutes | On logout |
+| Company Settings | 1 hour | On update |
+| Job Listings | 5 minutes | On update |
+| Static Content | 24 hours | On deploy |
+
+---
+
+## 10. Monitoring and Observability
+
+### 10.1 Health Checks
+
+| Endpoint | Interval | Timeout |
+|----------|----------|---------|
+| /health | 30s | 5s |
+| /health/db | 60s | 10s |
+| /health/redis | 60s | 5s |
+
+### 10.2 Logging
+
+#### 10.2.1 Log Levels
+
+| Level | Usage |
+|-------|-------|
+| ERROR | Exceptions, failures |
+| WARN | Degraded operations |
+| INFO | Business events |
+| DEBUG | Development only |
+
+#### 10.2.2 Log Format
+
+```json
+{
+  "timestamp": "2024-12-24T12:00:00Z",
+  "level": "INFO",
+  "service": "backend",
+  "request_id": "uuid",
+  "user_id": "uuid",
+  "message": "Description",
+  "metadata": {}
+}
+```
+
+### 10.3 Metrics
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| http_requests_total | Counter | method, path, status |
+| http_request_duration | Histogram | method, path |
+| active_interviews | Gauge | company |
+| db_connections | Gauge | pool |
+
+### 10.4 Alerting Rules
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| High Error Rate | error_rate > 5% for 5m | Critical |
+| Slow Response | p95 > 2s for 10m | Warning |
+| Database Down | health check fails 3x | Critical |
+| High Memory | memory > 90% for 5m | Warning |
+
+---
+
+## 11. Deployment Guidelines
+
+### 11.1 Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/org/ai-interviewer.git
+cd ai-interviewer
+
+# Start services
+docker compose up -d
+
+# Run migrations
+docker compose exec backend alembic upgrade head
+
+# Seed data (development only)
+docker compose exec backend python reset_and_seed.py
+```
+
+### 11.2 Production Deployment
+
+```bash
+# Build images
+docker compose -f docker-compose.prod.yml build
+
+# Deploy with secrets
+docker compose -f docker-compose.prod.yml up -d
+
+# Verify health
+curl https://api.example.com/health
+```
+
+### 11.3 CI/CD Pipeline
+
+```yaml
+stages:
+  - lint
+  - test
+  - security-scan
+  - build
+  - deploy-staging
+  - integration-test
+  - deploy-production
+```
+
+### 11.4 Rollback Procedure
+
+```bash
+# Quick rollback
+docker compose down
+docker compose up -d --no-build
+
+# Database rollback (if needed)
+docker compose exec backend alembic downgrade -1
+```
+
+---
+
+## 12. Known Issues and Mitigations
+
+### 12.1 Security Issues
+
+| Issue | Location | Risk | Mitigation |
+|-------|----------|------|------------|
+| Hardcoded passwords in seed script | reset_and_seed.py | Medium | Remove for production; use env vars |
+| Default API key fallback | ai_service.py | Medium | Require API key in production |
+| Broad exception handling | Multiple routes | Low | Implement specific exception types |
+
+### 12.2 Technical Debt
+
+| Issue | Location | Impact | Resolution |
+|-------|----------|--------|------------|
+| Console.log statements | Frontend | Low | Replace with proper logger |
+| TODO comments | Multiple files | Low | Address in future sprints |
+| Duplicate code patterns | Employee/HR routes | Medium | Extract to shared services |
+
+### 12.3 Edge Cases
+
+| Scenario | Current Behavior | Recommended Fix |
+|----------|------------------|-----------------|
+| Interview timeout | Session abandoned | Implement auto-save |
+| Network disconnect | Data loss possible | Add offline queue |
+| Concurrent updates | Last write wins | Implement optimistic locking |
+| Large file upload | May timeout | Add chunked upload |
+
+### 12.4 Performance Concerns
+
+| Issue | Impact | Mitigation |
+|-------|--------|------------|
+| N+1 queries in candidate listing | Slow page load | Add eager loading |
+| No connection pooling for AI service | Resource exhaustion | Implement httpx pool |
+| Large transcript storage | DB bloat | Implement compression |
+
+---
+
+## Appendix A: Error Codes
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| AUTH_001 | 401 | Invalid credentials |
+| AUTH_002 | 401 | Token expired |
+| AUTH_003 | 403 | Insufficient permissions |
+| CAND_001 | 404 | Candidate not found |
+| CAND_002 | 409 | Candidate already exists |
+| INT_001 | 404 | Interview not found |
+| INT_002 | 400 | Invalid interview token |
+| INT_003 | 409 | Interview already completed |
+
+## Appendix B: API Response Codes
+
+| HTTP Status | Usage |
+|-------------|-------|
+| 200 | Successful GET, PUT, PATCH |
+| 201 | Successful POST (created) |
+| 204 | Successful DELETE |
+| 400 | Invalid request data |
+| 401 | Authentication required |
+| 403 | Permission denied |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate) |
+| 422 | Validation error |
+| 500 | Internal server error |
+
+---
+
+*This document is maintained by the Engineering Team and should be updated with each major release.*

@@ -569,7 +569,6 @@ export default function HRDashboard() {
           setSelectedCandidateId(null)
         }}
         candidateId={selectedCandidateId}
-        onCreateAIInterview={handleCreateAIInterview}
       />
     </div>
   )

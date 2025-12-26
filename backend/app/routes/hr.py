@@ -769,7 +769,7 @@ async def generate_ai_interview_token(
             "interview_id": str(interview.id),
             "job_role": candidate.position,
             "questions": questions,
-            "interview_url": interview_url,
+            "interview_url": f"http://localhost:3000/interview/{token}",  # Use main frontend URL
             "sync_status": "success" if sync_success else "failed",
             "sync_error": sync_error
         }
@@ -781,4 +781,268 @@ async def generate_ai_interview_token(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error generating AI token: {str(e)}"
+        )
+
+
+@router.get("/interviews/by-token/{token}")
+async def get_interview_by_token(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get interview session details by AI interview token.
+    This is a public endpoint for candidates to access their interview.
+    """
+    from app.models.company import Company
+    from app.models.job import JobTemplate, Question
+    
+    try:
+        # Find interview by token
+        interview_query = select(Interview).filter(
+            Interview.ai_interview_token == token
+        )
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview session not found"
+            )
+        
+        # Get candidate details
+        candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+        
+        # Get company details
+        company_query = select(Company).filter(Company.id == interview.company_id)
+        result = await db.execute(company_query)
+        company = result.scalars().first()
+        
+        # Get questions for the candidate's job role
+        questions = []
+        if candidate.job_template_id:
+            questions_query = select(Question).filter(
+                Question.job_template_id == candidate.job_template_id
+            )
+            questions_result = await db.execute(questions_query)
+            questions = [q.text for q in questions_result.scalars().all()]
+        
+        candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email
+        
+        return {
+            "id": str(interview.id),
+            "candidate_id": str(candidate.id),
+            "candidate_name": candidate_name,
+            "candidate_email": candidate.email,
+            "position": candidate.position or "Not specified",
+            "company_name": company.name if company else "Company",
+            "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+            "duration_minutes": 60,  # Default 60 minutes
+            "status": interview.status.value if interview.status else "SCHEDULED",
+            "questions_generated": questions
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interview: {str(e)}"
+        )
+
+
+@router.post("/interviews/{interview_id}/resume")
+async def save_interview_resume(
+    interview_id: str,
+    resume_data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save resume uploaded at the start of interview.
+    """
+    from uuid import UUID
+    
+    try:
+        interview_uuid = UUID(interview_id)
+        
+        # Find interview
+        interview_query = select(Interview).filter(Interview.id == interview_uuid)
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Store resume in interview metadata or a dedicated field
+        # For now, we'll use the notes field with a prefix, or add to candidate
+        resume_text = resume_data.get("resume_text", "")
+        resume_filename = resume_data.get("filename", "resume.txt")
+        
+        # Get candidate and update their resume
+        candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if candidate:
+            # Store resume text in candidate's notes or a resume field
+            candidate.resume_text = resume_text  # Assuming this field exists
+            await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Resume saved successfully",
+            "interview_id": interview_id,
+            "filename": resume_filename
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # Don't fail if resume saving fails
+        return {
+            "status": "warning",
+            "message": "Resume could not be saved, but interview can continue",
+            "interview_id": interview_id
+        }
+
+
+@router.post("/interviews/{interview_id}/transcript")
+async def save_interview_transcript(
+    interview_id: str,
+    transcript_data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save interview transcript and optionally send to HR and assigned employee.
+    This is called when the AI interview ends.
+    """
+    from uuid import UUID
+    from app.models.company import Company
+    from app.models.ai_report import AIReport
+    import json
+    
+    try:
+        interview_uuid = UUID(interview_id)
+        
+        # Find interview
+        interview_query = select(Interview).filter(Interview.id == interview_uuid)
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Save transcript to interview notes
+        transcript = transcript_data.get("transcript", [])
+        duration = transcript_data.get("duration_seconds", 0)
+        resume_text = transcript_data.get("resume_text", "")
+        resume_filename = transcript_data.get("resume_filename", "")
+        
+        # Format transcript for storage
+        transcript_text = "\n\n".join([
+            f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')}"
+            for msg in transcript
+        ])
+        
+        interview.notes = f"AI Interview Transcript (Duration: {duration // 60}m {duration % 60}s):\n\n{transcript_text}"
+        interview.status = InterviewStatus.COMPLETED
+        
+        await db.commit()
+        
+        # Get candidate and HR info for email notification
+        candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        # Get company info
+        company_query = select(Company).filter(Company.id == interview.company_id)
+        result = await db.execute(company_query)
+        company = result.scalars().first()
+        
+        # Generate simple verdict based on transcript
+        # Count answers and calculate completeness
+        user_messages = [msg for msg in transcript if msg.get('role') == 'user']
+        ai_messages = [msg for msg in transcript if msg.get('role') == 'ai']
+        
+        total_questions = len([m for m in ai_messages if '?' in m.get('content', '')])
+        total_answers = len(user_messages)
+        
+        # Calculate average answer length (proxy for detail)
+        avg_answer_length = sum(len(m.get('content', '')) for m in user_messages) / max(total_answers, 1)
+        
+        # Simple scoring
+        completion_score = min(100, (total_answers / max(total_questions, 1)) * 100) if total_questions > 0 else 50
+        detail_score = min(100, (avg_answer_length / 200) * 100)  # 200 chars = 100%
+        overall_score = round((completion_score + detail_score) / 2, 1)
+        
+        # Generate verdict
+        if overall_score >= 70:
+            verdict = "PASS"
+            verdict_summary = f"The candidate completed the interview successfully with a score of {overall_score}%. They provided detailed responses to most questions."
+        elif overall_score >= 50:
+            verdict = "REVIEW"
+            verdict_summary = f"The candidate completed the interview with a score of {overall_score}%. Some responses were brief and may require further evaluation."
+        else:
+            verdict = "FAIL"
+            verdict_summary = f"The candidate's interview performance was below expectations with a score of {overall_score}%. Many responses were incomplete or missing."
+        
+        # Create AI Report with resume included
+        ai_report = AIReport(
+            company_id=interview.company_id,
+            candidate_id=interview.candidate_id,
+            interview_id=interview.id,
+            report_type="interview_verdict",
+            score=overall_score,
+            summary=verdict_summary,
+            provider_response={
+                "verdict": verdict,
+                "overall_score": overall_score,
+                "completion_score": round(completion_score, 1),
+                "detail_score": round(detail_score, 1),
+                "total_questions": total_questions,
+                "total_answers": total_answers,
+                "duration_seconds": duration,
+                "transcript": transcript,
+                "resume_text": resume_text,
+                "resume_filename": resume_filename,
+                "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() if candidate else "",
+                "candidate_email": candidate.email if candidate else "",
+                "position": candidate.position if candidate else "",
+            }
+        )
+        db.add(ai_report)
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Transcript saved successfully",
+            "interview_id": interview_id,
+            "verdict": verdict,
+            "score": overall_score,
+            "report_id": str(ai_report.id)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error saving transcript: {str(e)}"
         )

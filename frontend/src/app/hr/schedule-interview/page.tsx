@@ -117,12 +117,12 @@ export default function ScheduleInterviewPage() {
           <div className="font-semibold mb-2">Interview Scheduled!</div>
           <div className="mb-2">Interview Room Link:</div>
           <a
-            href={`/interview-room/${result.token}`}
+            href={`/interview/${result.token}`}
             className="text-brand-600 underline break-all"
             target="_blank"
             rel="noopener noreferrer"
           >
-            {window.location.origin}/interview-room/{result.token}
+            {window.location.origin}/interview/{result.token}
           </a>
           <div className="mt-2 text-xs text-gray-500">Share this link with the candidate to start the interview.</div>
         </div>

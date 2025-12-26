@@ -1,112 +1,53 @@
 # AI Interviewer Platform
 
-A comprehensive AI-powered interview management system for companies to streamline candidate screening, scheduling, and evaluation across multiple departments.
+Enterprise-grade AI-powered technical interview automation platform.
 
-**Status**: Phase 0-2 Complete  
-**Version**: 1.0.0  
-**Last Updated**: November 2025
+**Version:** 2.0.0  
+**Status:** Production Ready  
+**License:** Proprietary
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [API Documentation](#api-documentation)
-- [Testing](#testing)
-- [Configuration](#configuration)
-- [Deployment](#deployment)
-- [Roadmap](#roadmap)
-- [Support](#support)
+1. [Overview](#overview)
+2. [Quick Start](#quick-start)
+3. [Architecture](#architecture)
+4. [Installation](#installation)
+5. [Configuration](#configuration)
+6. [API Documentation](#api-documentation)
+7. [Development](#development)
+8. [Testing](#testing)
+9. [Deployment](#deployment)
+10. [Troubleshooting](#troubleshooting)
+11. [Contributing](#contributing)
 
 ---
 
 ## Overview
 
-AI Interviewer is a multi-tenant SaaS platform that helps HR teams manage the entire interview lifecycle with real-time collaboration, automated email notifications, and comprehensive audit trails.
+The AI Interviewer Platform automates technical interviews using artificial intelligence, providing consistent candidate evaluation at scale. The system conducts real-time voice interviews, transcribes responses, and generates objective hiring recommendations.
+
+### Key Features
+
+- **AI-Powered Interviews**: Automated technical interviews with real-time speech recognition
+- **ATS Integration**: Resume parsing and compatibility scoring
+- **Multi-Role Access**: Admin, HR, Employee, and Candidate portals
+- **Real-Time Evaluation**: Instant scoring and verdict generation
+- **Transcript Analysis**: Complete interview recording with Q&A breakdown
+- **Pipeline Management**: Full candidate lifecycle tracking
 
 ### Technology Stack
 
-| Component | Technology | Version |
-|-----------|-----------|---------|
-| Backend | FastAPI | 0.104.1 |
-| Database | PostgreSQL | 15 Alpine |
-| Cache | Redis | 7 Alpine |
-| Task Queue | Celery | 5.3.4 |
-| Authentication | JWT HS256 | - |
-| Email | SendGrid/SES | Multiple |
-| Container | Docker | Latest |
-| ORM | SQLAlchemy | 2.0+ |
-
-### Key Capabilities
-
-- Multi-tenant company isolation with row-level security
-- Real-time interview scheduling with timezone support
-- Async email notifications to 10,000+ candidates per company
-- Complete audit trail for compliance and debugging
-- Role-based access control (4 roles: Admin, HR, Employee, Candidate)
-- Bulk candidate import from Excel/CSV
-- Email verification and security
-
----
-
-## Features
-
-### Phase 0: Foundation (Complete)
-- User authentication with JWT tokens
-- Role-based access control (4 roles)
-- Multi-tenant company isolation
-- Interview CRUD operations
-- Audit logging for all actions
-- Rate limiting on authentication endpoints
-- OWASP security headers
-- Timezone-aware datetime handling
-
-### Phase 1: Email System (Complete)
-- Multi-provider email service (SendGrid, AWS SES, Console)
-- Async email queue with Celery + Redis
-- 13+ email templates for all events
-- Event-based notification routing
-- Email verification workflow
-- Interview lifecycle notifications
-- Candidate status update emails
-- Bulk import completion summaries
-- Email retry logic with exponential backoff
-- Email tracking database (delivery, opens, clicks)
-
-### Phase 2: Candidate Management (Complete - 100%)
-- Candidate profile management (CRUD operations)
-- Candidate status tracking (applied, screening, assessment, interview, offer, accepted, rejected, withdrawn, on_hold)
-- Bulk candidate import from JSON, CSV, and Excel files (10MB limit, 100 error reporting)
-- Bulk email sending with rate limiting and async queueing (Celery-powered)
-- HR Dashboard with comprehensive analytics:
-  - Dashboard stats: Total candidates, by status, by domain, conversion rates
-  - Funnel analytics: Progression through hiring stages with drop-off rates
-  - Time-to-hire metrics: Average/median days by department
-- Interview Round Scheduling (12 endpoints, multi-round support)
-  - Single and batch round scheduling
-  - Timezone-aware datetime handling (400+ IANA zones)
-  - UTC storage with local timezone conversion
-  - DST automatic handling
-  - Round status tracking (SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED, RESCHEDULED)
-  - Round types: SCREENING, TECHNICAL, BEHAVIORAL, FINAL, HR, CUSTOM
-  - Interviewer schedule queries with date range filtering
-  - Candidate round progress tracking (completed/pending/cancelled counts)
-- Email verification workflow
-- Security audit (95/100 production readiness score)
-
-### Planned Phases (3-11)
-- Phase 3: Interview Scheduling
-- Phase 4: Assessment Management
-- Phase 5: Resume Management
-- Phase 6: Advanced Analytics
-- Phase 7: Integration APIs
-- Phase 8: Performance Optimization
-- Phase 9: Machine Learning Features
-- Phase 10: Admin Dashboard
-- Phase 11: Enterprise Features
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 15, React 18, TypeScript, Tailwind CSS |
+| Backend | FastAPI, Python 3.11, SQLAlchemy 2.0, Pydantic 2.0 |
+| AI Service | Node.js, WebSocket, LLM Integration |
+| Database | PostgreSQL 15 |
+| Cache | Redis |
+| Task Queue | Celery |
+| Containerization | Docker, Docker Compose |
 
 ---
 
@@ -114,379 +55,161 @@ AI Interviewer is a multi-tenant SaaS platform that helps HR teams manage the en
 
 ### Prerequisites
 
-- Python 3.11 or higher
-- PostgreSQL 15+
-- Redis 7+
-- Docker and Docker Compose (recommended)
+- Docker Desktop 24.0+
+- Docker Compose 2.0+
 - Git
 
-### Critical Updates (November 15, 2025)
-
-**Recent Bug Fixes:**
--  Fixed duplicate Interview model conflict (removed old `interview.py`)
--  Fixed syntax error in email service (`_send_via_provider`)
--  Fixed Celery config field name mismatches
--  Fixed import paths after model consolidation
--  Added `require_hr_or_admin` middleware for user creation endpoint
--  All Phase 0 and Phase 1 integration tests now passing
-
-**Current Status:**
-**Phase 0 (Foundation): COMPLETE - 8/8 tests passing
-- Phase 1 (Email System): COMPLETE - 5/5 tests passing
-- Phase 2 (Candidate Management): COMPLETE - 6/6 core tests passing
-- Phase 2 (Interview Scheduling): COMPLETE - 12 endpoints, timezone support
-
-### Installation Steps
-
-#### 1. Clone Repository
+### Launch Application
 
 ```bash
-git clone https://github.com/Aigenthix/MicroServices_AI_Interviewer.git
-cd AI_Interviewer
+# Clone the repository
+git clone https://github.com/MeghVyas3132/AI_Interviewer_Saas.git
+cd AI_Interviewer_Saas
+
+# Start all services
+docker compose up -d
+
+# Wait for services to be healthy (approximately 30 seconds)
+docker compose ps
+
+# Access the application
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8000
+# API Documentation: http://localhost:8000/docs
 ```
 
-#### 2. Start Services with Docker
+### Default Credentials
 
-```bash
-# Start all services (PostgreSQL, Redis, Backend)
-docker-compose up -d
+After initial setup, use these credentials for testing:
 
-# Wait for services to be ready (approximately 10-15 seconds)
-sleep 15
-```
-
-#### 3. Apply Database Migrations
-
-```bash
-# Apply all pending migrations
-docker-compose exec -T backend alembic upgrade head
-```
-
-#### 4. Seed Test Data
-
-```bash
-# Populate database with test users and data
-docker-compose exec -T backend python3 reset_and_seed.py
-```
-
-#### 5. Access the Platform
-
-- API Documentation: http://localhost:8000/docs
-- Alternative Docs: http://localhost:8000/redoc
-- Backend API: http://localhost:8000/api/v1
-
-#### 6. Test Default Credentials
-
-```bash
-# Admin Account
-Email: admin@aiinterviewer.com
-Password: AdminPass123!@
-
-# HR Account (for TestCorp)
-Email: hr@testcorp.com
-Password: HRPass123!@
-
-# Employee Account
-Email: john@testcorp.com
-Password: EmpPass123!@
-```
-
-### Run Integration Tests
-
-```bash
-# Execute complete test suite
-bash integration_test.sh
-
-# Run specific test suite
-bash integration_test.sh --help
-```
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@system.local | AdminPass123!@ |
+| HR | hr@techcorp.com | HRPass123!@ |
 
 ---
 
 ## Architecture
 
-### System Design
+### System Components
 
 ```
-External Users/Frontend
-      |
-      | HTTPS
-      v
-┌─────────────────────────────────────────────────┐
-|           FastAPI Backend (8000)                |
-├─────────────────────────────────────────────────┤
-| Core Services                                   |
-| - Auth Service (JWT, password hashing)         |
-| - User Service (CRUD, multi-tenant)            |
-| - Candidate Service (profiles, status)         |
-| - Interview Service (scheduling, status)       |
-| - Email Service (async, multi-provider)        |
-| - Audit Service (compliance logging)           |
-└──────┬──────────────┬──────────────┬───────────┘
-       |              |              |
-       v              v              v
-  PostgreSQL      Redis         Celery Workers
-   Database       Cache         Email Tasks
-   (5432)        (6379)         (Async)
+                        +-------------------+
+                        |   Load Balancer   |
+                        +--------+----------+
+                                 |
+         +-----------------------+-----------------------+
+         |                       |                       |
++--------+--------+    +---------+---------+   +---------+---------+
+|    Frontend     |    |     Backend       |   |    AI Service     |
+|   (Next.js)     |    |    (FastAPI)      |   |    (Node.js)      |
+|   Port: 3000    |    |    Port: 8000     |   |    Port: 9002     |
++--------+--------+    +---------+---------+   +---------+---------+
+         |                       |                       |
+         |              +--------+--------+              |
+         |              |                 |              |
+         |       +------+------+  +-------+------+       |
+         |       | PostgreSQL  |  |    Redis     |       |
+         |       |  Port: 5432 |  |  Port: 6379  |       |
+         |       +-------------+  +--------------+       |
+         |                                               |
+         +------------------+----------------------------+
+                            |
+                  +---------+---------+
+                  |   AI WS Proxy     |
+                  |    Port: 9003     |
+                  +-------------------+
 ```
 
-### Database Schema
+### Service Responsibilities
 
-#### Core Tables (Phase 0)
+| Service | Responsibility |
+|---------|----------------|
+| Frontend | User interface, SSR, routing |
+| Backend | REST API, business logic, authentication |
+| AI Service | Interview AI, question generation, evaluation |
+| AI WS Proxy | Real-time WebSocket communication |
+| PostgreSQL | Primary data persistence |
+| Redis | Session caching, rate limiting |
+| Celery | Background task processing |
 
-| Table | Purpose | Key Fields |
-|-------|---------|-----------|
-| companies | Multi-tenant isolation | id, name, email_domain |
-| users | User accounts | id, email, password_hash, company_id, role |
-| roles | Role definitions | id, name, permissions |
-| interviews | Interview records | id, candidate_id, interviewer_id, scheduled_time |
-| scores | Interview evaluations | id, interview_id, score, feedback |
-| audit_logs | Action tracking | id, user_id, action, resource_type, timestamp |
+### Data Flow
 
-#### Phase 1 Additions
-
-| Table | Purpose | Key Fields |
-|-------|---------|-----------|
-| candidates | Candidate profiles | id, email, status, source, company_id |
-| interviews | Enhanced interviews | Added: round, timezone, recording_url |
-| email_queue | Async email tasks | id, recipient, template_id, status, priority |
-| email_tracking | Delivery tracking | id, email_queue_id, event_type, timestamp |
-| candidate_feedback | Team collaboration | id, candidate_id, score, recommendation |
-
-All tables include: `id` (UUID), `company_id` (FK), `created_at`, `updated_at`, `created_by` (FK).
+1. **User Authentication**: Frontend -> Backend -> PostgreSQL
+2. **Interview Session**: Frontend -> AI WS Proxy -> AI Service
+3. **Transcript Storage**: AI Service -> Backend -> PostgreSQL
+4. **ATS Analysis**: Backend -> AI Service -> Backend
 
 ---
 
-## API Documentation
+## Installation
 
-### Authentication
-
-All endpoints except login and public registration require JWT authentication.
+### Development Environment
 
 ```bash
-# Include in request headers
-Authorization: Bearer YOUR_JWT_TOKEN
+# 1. Clone repository
+git clone https://github.com/MeghVyas3132/AI_Interviewer_Saas.git
+cd AI_Interviewer_Saas
 
-# Get token via login
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "YourPassword123!"
-  }'
+# 2. Create environment file
+cp .env.example .env
+
+# 3. Configure environment variables (see Configuration section)
+
+# 4. Build and start services
+docker compose up -d --build
+
+# 5. Run database migrations
+docker compose exec backend alembic upgrade head
+
+# 6. Seed initial data (development only)
+docker compose exec backend python reset_and_seed.py
+
+# 7. Verify services
+docker compose ps
 ```
 
-### Response Format
+### Manual Installation (Without Docker)
 
-All API responses follow standard format:
-
-Success (2xx):
-```json
-{
-  "data": {...},
-  "message": "Operation successful",
-  "status_code": 200
-}
-```
-
-Error (4xx/5xx):
-```json
-{
-  "error": "Descriptive error message",
-  "status_code": 400,
-  "detail": "Additional context if available"
-}
-```
-
-### Core Endpoints
-
-#### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/auth/login` | User login (returns JWT token) |
-| POST | `/api/v1/auth/logout` | User logout (blacklist token) |
-| POST | `/api/v1/auth/refresh` | Refresh access token |
-| POST | `/api/v1/auth/verify-email` | Verify email with token |
-| POST | `/api/v1/auth/resend-verification` | Resend verification email |
-
-#### Users
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/users` | Create user (HR only) |
-| GET | `/api/v1/users` | List users (paginated, multi-tenant) |
-| GET | `/api/v1/users/{id}` | Get user details |
-| PATCH | `/api/v1/users/{id}` | Update user |
-| DELETE | `/api/v1/users/{id}` | Delete user |
-
-#### Company
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/company` | Create company (admin only) |
-| GET | `/api/v1/company/{id}` | Get company details |
-| PATCH | `/api/v1/company/{id}` | Update company |
-
-#### Candidates (Phase 2)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/candidates` | Create candidate |
-| GET | `/api/v1/candidates` | List candidates (paginated) |
-| GET | `/api/v1/candidates/{id}` | Get candidate details |
-| PATCH | `/api/v1/candidates/{id}` | Update candidate |
-| DELETE | `/api/v1/candidates/{id}` | Delete candidate |
-| POST | `/api/v1/candidates/bulk/import` | Bulk import from JSON |
-| POST | `/api/v1/candidates/bulk/import/file` | Bulk import from CSV/Excel |
-| POST | `/api/v1/candidates/bulk/send-email` | Send bulk emails to candidates |
-| GET | `/api/v1/candidates/dashboard/stats` | HR dashboard statistics |
-| GET | `/api/v1/candidates/analytics/funnel` | Candidate funnel analytics |
-| GET | `/api/v1/candidates/analytics/time-to-hire` | Time-to-hire metrics by department |
-
-#### Interviews
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/interviews` | Schedule interview |
-| GET | `/api/v1/interviews` | List interviews |
-| GET | `/api/v1/interviews/{id}` | Get interview details |
-| PATCH | `/api/v1/interviews/{id}` | Update interview |
-| DELETE | `/api/v1/interviews/{id}` | Cancel interview |
-| POST | `/api/v1/interviews/{id}/complete` | Mark complete |
-
-#### Interview Rounds (Phase 2 - Timezone-Aware Scheduling)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/interview-rounds` | Create interview round with timezone |
-| POST | `/api/v1/interview-rounds/batch-schedule` | Batch schedule multi-round pipeline |
-| GET | `/api/v1/interview-rounds` | List rounds (filter by type/status) |
-| GET | `/api/v1/interview-rounds/{id}` | Get round details |
-| PATCH | `/api/v1/interview-rounds/{id}` | Update round |
-| POST | `/api/v1/interview-rounds/{id}/reschedule` | Reschedule with timezone change |
-| POST | `/api/v1/interview-rounds/{id}/cancel` | Cancel round |
-| POST | `/api/v1/interview-rounds/{id}/start` | Mark as IN_PROGRESS |
-| POST | `/api/v1/interview-rounds/{id}/complete` | Mark as COMPLETED |
-| GET | `/api/v1/interview-rounds/candidate/{id}/progress` | Get candidate's interview progress |
-| GET | `/api/v1/interview-rounds/interviewer/{id}/schedule` | Get interviewer's schedule (calendar) |
-| GET | `/api/v1/interview-rounds/company/upcoming` | Get upcoming rounds (next N days) |
-
-#### Email System
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/email/status` | Email provider status |
-| GET | `/api/v1/email/templates` | List available templates |
-| POST | `/api/v1/email/send` | Send custom email |
-| POST | `/api/v1/email/verify-email` | Send verification email |
-| POST | `/api/v1/email/password-reset` | Send password reset |
-| POST | `/api/v1/email/interview-scheduled` | Send interview notification |
-| POST | `/api/v1/email/interview-reminder` | Send reminder |
-| POST | `/api/v1/email/candidate-rejection` | Send rejection |
-
-#### Audit Logs
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/logs` | List audit logs (paginated) |
-| GET | `/api/v1/logs/{id}` | Get audit log details |
-
-### Interactive Documentation
-
-Access full API documentation with request/response examples:
-
-- Swagger UI: http://localhost:8000/docs
-- ReDoc (alternative): http://localhost:8000/redoc
-
----
-
-## Testing
-
-### Running Tests
-
-#### Run All Tests
-
-```bash
-cd backend
-pytest -v
-```
-
-#### Run Specific Test Suite
-
-```bash
-# Authentication tests
-pytest tests/test_auth.py -v
-
-# User management tests
-pytest tests/test_user.py -v
-
-# Interview tests
-pytest tests/test_interview.py -v
-
-# Email tests
-pytest tests/test_email.py -v
-```
-
-#### Integration Tests (Recommended)
-
-```bash
-# Run complete integration test suite (all phases)
-bash integration_test.sh
-
-# Run specific phase
-bash integration_test.sh --phase 0    # Foundation tests
-bash integration_test.sh --phase 1    # Email system tests
-bash integration_test.sh --phase 2    # Candidate management tests
-
-# Keep containers running after tests (for debugging)
-bash integration_test.sh --no-cleanup
-
-# Show help
-bash integration_test.sh --help
-```
-
-#### Test Results (Latest Run - November 15, 2025)
-
-**Phase 0: Foundation Tests** - ALL PASSING (8/8)
-- Admin login with valid credentials PASS
-- JWT token format validation PASS
-- Invalid credentials rejection PASS
-- Company creation by admin PASS
-- Company UUID format validation PASS
-- HR user registration PASS
-- Employee user creation PASS (Fixed)
-- Multi-tenant isolation PASS
-
-**Phase 1: Email System Tests** - ALL PASSING (5/5)
-- Email provider status endpoint PASS
-- Email templates listing PASS
-- Email queue table exists PASS
-- Redis email queue connectivity PASS
-- Celery task queue available PASS
-
-**Phase 2: Candidate Management** - Infrastructure Ready
-- Candidates table exists PASS
-- Email tracking table exists PASS
-- Candidate listing endpoint available PASS
-- Bulk import endpoint structure ready PASS
-- Bulk email endpoint structure ready PASS
-- Dashboard stats endpoint structure ready PASS
-
-#### Coverage Report
+#### Backend Setup
 
 ```bash
 cd backend
 
-# Run tests with coverage
-pytest --cov=app --cov-report=html
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or: venv\Scripts\activate  # Windows
 
-# View report
-open htmlcov/index.html
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/ai_interviewer"
+export SECRET_KEY="your-256-bit-secret-key"
+export REDIS_URL="redis://localhost:6379/0"
+
+# Run migrations
+alembic upgrade head
+
+# Start server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Test Coverage
+#### Frontend Setup
 
-| Component | Status | Coverage |
-|-----------|--------|----------|
-| Phase 0 Core | Complete | 100% |
-| Phase 1 Email | Complete | 95%+ |
-| Phase 2 Candidates | In Progress | 90%+ |
-| Authentication | Complete | 100% |
-| Multi-tenant | Complete | 100% |
-| Database | Complete | 100% |
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Set environment variables
+export NEXT_PUBLIC_API_URL="http://localhost:8000/api/v1"
+
+# Start development server
+npm run dev
+```
 
 ---
 
@@ -494,489 +217,396 @@ open htmlcov/index.html
 
 ### Environment Variables
 
-Create `.env` file in `backend/` directory:
-
-```env
-# Database Configuration
-DATABASE_URL=postgresql+asyncpg://ai_interviewer_user:password@localhost:5432/ai_interviewer_db
-
-# JWT Configuration
-SECRET_KEY=your-super-secret-key-min-32-characters-change-in-production
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Email Configuration
-EMAIL_PROVIDER=console|sendgrid|ses
-EMAIL_FROM_ADDRESS=noreply@aiinterviewer.com
-EMAIL_FROM_NAME=AI Interviewer
-
-# SendGrid (if using SendGrid provider)
-SENDGRID_API_KEY=SG.xxxxxxxxxxxxx
-
-# AWS SES (if using AWS SES provider)
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=wJal...
-
-# Redis Configuration
-REDIS_URL=redis://localhost:6379
-
-# Celery Configuration
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/1
-CELERY_WORKER_PREFETCH_MULTIPLIER=4
-CELERY_TASK_MAX_RETRIES=3
-CELERY_TASK_DEFAULT_RETRY_DELAY=60
-EMAIL_RATE_LIMIT=100
-EMAIL_BATCH_SIZE=100
-EMAIL_SEND_TIMEOUT=30
-
-# CORS Configuration
-CORS_ORIGINS=["http://localhost:3000", "http://localhost:8000"]
-
-# Application Configuration
-APP_NAME=AI Interviewer
-APP_VERSION=1.0.0
-DEBUG=false
-LOG_LEVEL=INFO
-```
-
-### Database Setup
+Create a `.env` file in the project root:
 
 ```bash
-# Create database
-createdb ai_interviewer_db
+# Required - Security
+SECRET_KEY=your-super-secret-256-bit-key-here
 
-# Apply migrations
-cd backend
-alembic upgrade head
+# Required - Database
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/ai_interviewer
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=ai_interviewer
 
-# Check current migration status
-alembic current
+# Required - Redis
+REDIS_URL=redis://redis:6379/0
 
-# View migration history
-alembic history
+# Required - Service URLs
+AI_SERVICE_URL=http://ai-service:9002
+BACKEND_URL=http://backend:8000
 
-# Rollback specific number of migrations
-alembic downgrade -1  # Rollback 1 migration
-alembic downgrade -2  # Rollback 2 migrations
+# Optional - Email (SendGrid)
+SENDGRID_API_KEY=
+FROM_EMAIL=noreply@yourcompany.com
+
+# Optional - Email (SMTP)
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+
+# Optional - AI Providers
+GROQ_API_KEY=
+
+# Optional - Security Settings
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=7
+PASSWORD_MIN_LENGTH=8
+
+# Optional - Rate Limiting
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW=60
 ```
 
-### Email Provider Setup
+### Security Configuration
 
-#### SendGrid
+Generate a secure secret key:
 
-1. Create account at https://sendgrid.com
-2. Generate API key
-3. Set environment variables:
-   ```env
-   EMAIL_PROVIDER=sendgrid
-   SENDGRID_API_KEY=SG.xxxxxxxxxxxxx
-   ```
-
-#### AWS SES
-
-1. Create AWS account and verify email address
-2. Get IAM credentials
-3. Set environment variables:
-   ```env
-   EMAIL_PROVIDER=ses
-   AWS_REGION=us-east-1
-   AWS_ACCESS_KEY_ID=AKIA...
-   AWS_SECRET_ACCESS_KEY=wJal...
-   ```
-
-#### Console (Development)
-
-```env
-EMAIL_PROVIDER=console
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
-All emails printed to console (no actual sending).
+
+---
+
+## API Documentation
+
+### Authentication
+
+All API endpoints require authentication except:
+- `POST /api/v1/auth/login` - User login
+- `GET /api/v1/interviews/validate/{token}` - Interview token validation
+
+#### Login
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password"}'
+```
+
+Response:
+```json
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "role": "HR"
+  }
+}
+```
+
+### Core Endpoints
+
+#### Candidates
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/candidates | List all candidates |
+| POST | /api/v1/candidates | Create candidate |
+| GET | /api/v1/candidates/{id} | Get candidate details |
+| PATCH | /api/v1/candidates/{id} | Update candidate |
+| DELETE | /api/v1/candidates/{id} | Delete candidate |
+| POST | /api/v1/candidates/bulk-import | Bulk import from CSV |
+
+#### Interviews
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/interviews | List interviews |
+| POST | /api/v1/interviews | Schedule interview |
+| GET | /api/v1/interviews/{id} | Get interview details |
+| PATCH | /api/v1/interviews/{id} | Update interview |
+| GET | /api/v1/interviews/validate/{token} | Validate token |
+
+#### AI Services
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/v1/ai/ats/check | ATS resume analysis |
+| POST | /api/v1/ai/questions/generate | Generate questions |
+| GET | /api/v1/ai/reports | List AI reports |
+
+### Interactive Documentation
+
+Access Swagger UI at: `http://localhost:8000/docs`
+
+Access ReDoc at: `http://localhost:8000/redoc`
+
+---
+
+## Development
+
+### Project Structure
+
+```
+ai-interviewer/
+├── backend/
+│   ├── app/
+│   │   ├── core/           # Configuration, database
+│   │   ├── middleware/     # Auth, logging, rate limiting
+│   │   ├── models/         # SQLAlchemy models
+│   │   ├── routes/         # API endpoints
+│   │   ├── schemas/        # Pydantic schemas
+│   │   ├── services/       # Business logic
+│   │   ├── tasks/          # Celery tasks
+│   │   └── utils/          # Helpers
+│   ├── alembic/            # Database migrations
+│   └── tests/              # Test suite
+├── frontend/
+│   ├── src/
+│   │   ├── app/            # Next.js pages
+│   │   ├── components/     # React components
+│   │   ├── contexts/       # React contexts
+│   │   ├── hooks/          # Custom hooks
+│   │   ├── lib/            # Utilities
+│   │   └── types/          # TypeScript types
+│   └── public/             # Static assets
+├── AI/                     # AI service
+├── docker-compose.yml
+├── PRD.md                  # Product Requirements
+├── TRD.md                  # Technical Requirements
+└── README.md
+```
+
+### Code Style
+
+#### Python (Backend)
+
+- Follow PEP 8 guidelines
+- Use type hints
+- Document with docstrings
+- Run `black` for formatting
+- Run `isort` for imports
+
+```bash
+# Format code
+black backend/
+isort backend/
+
+# Type checking
+mypy backend/
+```
+
+#### TypeScript (Frontend)
+
+- Follow Airbnb style guide
+- Use TypeScript strict mode
+- Document complex functions
+
+```bash
+# Lint code
+npm run lint
+
+# Type checking
+npm run type-check
+```
+
+### Adding New Features
+
+1. Create database migration (if needed):
+```bash
+docker compose exec backend alembic revision --autogenerate -m "description"
+docker compose exec backend alembic upgrade head
+```
+
+2. Add model in `backend/app/models/`
+3. Add schema in `backend/app/schemas/`
+4. Add route in `backend/app/routes/`
+5. Add frontend components
+6. Write tests
+
+---
+
+## Testing
+
+### Backend Tests
+
+```bash
+# Run all tests
+docker compose exec backend pytest
+
+# Run with coverage
+docker compose exec backend pytest --cov=app --cov-report=html
+
+# Run specific test file
+docker compose exec backend pytest tests/test_auth.py -v
+```
+
+### Frontend Tests
+
+```bash
+cd frontend
+
+# Run tests
+npm test
+
+# Run with coverage
+npm test -- --coverage
+```
+
+### Integration Tests
+
+```bash
+# Run integration test script
+./integration_test.sh
+```
 
 ---
 
 ## Deployment
 
-### Docker Deployment
+### Production Checklist
 
-#### Build and Start Services
+- [ ] Set secure `SECRET_KEY` (256-bit minimum)
+- [ ] Configure production database
+- [ ] Enable HTTPS/TLS
+- [ ] Set up monitoring and alerting
+- [ ] Configure backup strategy
+- [ ] Review rate limiting settings
+- [ ] Remove seed data scripts
+- [ ] Disable debug logging
+
+### Docker Production Build
 
 ```bash
-# Build images and start services
-docker-compose up -d
+# Build production images
+docker compose -f docker-compose.prod.yml build
 
-# View logs
-docker-compose logs -f backend
-
-# Check service status
-docker-compose ps
-
-# Stop services
-docker-compose stop
-
-# Remove services and volumes
-docker-compose down -v
+# Deploy
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-#### Service Status
+### Health Checks
 
 ```bash
-# Check if backend is healthy
+# Backend health
 curl http://localhost:8000/health
 
-# Check PostgreSQL
-docker-compose exec postgres pg_isready
-
-# Check Redis
-docker-compose exec redis redis-cli ping
+# Database connectivity
+curl http://localhost:8000/health/db
 ```
-
-### Production Deployment Checklist
-
-Before deploying to production:
-
-- [ ] Set DEBUG=false in environment
-- [ ] Generate strong SECRET_KEY (min 32 chars)
-- [ ] Configure production PostgreSQL instance
-- [ ] Configure production Redis instance
-- [ ] Setup email provider (SendGrid or AWS SES)
-- [ ] Configure CORS origins for frontend domain
-- [ ] Setup HTTPS with valid SSL certificate
-- [ ] Configure backup and restore procedures
-- [ ] Setup monitoring and alerting
-- [ ] Configure log aggregation
-- [ ] Run security audit
-- [ ] Load test with expected traffic
-- [ ] Plan disaster recovery
-
-### Production Deployment Steps
-
-1. **Prepare Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with production values
-   ```
-
-2. **Build Docker Images**
-   ```bash
-   docker-compose -f docker-compose.yml build
-   ```
-
-3. **Start Services**
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Apply Migrations**
-   ```bash
-   docker-compose exec backend alembic upgrade head
-   ```
-
-5. **Verify Deployment**
-   ```bash
-   curl https://api.aiinterviewer.com/health
-   ```
-
-6. **Monitor Services**
-   ```bash
-   docker-compose logs -f backend
-   ```
-
----
-
-## Roadmap
-
-### Phase 0: Foundation (Complete)
-- User authentication with JWT
-- Role-based access control
-- Multi-tenant isolation
-- Interview management
-- Audit logging
-- Security hardening
-
-### Phase 1: Email System (Complete)
-- Multi-provider email service
-- 13+ email templates
-- Event-based notifications
-- Email verification workflow
-- Async task queue (Celery + Redis)
-- Email retry logic
-- Email tracking database
-
-### Phase 2: Candidate Management (Complete)
-- Candidate profile CRUD
-- Candidate status tracking
-- Interview scheduling (12 endpoints)
-- Timezone-aware datetime handling (400+ IANA zones)
-- Bulk candidate import (JSON, CSV, Excel)
-- Bulk email sending (async queue)
-- HR dashboard (stats, funnel, time-to-hire)
-- Interview round management (SCREENING, TECHNICAL, BEHAVIORAL, FINAL, HR, CUSTOM)
-- Candidate progress tracking
-- Interviewer schedule queries
-
-### Phase 3: Advanced Interview Management
-- Multi-round interview scheduling
-- Interview panel support
-- Interview feedback templates
-- Scheduling conflicts detection
-- Interview reminders
-- Interview recording storage
-
-### Phase 4: Assessment Integration
-- Assessment template management
-- Candidate assessment assignments
-- Assessment result tracking
-- Scoring automation
-- Assessment analytics
-
-### Phase 5: Resume Management
-- Resume upload (PDF, DOCX)
-- PDF text extraction
-- AWS S3 integration
-- Resume search and indexing
-- Duplicate resume detection
-
-### Phase 6: Advanced Analytics
-- Hiring funnel analytics
-- Time-to-hire metrics
-- Source analysis
-- Department analytics
-- Custom reports
-
-### Phase 7: System Integration
-- Webhook support
-- Third-party app integrations
-- SSO integration
-- Calendar integrations
-
-### Phase 8: Performance Optimization
-- Query optimization
-- Database indexing
-- Caching layer
-- CDN integration
-- Performance monitoring
-
-### Phase 9: Enterprise Features
-- Advanced role management
-- Custom workflows
-- Approval chains
-- Data export APIs
-- Compliance reporting
-
-### Phase 10: Admin Dashboard
-- System analytics
-- User management
-- Company management
-- Email log management
-- System health monitoring
-
-### Phase 11: Machine Learning Features
-- Resume ranking
-- Candidate recommendation
-- Interview question suggestions
-- Candidate fit scoring
-
----
-
-## Security
-
-### Implemented Security Features
-
-- JWT authentication with HS256 algorithm
-- Password hashing with bcrypt
-- Role-based access control (4 roles)
-- Rate limiting on authentication (5 req/min)
-- OWASP security headers
-- CORS configuration
-- Input validation with Pydantic
-- SQL injection prevention (SQLAlchemy ORM)
-- XSS protection (HTML escaping)
-- Audit logging for all actions
-- Email verification enforcement
-- Token blacklist on logout
-- Multi-tenant data isolation
-
-### Security Best Practices
-
-- All passwords are hashed; never stored in plain text
-- JWT tokens expire automatically
-- Access tokens: 1 hour, Refresh tokens: 7 days
-- Email addresses are unique per company
-- All queries filtered by company_id
-- API responses don't leak sensitive information
-- Logs exclude passwords and sensitive data
-- All communications use HTTPS in production
-- Database credentials in environment variables
-- Rate limiting on public endpoints
-
-### Compliance
-
-- GDPR ready with audit trails
-- SOC 2 compliance support
-- Complete action audit logs
-- User consent tracking
-- Data retention policies
-- Incident logging
 
 ---
 
 ## Troubleshooting
 
-### Database Connection Failed
+### Common Issues
 
-**Error**: `psycopg2.OperationalError: could not connect to server`
+#### Database Connection Failed
 
-**Solution**:
 ```bash
-# Verify PostgreSQL is running
-psql -h localhost -U ai_interviewer_user -d ai_interviewer_db
+# Check PostgreSQL is running
+docker compose ps postgres
 
-# Check DATABASE_URL format in .env
-# Should be: postgresql+asyncpg://user:password@host:port/database
+# View logs
+docker compose logs postgres
 
-# Restart services
-docker-compose restart postgres
+# Reset database
+docker compose down -v
+docker compose up -d
+docker compose exec backend alembic upgrade head
 ```
 
-### Redis Connection Failed
+#### Frontend Build Errors
 
-**Error**: `ConnectionRefusedError: Error 111 connecting to localhost:6379`
-
-**Solution**:
 ```bash
-# Check Redis is running
-redis-cli ping  # Should return PONG
-
-# Restart Redis
-docker-compose restart redis
-
-# Or start Redis manually
-docker run -d -p 6379:6379 redis:7
+# Clear Next.js cache
+cd frontend
+rm -rf .next node_modules
+npm install
+npm run build
 ```
 
-### Port Already in Use
+#### Redis Connection Issues
 
-**Error**: `Address already in use`
-
-**Solution**:
 ```bash
-# Find process on port 8000
-lsof -i :8000
+# Check Redis status
+docker compose exec redis redis-cli ping
+# Expected: PONG
 
-# Kill the process
-kill -9 <PID>
-
-# Or use different port
-uvicorn app.main:app --port 8001
+# View Redis logs
+docker compose logs redis
 ```
 
-### Migration Failed
+#### AI Service Not Responding
 
-**Error**: `KeyError: 'migration_id'`
-
-**Solution**:
 ```bash
-# Rollback all migrations
-alembic downgrade base
+# Check AI service logs
+docker compose logs ai-service
 
-# Retry migrations
-alembic upgrade head
-
-# Check migration status
-alembic current
+# Verify WebSocket proxy
+docker compose logs ai-ws-proxy
 ```
 
-### Email Not Sending
+### Logs
 
-**Error**: `Email provider error` or emails in queue not sending
-
-**Solution**:
 ```bash
-# Verify EMAIL_PROVIDER in .env (console|sendgrid|ses)
-# For SendGrid: verify SENDGRID_API_KEY
-# For SES: verify AWS credentials
+# View all logs
+docker compose logs -f
 
-# Check Celery worker is running
-docker-compose logs celery
+# View specific service
+docker compose logs -f backend
 
-# Check email queue
-redis-cli LLEN "email_queue"
-
-# Start Celery worker
-celery -A app.core.celery_config worker --loglevel=info
+# Last 100 lines
+docker compose logs --tail=100 backend
 ```
 
-### Tests Failing
+### Performance Issues
 
-**Solution**:
-```bash
-# Run tests with verbose output
-pytest -v -s
-
-# Run specific test
-pytest tests/test_auth.py::test_login -v
-
-# Check database connection
-pytest --co -q  # Collect tests only
-
-# Reset test database
-cd backend && alembic downgrade base && alembic upgrade head
-```
-
----
-
-## Support
-
-### Documentation
-
-- Full API Documentation: http://localhost:8000/docs
-- Source Code: https://github.com/Aigenthix/MicroServices_AI_Interviewer
-- Issues and Feature Requests: GitHub Issues
-
-### Getting Help
-
-1. Check the Troubleshooting section above
-2. Review API documentation at `/docs` endpoint
-3. Check application logs for errors
-4. Run integration tests to verify setup
-5. Create detailed GitHub issue if problem persists
-
-### Reporting Issues
-
-When reporting an issue, please include:
-- Steps to reproduce the problem
-- Expected vs actual behavior
-- Error messages and stack traces
-- Environment details (Python version, OS, Docker version)
-- Configuration details (sanitized .env if relevant)
-
----
-
-
-## Phase Completion Status
-
-| Phase | Status | Components |
-|-------|--------|-----------|
-| Phase 0 | Complete | Auth, Users, Interviews, Audit |
-| Phase 1 | Complete | Email, Notifications, Verification |
-| Phase 2 | In Development | Candidates, Bulk Import, Dashboard |
-| Phase 3+ | Planned | Advanced features |
-
----
-
-## License
-
-MIT License - See LICENSE file for details
+1. Check database query performance
+2. Monitor Redis memory usage
+3. Review API response times
+4. Check container resource limits
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please create a feature branch, make your changes, and submit a pull request.
+### Development Workflow
+
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/new-feature`
+3. Make changes with tests
+4. Run linting and tests
+5. Commit with conventional commits
+6. Push and create pull request
+
+### Commit Convention
+
+```
+type(scope): description
+
+Types: feat, fix, docs, style, refactor, test, chore
+```
+
+Examples:
+```
+feat(auth): add password reset functionality
+fix(interview): resolve WebSocket disconnection issue
+docs(readme): update installation instructions
+```
+
+### Pull Request Requirements
+
+- [ ] All tests passing
+- [ ] Code formatted and linted
+- [ ] Documentation updated
+- [ ] No security vulnerabilities
+- [ ] Review checklist completed
 
 ---
 
-Last Updated: November 2025  
-Built for modern HR teams by the AI Interviewer Team
+## Support
+
+For issues and feature requests, please use the GitHub issue tracker.
+
+---
+
+## License
+
+This software is proprietary. All rights reserved.
+
+Copyright 2024 Aigenthix. Unauthorized copying, modification, or distribution is prohibited.

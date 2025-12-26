@@ -72,6 +72,7 @@ async def get_my_candidates(
                 "domain": c.domain,
                 "experience_years": c.experience_years,
                 "status": c.status.value if c.status else None,
+                "job_role_id": str(c.job_template_id) if c.job_template_id else None,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
             for c in candidates
@@ -153,6 +154,128 @@ async def get_candidate_details(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching candidate details: {str(e)}"
+        )
+
+
+@router.get("/candidate-profile/{candidate_id}")
+async def get_candidate_detailed_profile(
+    candidate_id: UUID,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed candidate profile including interview transcript, Q&A breakdown,
+    scores, verdict, and resume. Used for clicking candidate name to view details.
+    """
+    from app.models.ai_report import AIReport
+    from app.models.company import Company
+    
+    try:
+        # Get candidate (must be assigned to employee or employee has access via company)
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+
+        # Get all interviews for this candidate
+        interviews_query = select(Interview).filter(
+            Interview.candidate_id == candidate.id
+        ).order_by(Interview.scheduled_time.desc())
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+
+        # Get AI reports for these interviews
+        interview_ids = [i.id for i in interviews]
+        reports = []
+        
+        if interview_ids:
+            reports_query = select(AIReport).filter(
+                and_(
+                    AIReport.interview_id.in_(interview_ids),
+                    AIReport.report_type == "interview_verdict"
+                )
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+
+        # Map reports to interviews
+        reports_by_interview = {r.interview_id: r for r in reports}
+
+        # Build detailed interview data with Q&A breakdown
+        interview_details = []
+        for interview in interviews:
+            report = reports_by_interview.get(interview.id)
+            provider_response = report.provider_response if report else {}
+            transcript = provider_response.get("transcript", [])
+            
+            # Extract Q&A pairs from transcript
+            qa_pairs = []
+            current_question = None
+            for msg in transcript:
+                if msg.get("role") == "ai":
+                    current_question = msg.get("content", "")
+                elif msg.get("role") == "user" and current_question:
+                    qa_pairs.append({
+                        "question": current_question,
+                        "answer": msg.get("content", ""),
+                        "timestamp": msg.get("timestamp", "")
+                    })
+                    current_question = None
+            
+            interview_details.append({
+                "interview_id": str(interview.id),
+                "round": interview.round.value if interview.round else "unknown",
+                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "status": interview.status.value if interview.status else None,
+                "verdict": provider_response.get("verdict") if report else None,
+                "overall_score": report.score if report else None,
+                "completion_score": provider_response.get("completion_score") if report else None,
+                "detail_score": provider_response.get("detail_score") if report else None,
+                "summary": report.summary if report else None,
+                "duration_seconds": provider_response.get("duration_seconds"),
+                "total_questions": provider_response.get("total_questions"),
+                "total_answers": provider_response.get("total_answers"),
+                "qa_pairs": qa_pairs,
+                "resume_text": provider_response.get("resume_text", ""),
+                "resume_filename": provider_response.get("resume_filename", ""),
+            })
+
+        return {
+            "candidate": {
+                "id": str(candidate.id),
+                "email": candidate.email,
+                "first_name": candidate.first_name,
+                "last_name": candidate.last_name,
+                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                "phone": candidate.phone,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "status": candidate.status.value if candidate.status else None,
+                "experience_years": candidate.experience_years,
+                "qualifications": candidate.qualifications,
+            },
+            "interviews": interview_details,
+            "total_interviews": len(interviews),
+            "completed_interviews": len([i for i in interviews if i.status == InterviewStatus.COMPLETED]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidate profile: {str(e)}"
         )
 
 
@@ -290,7 +413,7 @@ async def assign_job_role(
 
 
 class ScheduleInterviewRequest(BaseModel):
-    scheduled_time: str  # ISO format datetime
+    scheduled_time: str  # ISO format datetime (local time from browser)
     round: str = "screening"
     timezone: str = "UTC"
     notes: Optional[str] = None
@@ -305,9 +428,12 @@ async def schedule_interview(
 ):
     """
     Schedule an interview for a candidate assigned to the employee.
+    Automatically generates an AI interview token.
     """
     try:
+        import secrets
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         # Verify candidate is assigned to this employee
         query = select(Candidate).filter(
@@ -326,9 +452,39 @@ async def schedule_interview(
                 detail="Candidate not found or not assigned to you"
             )
 
-        # Parse scheduled time
+        # Check for existing scheduled interview for this candidate
+        existing_interview_query = select(Interview).filter(
+            and_(
+                Interview.candidate_id == candidate_id,
+                Interview.status == InterviewStatus.SCHEDULED
+            )
+        )
+        existing_result = await db.execute(existing_interview_query)
+        existing_interview = existing_result.scalars().first()
+
+        if existing_interview:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Candidate already has a scheduled interview for {existing_interview.scheduled_time.isoformat()}. Cancel or complete that interview first."
+            )
+
+        # Parse scheduled time - the browser sends local time without timezone info
+        # We need to interpret it in the user's timezone
         try:
-            scheduled_time = datetime.fromisoformat(request.scheduled_time.replace('Z', '+00:00'))
+            # datetime-local gives us "YYYY-MM-DDTHH:MM" format (no timezone)
+            naive_time = datetime.fromisoformat(request.scheduled_time.replace('Z', ''))
+            
+            # Interpret this time as being in the user's timezone
+            try:
+                user_tz = ZoneInfo(request.timezone)
+                # Create timezone-aware datetime in user's timezone
+                local_time = naive_time.replace(tzinfo=user_tz)
+                # Convert to UTC for storage
+                scheduled_time = local_time.astimezone(ZoneInfo('UTC'))
+            except Exception:
+                # If timezone parsing fails, treat as UTC
+                scheduled_time = naive_time.replace(tzinfo=ZoneInfo('UTC'))
+                
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -345,7 +501,10 @@ async def schedule_interview(
                 detail=f"Invalid round. Must be one of: {valid_rounds}"
             )
 
-        # Create interview
+        # Generate AI interview token
+        token = secrets.token_urlsafe(32)
+
+        # Create interview with AI token
         interview = Interview(
             company_id=current_user.company_id,
             candidate_id=candidate_id,
@@ -356,6 +515,7 @@ async def schedule_interview(
             timezone=request.timezone,
             status=InterviewStatus.SCHEDULED,
             notes=request.notes,
+            ai_interview_token=token,
         )
 
         db.add(interview)
@@ -369,7 +529,9 @@ async def schedule_interview(
                 "candidate_id": str(candidate_id),
                 "round": interview_round.value,
                 "scheduled_time": scheduled_time.isoformat(),
-                "status": "scheduled"
+                "status": "scheduled",
+                "ai_interview_token": token,
+                "interview_url": f"http://localhost:3000/interview/{token}"
             }
         }
     except HTTPException:
@@ -383,6 +545,70 @@ async def schedule_interview(
         )
 
 
+@router.delete("/my-candidates/{candidate_id}/interviews/{interview_id}")
+async def cancel_interview(
+    candidate_id: UUID,
+    interview_id: UUID,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cancel/delete a scheduled interview for a candidate assigned to the employee.
+    """
+    try:
+        # Verify candidate is assigned to this employee
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id
+            )
+        )
+        candidate_result = await db.execute(candidate_query)
+        candidate = candidate_result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found or not assigned to you"
+            )
+
+        # Find and delete the interview
+        interview_query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.candidate_id == candidate_id
+            )
+        )
+        interview_result = await db.execute(interview_query)
+        interview = interview_result.scalars().first()
+
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+
+        # Delete the interview
+        await db.delete(interview)
+        await db.commit()
+
+        return {
+            "message": "Interview cancelled successfully",
+            "interview_id": str(interview_id),
+            "candidate_id": str(candidate_id)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error cancelling interview: {str(e)}"
+        )
+
+
 @router.get("/my-interviews")
 async def get_my_interviews(
     current_user: User = Depends(require_employee),
@@ -390,7 +616,10 @@ async def get_my_interviews(
 ):
     """
     Get all interviews for candidates assigned to the employee.
+    Includes verdict and score for completed interviews.
     """
+    from app.models.ai_report import AIReport
+    
     try:
         # Get all candidate IDs assigned to this employee
         candidates_query = select(Candidate.id).filter(
@@ -415,6 +644,30 @@ async def get_my_interviews(
         result = await db.execute(interviews_query)
         rows = result.fetchall()
 
+        # Get AI reports for these interviews to include verdict
+        interview_ids = [interview.id for interview, _ in rows]
+        reports_dict = {}
+        
+        if interview_ids:
+            reports_query = select(AIReport).filter(
+                and_(
+                    AIReport.interview_id.in_(interview_ids),
+                    AIReport.report_type == "interview_verdict"
+                )
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+            
+            for report in reports:
+                provider_response = report.provider_response or {}
+                reports_dict[report.interview_id] = {
+                    "verdict": provider_response.get("verdict"),
+                    "score": report.score,
+                    "summary": report.summary,
+                    "completion_score": provider_response.get("completion_score"),
+                    "detail_score": provider_response.get("detail_score"),
+                }
+
         return [
             {
                 "id": str(interview.id),
@@ -426,6 +679,10 @@ async def get_my_interviews(
                 "status": interview.status.value if interview.status else None,
                 "meeting_link": interview.meeting_link,
                 "notes": interview.notes,
+                # Include verdict data for completed interviews
+                "verdict": reports_dict.get(interview.id, {}).get("verdict"),
+                "score": reports_dict.get(interview.id, {}).get("score"),
+                "verdict_summary": reports_dict.get(interview.id, {}).get("summary"),
             }
             for interview, candidate in rows
         ]
@@ -508,3 +765,584 @@ async def get_employee_dashboard(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching dashboard: {str(e)}"
         )
+
+
+@router.post("/my-candidates/{candidate_id}/create-ai-interview")
+async def create_ai_interview_for_candidate(
+    candidate_id: UUID,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create an AI interview session for an assigned candidate.
+    Employee can create on-spot interviews for their assigned candidates.
+    """
+    import secrets
+    import httpx
+    from datetime import datetime, timedelta
+    from app.models.job import JobTemplate, Question
+    from app.core.config import settings
+    
+    try:
+        company_id = current_user.company_id
+
+        # Verify candidate exists and is assigned to this employee
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == company_id,
+                Candidate.assigned_to == current_user.id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found or not assigned to you"
+            )
+
+        # Generate a secure token
+        token = secrets.token_urlsafe(32)
+        
+        # Get questions for the candidate's job role if assigned
+        questions = []
+        job_title = "General Interview"
+        if candidate.job_template_id:
+            # Get job template for title
+            job_query = select(JobTemplate).filter(JobTemplate.id == candidate.job_template_id)
+            job_result = await db.execute(job_query)
+            job_template = job_result.scalars().first()
+            if job_template:
+                job_title = job_template.title
+            
+            questions_query = select(Question).filter(
+                Question.job_template_id == candidate.job_template_id
+            )
+            questions_result = await db.execute(questions_query)
+            questions = [{"id": str(q.id), "text": q.text} for q in questions_result.scalars().all()]
+        
+        # Create a new interview record (on-spot interview starts now)
+        now = datetime.utcnow()
+        scheduled_time = now
+        scheduled_end_time = now + timedelta(hours=1)
+        
+        new_interview = Interview(
+            company_id=company_id,
+            candidate_id=candidate_id,
+            interviewer_id=current_user.id,
+            round=InterviewRound.SCREENING,
+            scheduled_time=scheduled_time,
+            status=InterviewStatus.SCHEDULED,
+            ai_interview_token=token,
+            notes=f"On-spot AI interview created by {current_user.name}"
+        )
+        db.add(new_interview)
+        await db.flush()
+        
+        # Sync to AI service
+        ai_service_url = getattr(settings, 'AI_SERVICE_URL', 'http://ai-service:3000')
+        
+        sync_payload = {
+            "candidate_id": str(candidate.id),
+            "token": token,
+            "first_name": candidate.first_name or "",
+            "last_name": candidate.last_name or "",
+            "email": candidate.email,
+            "job_title": job_title,
+            "questions": questions,
+            "scheduled_time": scheduled_time.isoformat() + "Z",
+            "scheduled_end_time": scheduled_end_time.isoformat() + "Z",
+            "interview_mode": "voice",
+            "is_proctored": True
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                sync_response = await client.post(
+                    f"{ai_service_url}/api/interview/sync-session",
+                    json=sync_payload
+                )
+                if sync_response.status_code not in [200, 201]:
+                    print(f"Warning: AI service sync returned {sync_response.status_code}")
+        except Exception as sync_error:
+            print(f"Warning: Failed to sync with AI service: {sync_error}")
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "token": token,
+            "interview_url": f"http://localhost:3000/interview/{token}",  # Use main frontend URL
+            "message": "AI Interview created successfully. Candidate can start immediately.",
+            "interview_id": str(new_interview.id),
+            "questions_count": len(questions)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating AI interview: {str(e)}"
+        )
+
+
+# ==================== AVAILABILITY & AUTO-SCHEDULING ====================
+
+class AvailabilitySlotRequest(BaseModel):
+    day_of_week: str  # monday, tuesday, etc.
+    start_time: str   # HH:MM format
+    end_time: str     # HH:MM format
+    slot_duration_minutes: int = 30
+    max_interviews_per_slot: int = 1
+
+
+class AutoScheduleConfigRequest(BaseModel):
+    min_days_gap: int = 1
+    max_days_ahead: int = 14
+    passing_score_threshold: int = 60
+    auto_schedule_enabled: bool = True
+    notify_on_pass: bool = True
+    notify_on_fail: bool = True
+
+
+@router.get("/availability")
+async def get_my_availability(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get employee's availability slots for auto-scheduling.
+    """
+    try:
+        from app.models.employee_availability import EmployeeAvailability, AutoScheduleConfig
+        
+        # Get availability slots
+        slots_query = select(EmployeeAvailability).filter(
+            and_(
+                EmployeeAvailability.employee_id == current_user.id,
+                EmployeeAvailability.is_active == True
+            )
+        ).order_by(EmployeeAvailability.day_of_week)
+        
+        result = await db.execute(slots_query)
+        slots = result.scalars().all()
+        
+        # Get auto-schedule config
+        config_query = select(AutoScheduleConfig).filter(
+            AutoScheduleConfig.employee_id == current_user.id
+        )
+        config_result = await db.execute(config_query)
+        config = config_result.scalars().first()
+        
+        return {
+            "slots": [
+                {
+                    "id": str(s.id),
+                    "day_of_week": s.day_of_week.value,
+                    "start_time": s.start_time.strftime("%H:%M"),
+                    "end_time": s.end_time.strftime("%H:%M"),
+                    "slot_duration_minutes": s.slot_duration_minutes,
+                    "max_interviews_per_slot": s.max_interviews_per_slot,
+                }
+                for s in slots
+            ],
+            "config": {
+                "min_days_gap": config.min_days_gap if config else 1,
+                "max_days_ahead": config.max_days_ahead if config else 14,
+                "passing_score_threshold": config.passing_score_threshold if config else 60,
+                "auto_schedule_enabled": config.auto_schedule_enabled if config else False,
+                "notify_on_pass": config.notify_on_pass if config else True,
+                "notify_on_fail": config.notify_on_fail if config else True,
+            } if config else None
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching availability: {str(e)}"
+        )
+
+
+@router.post("/availability/slots")
+async def add_availability_slot(
+    request: AvailabilitySlotRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Add an availability slot for auto-scheduling interviews.
+    """
+    try:
+        from app.models.employee_availability import EmployeeAvailability, DayOfWeek
+        
+        # Parse day of week
+        day_mapping = {
+            'monday': DayOfWeek.monday,
+            'tuesday': DayOfWeek.tuesday,
+            'wednesday': DayOfWeek.wednesday,
+            'thursday': DayOfWeek.thursday,
+            'friday': DayOfWeek.friday,
+            'saturday': DayOfWeek.saturday,
+            'sunday': DayOfWeek.sunday,
+        }
+        
+        day = day_mapping.get(request.day_of_week.lower())
+        if not day:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid day of week: {request.day_of_week}"
+            )
+        
+        # Parse times
+        from datetime import time
+        start_parts = request.start_time.split(":")
+        end_parts = request.end_time.split(":")
+        
+        start_time = time(int(start_parts[0]), int(start_parts[1]))
+        end_time = time(int(end_parts[0]), int(end_parts[1]))
+        
+        # Create slot
+        slot = EmployeeAvailability(
+            employee_id=current_user.id,
+            company_id=current_user.company_id,
+            day_of_week=day,
+            start_time=start_time,
+            end_time=end_time,
+            slot_duration_minutes=request.slot_duration_minutes,
+            is_active=True,
+        )
+        
+        db.add(slot)
+        await db.commit()
+        await db.refresh(slot)
+        
+        return {
+            "message": "Availability slot added successfully",
+            "slot": {
+                "id": str(slot.id),
+                "day_of_week": slot.day_of_week.value,
+                "start_time": slot.start_time.strftime("%H:%M"),
+                "end_time": slot.end_time.strftime("%H:%M"),
+                "slot_duration_minutes": slot.slot_duration_minutes,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error adding availability slot: {str(e)}"
+        )
+
+
+# Also support POST /availability for frontend compatibility
+@router.post("/availability")
+async def add_availability_slot_alt(
+    request: AvailabilitySlotRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Add an availability slot for auto-scheduling interviews (alternate path).
+    """
+    try:
+        from app.models.employee_availability import EmployeeAvailability, DayOfWeek
+        
+        # Parse day of week
+        day_mapping = {
+            'monday': DayOfWeek.monday,
+            'tuesday': DayOfWeek.tuesday,
+            'wednesday': DayOfWeek.wednesday,
+            'thursday': DayOfWeek.thursday,
+            'friday': DayOfWeek.friday,
+            'saturday': DayOfWeek.saturday,
+            'sunday': DayOfWeek.sunday,
+        }
+        
+        day = day_mapping.get(request.day_of_week.lower())
+        if not day:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid day of week: {request.day_of_week}"
+            )
+        
+        # Parse times
+        from datetime import time
+        start_parts = request.start_time.split(":")
+        end_parts = request.end_time.split(":")
+        
+        start_time = time(int(start_parts[0]), int(start_parts[1]))
+        end_time = time(int(end_parts[0]), int(end_parts[1]))
+        
+        # Create slot
+        slot = EmployeeAvailability(
+            employee_id=current_user.id,
+            company_id=current_user.company_id,
+            day_of_week=day,
+            start_time=start_time,
+            end_time=end_time,
+            slot_duration_minutes=request.slot_duration_minutes,
+            is_active=True,
+        )
+        
+        db.add(slot)
+        await db.commit()
+        await db.refresh(slot)
+        
+        return {
+            "message": "Availability slot added successfully",
+            "slot": {
+                "id": str(slot.id),
+                "day_of_week": slot.day_of_week.value,
+                "start_time": slot.start_time.strftime("%H:%M"),
+                "end_time": slot.end_time.strftime("%H:%M"),
+                "slot_duration_minutes": slot.slot_duration_minutes,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error adding availability slot: {str(e)}"
+        )
+
+
+@router.get("/availability/config")
+async def get_auto_schedule_config(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get auto-scheduling configuration.
+    """
+    try:
+        from app.models.employee_availability import AutoScheduleConfig
+        
+        query = select(AutoScheduleConfig).filter(
+            AutoScheduleConfig.employee_id == current_user.id
+        )
+        result = await db.execute(query)
+        config = result.scalars().first()
+        
+        if not config:
+            # Return defaults
+            return {
+                "min_days_gap": 1,
+                "max_days_ahead": 14,
+                "passing_score_threshold": 60,
+                "auto_schedule_enabled": False,
+                "notify_on_pass": True,
+                "notify_on_fail": True,
+            }
+        
+        return {
+            "min_days_gap": config.min_days_gap,
+            "max_days_ahead": config.max_days_ahead,
+            "passing_score_threshold": config.passing_score_threshold,
+            "auto_schedule_enabled": config.auto_schedule_enabled,
+            "notify_on_pass": config.notify_on_pass,
+            "notify_on_fail": config.notify_on_fail,
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching auto-schedule config: {str(e)}"
+        )
+        from datetime import time
+        
+        # Parse day of week
+        try:
+            day = DayOfWeek(request.day_of_week.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid day_of_week. Must be one of: {[d.value for d in DayOfWeek]}"
+            )
+        
+        # Parse times
+        try:
+            start_parts = request.start_time.split(":")
+            end_parts = request.end_time.split(":")
+            start_time = time(int(start_parts[0]), int(start_parts[1]))
+            end_time = time(int(end_parts[0]), int(end_parts[1]))
+        except (ValueError, IndexError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid time format. Use HH:MM"
+            )
+        
+        if start_time >= end_time:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Start time must be before end time"
+            )
+        
+        # Check for overlapping slots
+        existing_query = select(EmployeeAvailability).filter(
+            and_(
+                EmployeeAvailability.employee_id == current_user.id,
+                EmployeeAvailability.day_of_week == day,
+                EmployeeAvailability.is_active == True
+            )
+        )
+        existing_result = await db.execute(existing_query)
+        existing_slots = existing_result.scalars().all()
+        
+        for slot in existing_slots:
+            if not (end_time <= slot.start_time or start_time >= slot.end_time):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Time slot overlaps with existing slot ({slot.start_time.strftime('%H:%M')} - {slot.end_time.strftime('%H:%M')})"
+                )
+        
+        # Create new slot
+        new_slot = EmployeeAvailability(
+            employee_id=current_user.id,
+            company_id=current_user.company_id,
+            day_of_week=day,
+            start_time=start_time,
+            end_time=end_time,
+            slot_duration_minutes=request.slot_duration_minutes,
+            max_interviews_per_slot=request.max_interviews_per_slot,
+        )
+        
+        db.add(new_slot)
+        await db.commit()
+        await db.refresh(new_slot)
+        
+        return {
+            "message": "Availability slot added successfully",
+            "slot": {
+                "id": str(new_slot.id),
+                "day_of_week": new_slot.day_of_week.value,
+                "start_time": new_slot.start_time.strftime("%H:%M"),
+                "end_time": new_slot.end_time.strftime("%H:%M"),
+                "slot_duration_minutes": new_slot.slot_duration_minutes,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error adding availability slot: {str(e)}"
+        )
+
+
+@router.delete("/availability/slots/{slot_id}")
+@router.delete("/availability/{slot_id}")
+async def delete_availability_slot(
+    slot_id: UUID,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete an availability slot.
+    """
+    try:
+        from app.models.employee_availability import EmployeeAvailability
+        
+        query = select(EmployeeAvailability).filter(
+            and_(
+                EmployeeAvailability.id == slot_id,
+                EmployeeAvailability.employee_id == current_user.id
+            )
+        )
+        result = await db.execute(query)
+        slot = result.scalars().first()
+        
+        if not slot:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Slot not found"
+            )
+        
+        await db.delete(slot)
+        await db.commit()
+        
+        return {"message": "Availability slot deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting availability slot: {str(e)}"
+        )
+
+
+@router.put("/availability/config")
+async def update_auto_schedule_config(
+    request: AutoScheduleConfigRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update auto-scheduling configuration.
+    """
+    try:
+        from app.models.employee_availability import AutoScheduleConfig
+        
+        # Get or create config
+        query = select(AutoScheduleConfig).filter(
+            AutoScheduleConfig.employee_id == current_user.id
+        )
+        result = await db.execute(query)
+        config = result.scalars().first()
+        
+        if not config:
+            config = AutoScheduleConfig(
+                employee_id=current_user.id,
+                company_id=current_user.company_id,
+            )
+            db.add(config)
+        
+        # Update fields
+        config.min_days_gap = request.min_days_gap
+        config.max_days_ahead = request.max_days_ahead
+        config.passing_score_threshold = request.passing_score_threshold
+        config.auto_schedule_enabled = request.auto_schedule_enabled
+        config.notify_on_pass = request.notify_on_pass
+        config.notify_on_fail = request.notify_on_fail
+        
+        await db.commit()
+        await db.refresh(config)
+        
+        return {
+            "message": "Auto-schedule configuration updated successfully",
+            "config": {
+                "min_days_gap": config.min_days_gap,
+                "max_days_ahead": config.max_days_ahead,
+                "passing_score_threshold": config.passing_score_threshold,
+                "auto_schedule_enabled": config.auto_schedule_enabled,
+                "notify_on_pass": config.notify_on_pass,
+                "notify_on_fail": config.notify_on_fail,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating auto-schedule config: {str(e)}"
+        )
+

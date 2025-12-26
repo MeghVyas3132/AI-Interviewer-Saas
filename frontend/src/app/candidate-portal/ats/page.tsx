@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Cookies from 'js-cookie'
 
-// Backend API URL for direct fetch calls (without /api/v1 since AI routes are at root)
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'
+// Backend API URL
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000/api/v1'
 
 interface ATSReport {
   report_id?: string
