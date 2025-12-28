@@ -44,6 +44,23 @@ services:
       - key: NEXT_PUBLIC_API_URL
         sync: false  # Set this manually to your backend URL
 
+  # AI Interview Service
+  - type: web
+    name: ai-interviewer-ai-service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./AI/Aigenthix_AI_Interviewer
+    region: oregon
+    plan: free
+    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_API_KEY
+        sync: false  # Set this manually
+      - key: NEXT_PUBLIC_API_URL
+        sync: false  # Set this to backend URL
+
 # PostgreSQL Database
 databases:
   - name: ai-interviewer-db
