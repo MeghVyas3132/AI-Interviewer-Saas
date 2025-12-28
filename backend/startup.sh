@@ -2,86 +2,105 @@
 
 echo "=== AI Interviewer Backend Startup ==="
 
-# Run Alembic migrations (don't exit on failure)
-echo "Running database migrations..."
-alembic upgrade head || {
-    echo "Alembic migrations failed, attempting direct SQL fix..."
+# Skip alembic entirely and use direct SQL - more reliable for Railway
+echo "Running database fix script..."
+
+python << 'PYTHON_SCRIPT'
+import os
+import psycopg2
+from urllib.parse import urlparse
+
+# Parse DATABASE_URL
+db_url = os.environ.get('DATABASE_URL', '')
+if db_url.startswith('postgresql+asyncpg://'):
+    db_url = db_url.replace('postgresql+asyncpg://', 'postgresql://')
+
+print(f"Connecting to database...")
+
+try:
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True  # Each statement commits immediately
+    cur = conn.cursor()
     
-    # If alembic fails, try to fix the database directly using Python
-    python << 'PYTHON_SCRIPT'
-import asyncio
-from sqlalchemy import text
-from app.core.database import engine
+    print("Connected successfully!")
+    
+    # 1. Create alembic_version table if not exists
+    print("Checking alembic_version table...")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS alembic_version (
+            version_num VARCHAR(32) NOT NULL PRIMARY KEY
+        )
+    """)
+    print("alembic_version table ensured")
+    
+    # 2. Set version to 015
+    cur.execute("DELETE FROM alembic_version")
+    cur.execute("INSERT INTO alembic_version (version_num) VALUES ('015')")
+    print("Set alembic version to 015")
+    
+    # 3. Add missing columns to interviews table
+    columns_to_add = [
+        ('ats_score', 'INTEGER'),
+        ('resume_text', 'TEXT'),
+        ('transcript', 'TEXT'),
+        ('ai_verdict', 'TEXT'),
+        ('ai_recommendation', 'VARCHAR(50)'),
+        ('behavior_score', 'INTEGER'),
+        ('confidence_score', 'INTEGER'),
+        ('answer_score', 'INTEGER'),
+        ('employee_verdict', 'VARCHAR(50)'),
+    ]
+    
+    for col_name, col_type in columns_to_add:
+        try:
+            cur.execute(f"ALTER TABLE interviews ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+            print(f"Column {col_name}: OK")
+        except Exception as e:
+            print(f"Column {col_name}: {e}")
+    
+    # 4. Create company_ai_config table if not exists
+    print("Checking company_ai_config table...")
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS company_ai_config (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                company_id UUID NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
+                min_passing_score INTEGER NOT NULL DEFAULT 60,
+                min_ats_score INTEGER NOT NULL DEFAULT 50,
+                auto_reject_below INTEGER,
+                require_employee_review BOOLEAN DEFAULT TRUE,
+                ats_enabled BOOLEAN DEFAULT TRUE,
+                ai_verdict_enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        print("company_ai_config table: OK")
+    except Exception as e:
+        print(f"company_ai_config table: {e}")
+    
+    # 5. Verify the columns exist
+    print("\nVerifying interviews table columns...")
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name = 'interviews' 
+        ORDER BY ordinal_position
+    """)
+    columns = [row[0] for row in cur.fetchall()]
+    print(f"Interviews table columns: {columns}")
+    
+    cur.close()
+    conn.close()
+    print("\nDatabase fix completed successfully!")
+    
+except Exception as e:
+    print(f"Database fix error: {e}")
+    import traceback
+    traceback.print_exc()
 
-async def fix_db():
-    async with engine.connect() as conn:
-        # Check current version
-        try:
-            result = await conn.execute(text('SELECT version_num FROM alembic_version'))
-            version = result.scalar()
-            print(f'Current migration version: {version}')
-        except Exception as e:
-            print(f'Could not read version: {e}')
-            version = None
-        
-        # Add missing columns to interviews table
-        columns_to_add = [
-            ('ats_score', 'INTEGER'),
-            ('resume_text', 'TEXT'),
-            ('transcript', 'TEXT'),
-            ('ai_verdict', 'TEXT'),
-            ('ai_recommendation', 'VARCHAR(50)'),
-            ('behavior_score', 'INTEGER'),
-            ('confidence_score', 'INTEGER'),
-            ('answer_score', 'INTEGER'),
-            ('employee_verdict', 'VARCHAR(50)'),
-        ]
-        
-        for col_name, col_type in columns_to_add:
-            try:
-                await conn.execute(text(f'ALTER TABLE interviews ADD COLUMN IF NOT EXISTS {col_name} {col_type}'))
-                print(f'Added column: {col_name}')
-            except Exception as e:
-                if 'already exists' not in str(e).lower():
-                    print(f'Column {col_name}: {e}')
-        
-        # Create company_ai_config table if not exists
-        try:
-            await conn.execute(text('''
-                CREATE TABLE IF NOT EXISTS company_ai_config (
-                    id UUID PRIMARY KEY,
-                    company_id UUID NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
-                    min_passing_score INTEGER NOT NULL DEFAULT 60,
-                    min_ats_score INTEGER NOT NULL DEFAULT 50,
-                    auto_reject_below INTEGER,
-                    require_employee_review BOOLEAN DEFAULT TRUE,
-                    ats_enabled BOOLEAN DEFAULT TRUE,
-                    ai_verdict_enabled BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                )
-            '''))
-            print('Created company_ai_config table')
-        except Exception as e:
-            if 'already exists' not in str(e).lower():
-                print(f'company_ai_config table: {e}')
-        
-        # Update alembic version to 015
-        try:
-            await conn.execute(text("DELETE FROM alembic_version"))
-            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('015')"))
-            print('Updated alembic version to 015')
-        except Exception as e:
-            print(f'Version update: {e}')
-        
-        await conn.commit()
-        print('Database fix completed')
-
-asyncio.run(fix_db())
 PYTHON_SCRIPT
 
-    echo "Direct fix attempted"
-}
+echo "Database step complete, starting server..."
 
 echo "Migrations step complete, starting server..."
 exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
