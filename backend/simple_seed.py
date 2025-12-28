@@ -41,9 +41,10 @@ async def main():
             print("   Creating system company...")
             result = await session.execute(
                 text("""
-                    INSERT INTO companies (id, name, email_domain, description, is_active, created_at, updated_at)
+                    INSERT INTO companies (id, join_code, name, email_domain, description, is_active, created_at, updated_at)
                     VALUES (
                         gen_random_uuid(),
+                        'SYST-ADMN',
                         'Aigenthix System',
                         'aigenthix.com',
                         'System Administration Company',
