@@ -69,7 +69,7 @@ async def main():
         
         await session.execute(
             text("""
-                INSERT INTO users (id, company_id, name, email, password_hash, role, is_active, email_verified, created_at, updated_at)
+                INSERT INTO users (id, company_id, name, email, password_hash, role, is_active, email_verified, verification_attempts, created_at, updated_at)
                 VALUES (
                     gen_random_uuid(),
                     :company_id,
@@ -79,6 +79,7 @@ async def main():
                     'SYSTEM_ADMIN',
                     true,
                     true,
+                    0,
                     NOW(),
                     NOW()
                 )
