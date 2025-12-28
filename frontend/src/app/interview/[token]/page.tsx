@@ -48,11 +48,12 @@ export default function InterviewLandingPage() {
   const [testingDevices, setTestingDevices] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/hr/interviews/by-token/${token}`);
+        const response = await fetch(`${API_BASE_URL}/hr/interviews/by-token/${token}`);
         if (!response.ok) {
           if (response.status === 404) {
             setError('Interview session not found. Please check your link.');
@@ -158,7 +159,7 @@ export default function InterviewLandingPage() {
             `Position: ${session.position} at ${session.company_name}` : 
             'General interview position';
           
-          const response = await fetch('http://localhost:8000/api/v1/ai/ats', {
+          const response = await fetch(`${API_BASE_URL}/ai/ats`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

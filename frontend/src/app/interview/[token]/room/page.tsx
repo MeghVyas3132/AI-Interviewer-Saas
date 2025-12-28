@@ -64,12 +64,13 @@ export default function InterviewRoomPage() {
 
   // Resume from localStorage
   const [resumeText, setResumeText] = useState('');
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
   // Load session and resume
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/hr/interviews/by-token/${token}`);
+        const response = await fetch(`${API_BASE_URL}/hr/interviews/by-token/${token}`);
         if (!response.ok) {
           setError('Interview session not found.');
           return;
@@ -359,7 +360,7 @@ export default function InterviewRoomPage() {
       const resumeText = localStorage.getItem(`resume_${token}`) || '';
       const resumeFilename = localStorage.getItem(`resume_filename_${token}`) || '';
       
-      await fetch(`http://localhost:8000/api/v1/hr/interviews/${session?.id}/transcript`, {
+      await fetch(`${API_BASE_URL}/hr/interviews/${session?.id}/transcript`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

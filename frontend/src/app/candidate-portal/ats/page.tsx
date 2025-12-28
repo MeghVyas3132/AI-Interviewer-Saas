@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Cookies from 'js-cookie'
 
 // Backend API URL
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000/api/v1'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 interface ATSReport {
   report_id?: string
