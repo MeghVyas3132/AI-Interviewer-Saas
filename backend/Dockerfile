@@ -32,6 +32,9 @@ RUN pip install --no-cache /wheels/*
 # Copy application code
 COPY . .
 
+# Make startup script executable
+RUN chmod +x startup.sh
+
 # Create non-root user
 RUN addgroup --system appgroup && adduser --system --group appuser
 RUN chown -R appuser:appgroup /app
@@ -46,5 +49,5 @@ EXPOSE 8000
 # HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 #   CMD curl -f http://localhost:8000/health || exit 1
 
-# Run command - Use PORT env variable for Railway compatibility
-CMD ["sh", "-c", "alembic upgrade head || true && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run command - Use startup script for robust migration handling
+CMD ["./startup.sh"]
