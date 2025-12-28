@@ -8,6 +8,11 @@ import Cookies from 'js-cookie'
 // Backend API URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
+interface SectionScore {
+  score: number
+  feedback: string
+}
+
 interface ATSReport {
   report_id?: string
   score: number
@@ -18,12 +23,18 @@ interface ATSReport {
   keywords_missing: string[]
   verdict?: string
   formatting_issues?: string[]
-  section_analysis?: {
-    contact: { present: boolean; feedback: string }
-    experience: { present: boolean; feedback: string }
-    education: { present: boolean; feedback: string }
-    skills: { present: boolean; feedback: string }
+  section_scores?: {
+    contact_info?: SectionScore
+    format_structure?: SectionScore
+    professional_summary?: SectionScore
+    work_experience?: SectionScore
+    technical_skills?: SectionScore
+    education?: SectionScore
+    keyword_optimization?: SectionScore
   }
+  action_verbs_used?: string[]
+  quantified_achievements?: number
+  ats_friendly?: boolean
 }
 
 export default function ATSCheckerPage() {
@@ -323,7 +334,95 @@ export default function ATSCheckerPage() {
                     Expert Verdict
                   </h2>
                   <p className="text-gray-700 leading-relaxed">{getVerdict(report.score)}</p>
+                  {report.ats_friendly !== undefined && (
+                    <div className={`mt-3 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${report.ats_friendly ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {report.ats_friendly ? '✓ ATS Compatible' : '✗ May have ATS parsing issues'}
+                    </div>
+                  )}
                 </div>
+
+                {/* Section-by-Section Analysis */}
+                {report.section_scores && Object.keys(report.section_scores).length > 0 && (
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                      <svg className="w-5 h-5 text-brand-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                        <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                      </svg>
+                      Section-by-Section Analysis
+                    </h2>
+                    <div className="space-y-4">
+                      {[
+                        { key: 'contact_info', label: 'Contact Information', max: 5 },
+                        { key: 'format_structure', label: 'Format & Structure', max: 15 },
+                        { key: 'professional_summary', label: 'Professional Summary', max: 10 },
+                        { key: 'work_experience', label: 'Work Experience', max: 25 },
+                        { key: 'technical_skills', label: 'Technical Skills', max: 20 },
+                        { key: 'education', label: 'Education & Certifications', max: 10 },
+                        { key: 'keyword_optimization', label: 'Keyword Optimization', max: 15 },
+                      ].map(({ key, label, max }) => {
+                        const section = report.section_scores?.[key as keyof typeof report.section_scores]
+                        if (!section) return null
+                        const percentage = Math.round((section.score / max) * 100)
+                        return (
+                          <div key={key} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-medium text-gray-800">{label}</span>
+                              <span className={`text-sm font-semibold ${percentage >= 70 ? 'text-green-600' : percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {section.score}/{max} ({percentage}%)
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                              <div 
+                                className={`h-2 rounded-full transition-all ${percentage >= 70 ? 'bg-green-500' : percentage >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                            <p className="text-sm text-gray-600">{section.feedback}</p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Stats */}
+                {(report.quantified_achievements !== undefined || report.action_verbs_used?.length) && (
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                      {report.quantified_achievements !== undefined && (
+                        <div className="bg-blue-50 rounded-xl p-4 text-center">
+                          <div className="text-2xl font-bold text-blue-600">{report.quantified_achievements}</div>
+                          <div className="text-sm text-blue-700">Quantified Achievements</div>
+                        </div>
+                      )}
+                      {report.action_verbs_used && report.action_verbs_used.length > 0 && (
+                        <div className="bg-purple-50 rounded-xl p-4 text-center">
+                          <div className="text-2xl font-bold text-purple-600">{report.action_verbs_used.length}</div>
+                          <div className="text-sm text-purple-700">Action Verbs Used</div>
+                        </div>
+                      )}
+                    </div>
+                    {report.action_verbs_used && report.action_verbs_used.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-600 mb-2">Action verbs found:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {report.action_verbs_used.slice(0, 10).map((verb, idx) => (
+                            <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
+                              {verb}
+                            </span>
+                          ))}
+                          {report.action_verbs_used.length > 10 && (
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">
+                              +{report.action_verbs_used.length - 10} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Keywords Found */}
                 {report.keywords_found && report.keywords_found.length > 0 && (

@@ -243,16 +243,34 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
 
 async def generate_questions(job_description: str, max_questions: int = 10, model: str | None = None) -> Dict[str, Any]:
     """
-    Generate a list of interview questions given a job description.
+    Generate a list of TECHNICAL interview questions given a job description.
     Returns: { "questions": ["q1", "q2", ...], "raw": <provider response> }
     """
-    # Force Gemini model for question generation - ignore invalid model names
+    # Force Gemini model for question generation
     model = "gemini-2.5-flash"
 
-    prompt = (
-        "You are an expert hiring manager. Given the following job description, return a JSON object with a key 'questions' containing an array of up to "
-        f"{max_questions} concise interview questions tailored to the role. Return JSON only, no markdown.\n\nJob Description:\n{job_description}\n\nJSON:\n"
-    )
+    prompt = f"""You are an expert TECHNICAL interviewer for software engineering and tech roles.
+
+JOB DESCRIPTION/ROLE:
+{job_description}
+
+Generate EXACTLY {max_questions} technical interview questions that would be asked TO A CANDIDATE applying for this role.
+
+IMPORTANT RULES:
+1. Questions must be TECHNICAL questions that test the candidate's skills
+2. Questions should be what an interviewer would ASK the candidate, NOT questions about how to create interview questions
+3. Include a mix of:
+   - Technical concept questions (e.g., "Explain the difference between SQL and NoSQL databases")
+   - Problem-solving questions (e.g., "How would you design a caching system for a high-traffic website?")
+   - Experience-based questions (e.g., "Describe a complex bug you debugged and how you resolved it")
+   - System design questions for senior roles (e.g., "Design a URL shortener service")
+4. Questions should be appropriate for the seniority level mentioned in the job description
+5. Each question should be clear, specific, and directly related to the technical requirements of the role
+
+Return a JSON object with ONLY a "questions" key containing an array of {max_questions} question strings.
+Example format: {{"questions": ["What is the time complexity of a binary search algorithm?", "Explain how you would implement authentication in a REST API", ...]}}
+
+Return JSON only, no markdown, no explanation."""
 
     # If Groq is configured prefer Groq
     if getattr(settings, "groq_api_key", None):
@@ -362,7 +380,7 @@ async def generate_questions(job_description: str, max_questions: int = 10, mode
 
 async def generate_ats_report_enhanced(resume_text: str, job_description: str = "", model: str | None = None) -> Dict[str, Any]:
     """
-    Enhanced ATS report with more detailed analysis including keywords matching.
+    Enhanced ATS report with detailed section-by-section analysis.
     Used for candidate-facing ATS checker tool.
     """
     # Force Gemini model
@@ -370,22 +388,87 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     
     jd_context = ""
     if job_description:
-        jd_context = f"\n\nJob Description to match against:\n{job_description}\n"
+        jd_context = f"\n\nTARGET JOB DESCRIPTION:\n{job_description}\n"
 
-    prompt = (
-        "You are an expert applicant-tracking-system (ATS) evaluator and career coach. "
-        "Analyze the following resume and return a detailed JSON assessment.\n\n"
-        f"Resume:\n{resume_text}"
-        f"{jd_context}\n\n"
-        "Return a JSON object with EXACTLY these keys:\n"
-        "- score: integer 0-100 representing overall ATS compatibility\n"
-        "- summary: 1-2 sentence summary of the resume's ATS compatibility\n"
-        "- highlights: array of 3-5 strengths found in the resume\n"
-        "- improvements: array of 3-5 specific actionable suggestions to improve ATS score\n"
-        "- keywords_found: array of important keywords/skills found in the resume\n"
-        "- keywords_missing: array of important keywords/skills that should be added (especially if job description provided)\n"
-        "\nReturn ONLY valid JSON, no markdown formatting, no explanation."
-    )
+    prompt = f"""You are an expert ATS (Applicant Tracking System) analyst and career coach with 15+ years of experience in technical recruiting.
+
+RESUME TO ANALYZE:
+{resume_text}
+{jd_context}
+
+Perform a COMPREHENSIVE ATS analysis covering ALL of the following aspects:
+
+1. **CONTACT INFORMATION** (5 points)
+   - Is name clearly visible at top?
+   - Is email professional and present?
+   - Is phone number included?
+   - Is LinkedIn/GitHub present (for tech roles)?
+   - Is location included?
+
+2. **FORMAT & STRUCTURE** (15 points)
+   - Is the format ATS-parseable (no tables, columns, graphics)?
+   - Are section headers clear (Experience, Education, Skills)?
+   - Is font readable (standard fonts like Arial, Calibri)?
+   - Is length appropriate (1-2 pages)?
+   - Are dates formatted consistently?
+
+3. **PROFESSIONAL SUMMARY** (10 points)
+   - Is there a clear summary/objective?
+   - Does it mention the target role?
+   - Does it highlight key qualifications?
+
+4. **WORK EXPERIENCE** (25 points)
+   - Are job titles clear and industry-standard?
+   - Are company names included?
+   - Are employment dates present and consistent?
+   - Do bullet points start with action verbs?
+   - Are achievements quantified (numbers, percentages)?
+   - Is there career progression shown?
+
+5. **TECHNICAL SKILLS** (20 points)
+   - Is there a dedicated skills section?
+   - Are skills listed with specific technologies/tools?
+   - Are skills relevant to the target role?
+   - Are skill levels indicated where appropriate?
+   - Are both hard and soft skills covered?
+
+6. **EDUCATION & CERTIFICATIONS** (10 points)
+   - Are degrees clearly listed with dates?
+   - Are relevant certifications included?
+   - Is GPA included if notable?
+   - Are relevant coursework/projects mentioned?
+
+7. **KEYWORD OPTIMIZATION** (15 points)
+   - Does resume contain industry-standard keywords?
+   - Are keywords naturally integrated (not keyword stuffing)?
+   - Do keywords match the job description (if provided)?
+   - Are acronyms spelled out on first use?
+
+Return a JSON object with EXACTLY these keys:
+{{
+    "score": <integer 0-100 overall ATS score>,
+    "summary": "<2-3 sentence executive summary of ATS compatibility>",
+    "section_scores": {{
+        "contact_info": {{"score": <0-5>, "feedback": "<specific feedback>"}},
+        "format_structure": {{"score": <0-15>, "feedback": "<specific feedback>"}},
+        "professional_summary": {{"score": <0-10>, "feedback": "<specific feedback>"}},
+        "work_experience": {{"score": <0-25>, "feedback": "<specific feedback>"}},
+        "technical_skills": {{"score": <0-20>, "feedback": "<specific feedback>"}},
+        "education": {{"score": <0-10>, "feedback": "<specific feedback>"}},
+        "keyword_optimization": {{"score": <0-15>, "feedback": "<specific feedback>"}}
+    }},
+    "highlights": ["<strength 1>", "<strength 2>", ...],
+    "improvements": ["<specific actionable improvement 1>", "<specific actionable improvement 2>", ...],
+    "keywords_found": ["<keyword1>", "<keyword2>", ...],
+    "keywords_missing": ["<missing keyword1>", "<missing keyword2>", ...],
+    "formatting_issues": ["<issue 1>", "<issue 2>", ...],
+    "action_verbs_used": ["<verb1>", "<verb2>", ...],
+    "quantified_achievements": <number of quantified achievements found>,
+    "ats_friendly": <true/false whether resume will parse well in most ATS systems>
+}}
+
+Be thorough and specific. If the resume is plain text, evaluate it based on content quality. If keywords are weak, suggest specific keywords for the role.
+Return ONLY valid JSON, no markdown formatting."""
 
     # Google Gemini API
     base = "https://generativelanguage.googleapis.com/v1beta"
@@ -398,8 +481,8 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 2048,
+            "temperature": 0.1,
+            "maxOutputTokens": 4096,
         }
     }
     
@@ -461,10 +544,15 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     return {
         "score": parsed.get("score", 0),
         "summary": parsed.get("summary", ""),
+        "section_scores": parsed.get("section_scores") or {},
         "highlights": parsed.get("highlights") or [],
         "improvements": parsed.get("improvements") or parsed.get("recommendations") or [],
         "keywords_found": parsed.get("keywords_found") or [],
         "keywords_missing": parsed.get("keywords_missing") or [],
+        "formatting_issues": parsed.get("formatting_issues") or [],
+        "action_verbs_used": parsed.get("action_verbs_used") or [],
+        "quantified_achievements": parsed.get("quantified_achievements", 0),
+        "ats_friendly": parsed.get("ats_friendly", True),
     }
 
 
@@ -499,9 +587,18 @@ async def generate_interview_verdict(
         for msg in transcript
     ])
     
+    # Build context sections
     ats_context = ""
+    ats_weight_note = ""
     if ats_score is not None:
-        ats_context = f"\nCandidate's ATS/Resume Score: {ats_score}/100\n"
+        ats_context = f"\nCandidate's Resume/ATS Score: {ats_score}/100"
+        if ats_score >= 80:
+            ats_weight_note = " (Strong resume - focus on interview performance)"
+        elif ats_score >= 60:
+            ats_weight_note = " (Adequate resume - interview performance is key)"
+        else:
+            ats_weight_note = " (Weak resume - exceptional interview needed to compensate)"
+        ats_context += ats_weight_note + "\n"
     
     resume_context = ""
     if resume_text:
@@ -509,35 +606,66 @@ async def generate_interview_verdict(
     
     position_context = f"Position: {position}\n" if position else ""
     
-    prompt = f"""You are an expert interview evaluator and hiring manager. Analyze the following interview transcript and provide a comprehensive evaluation.
+    prompt = f"""You are an expert technical interview evaluator with 15+ years of hiring experience. Analyze this interview transcript and provide a comprehensive, production-ready evaluation.
 
 {position_context}{ats_context}{resume_context}
 
 INTERVIEW TRANSCRIPT:
 {transcript_text}
 
-Evaluate the candidate based on:
-1. BEHAVIOR (professionalism, communication style, attitude)
-2. CONFIDENCE (self-assurance, clarity in responses, handling pressure)
-3. ANSWER QUALITY (relevance, depth, accuracy, problem-solving)
+EVALUATION CRITERIA:
+
+1. **TECHNICAL COMPETENCE** (40% weight)
+   - Accuracy of technical answers
+   - Depth of knowledge demonstrated
+   - Problem-solving approach
+   - Understanding of concepts
+
+2. **COMMUNICATION SKILLS** (25% weight)
+   - Clarity of explanations
+   - Ability to articulate complex ideas
+   - Listening and comprehension
+   - Professional language
+
+3. **BEHAVIORAL INDICATORS** (20% weight)
+   - Professionalism and attitude
+   - Enthusiasm for the role
+   - Team collaboration signals
+   - Cultural fit indicators
+
+4. **CONFIDENCE & COMPOSURE** (15% weight)
+   - Self-assurance in responses
+   - Handling of difficult questions
+   - Recovery from mistakes
+   - Poise under pressure
+
+{"IMPORTANT: The candidate's ATS/Resume score is " + str(ats_score) + "/100. Factor this into your final recommendation - a low resume score requires stronger interview performance to compensate." if ats_score is not None else ""}
 
 Return a JSON object with EXACTLY these keys:
-- recommendation: One of "HIRE", "REJECT", or "NEUTRAL" based on overall performance
-- behavior_score: Integer 0-100 rating behavior/professionalism
-- confidence_score: Integer 0-100 rating confidence level
-- answer_score: Integer 0-100 rating answer quality and relevance
-- overall_score: Integer 0-100 weighted average (behavior 25%, confidence 25%, answers 50%)
-- summary: 2-3 sentence summary of candidate performance
-- strengths: Array of 3-5 specific strengths observed
-- weaknesses: Array of 2-4 areas for improvement
-- detailed_feedback: 1 paragraph detailed feedback for the hiring team
-- key_answers: Array of objects with question/answer/rating for the 3 most important Q&A pairs
+{{
+    "recommendation": "HIRE" | "REJECT" | "NEUTRAL",
+    "behavior_score": <integer 0-100>,
+    "confidence_score": <integer 0-100>,
+    "answer_score": <integer 0-100>,
+    "overall_score": <integer 0-100 - weighted average considering all factors{" including ATS score" if ats_score is not None else ""}>,
+    "summary": "<2-3 sentence executive summary of candidate's performance>",
+    "strengths": ["<specific strength 1>", "<specific strength 2>", ...],
+    "weaknesses": ["<area for improvement 1>", "<area for improvement 2>", ...],
+    "detailed_feedback": "<1 paragraph detailed feedback for hiring team>",
+    "technical_assessment": "<brief assessment of technical capabilities>",
+    "hiring_risk": "LOW" | "MEDIUM" | "HIGH",
+    "key_answers": [
+        {{"question": "<question text>", "answer_summary": "<answer summary>", "rating": "EXCELLENT" | "GOOD" | "FAIR" | "POOR"}},
+        ...
+    ]
+}}
 
-Rules for recommendation:
-- HIRE: overall_score >= 70 and no critical weaknesses
-- REJECT: overall_score < 50 or major red flags
-- NEUTRAL: overall_score 50-69 or mixed signals requiring human review
+RECOMMENDATION RULES:
+- **HIRE**: overall_score >= 70 AND answer_score >= 65 AND no major red flags
+- **REJECT**: overall_score < 45 OR answer_score < 40 OR critical red flags (dishonesty, unprofessionalism, lack of basic knowledge)
+- **NEUTRAL**: All other cases requiring human review
 
+Be thorough and specific. Base your evaluation on actual transcript content, not assumptions.
 Return ONLY valid JSON, no markdown, no explanation."""
 
     # Google Gemini API
@@ -624,6 +752,8 @@ Return ONLY valid JSON, no markdown, no explanation."""
         "strengths": parsed.get("strengths") or [],
         "weaknesses": parsed.get("weaknesses") or [],
         "detailed_feedback": parsed.get("detailed_feedback", ""),
+        "technical_assessment": parsed.get("technical_assessment", ""),
+        "hiring_risk": parsed.get("hiring_risk", "MEDIUM"),
         "key_answers": parsed.get("key_answers") or [],
         "raw": data
     }
