@@ -47,6 +47,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:9002",
         "http://localhost:9004",
         "http://127.0.0.1:9004",
+        # Railway production URLs
+        "https://adorable-insight-production.up.railway.app",
+        "https://ai-interviewer-saas-production.up.railway.app",
     ]
 
     @field_validator('cors_origins', mode='before')
@@ -66,6 +69,8 @@ class Settings(BaseSettings):
                     "http://127.0.0.1:9002",
                     "http://localhost:9004",
                     "http://127.0.0.1:9004",
+                    "https://adorable-insight-production.up.railway.app",
+                    "https://ai-interviewer-saas-production.up.railway.app",
                 ]
         return v
 
