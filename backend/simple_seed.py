@@ -26,12 +26,12 @@ async def main():
         
         await session.execute(
             text("""
-                INSERT INTO users (id, name, email, hashed_password, role, is_active, email_verified, created_at, updated_at)
+                INSERT INTO users (id, name, email, password_hash, role, is_active, email_verified, created_at, updated_at)
                 VALUES (
                     gen_random_uuid(),
                     'System Admin',
                     'admin@aigenthix.com',
-                    :hashed_password,
+                    :password_hash,
                     'SYSTEM_ADMIN',
                     true,
                     true,
@@ -39,7 +39,7 @@ async def main():
                     NOW()
                 )
             """),
-            {"hashed_password": hashed_password}
+            {"password_hash": hashed_password}
         )
         await session.commit()
         
