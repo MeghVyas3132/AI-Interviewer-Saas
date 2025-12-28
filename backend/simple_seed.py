@@ -20,11 +20,16 @@ async def main():
         print("Checking for existing admin...")
         sys.stdout.flush()
         
-        # Delete existing admin if exists (to ensure clean state)
-        await session.execute(
-            text("DELETE FROM users WHERE email = 'admin@aigenthix.com'")
+        # Check if admin already exists
+        result = await session.execute(
+            text("SELECT id FROM users WHERE email = 'admin@aigenthix.com'")
         )
-        await session.commit()
+        existing_admin = result.fetchone()
+        
+        if existing_admin:
+            print("   Admin already exists, skipping seed.")
+            sys.stdout.flush()
+            return
         
         # Check if system company exists, create if not
         print("Checking for system company...")
