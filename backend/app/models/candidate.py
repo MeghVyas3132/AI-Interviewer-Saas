@@ -291,6 +291,17 @@ class Interview(Base):
     # Recording and transcription
     recording_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     transcription_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # ATS and Verdict fields
+    ats_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    resume_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    transcript: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_verdict: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON string with scores
+    ai_recommendation: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # HIRE, REJECT, NEUTRAL
+    behavior_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    confidence_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    answer_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    employee_verdict: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # APPROVED, REJECTED
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

@@ -7,6 +7,7 @@ HR capabilities:
 - Access company-specific data
 """
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -18,6 +19,8 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus, InterviewRound
 from app.models.user import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
 
@@ -833,7 +836,15 @@ async def get_interview_by_token(
                 Question.job_template_id == candidate.job_template_id
             )
             questions_result = await db.execute(questions_query)
-            questions = [q.text for q in questions_result.scalars().all()]
+            all_questions = [q.text for q in questions_result.scalars().all()]
+            
+            # Limit to 10 questions - random selection if more than 10
+            import random
+            MAX_QUESTIONS = 10
+            if len(all_questions) > MAX_QUESTIONS:
+                questions = random.sample(all_questions, MAX_QUESTIONS)
+            else:
+                questions = all_questions
         
         candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email
         
@@ -975,34 +986,83 @@ async def save_interview_transcript(
         result = await db.execute(company_query)
         company = result.scalars().first()
         
-        # Generate simple verdict based on transcript
-        # Count answers and calculate completeness
+        # Generate AI-powered verdict with detailed scoring
+        from app.services.ai_service import generate_interview_verdict
+        
         user_messages = [msg for msg in transcript if msg.get('role') == 'user']
         ai_messages = [msg for msg in transcript if msg.get('role') == 'ai']
-        
         total_questions = len([m for m in ai_messages if '?' in m.get('content', '')])
         total_answers = len(user_messages)
         
-        # Calculate average answer length (proxy for detail)
-        avg_answer_length = sum(len(m.get('content', '')) for m in user_messages) / max(total_answers, 1)
+        try:
+            # Get ATS score if stored on interview
+            ats_score = getattr(interview, 'ats_score', None)
+            
+            ai_verdict = await generate_interview_verdict(
+                transcript=transcript,
+                resume_text=resume_text,
+                ats_score=ats_score,
+                position=candidate.position if candidate else ""
+            )
+            
+            verdict = ai_verdict.get("recommendation", "NEUTRAL")
+            verdict_summary = ai_verdict.get("summary", "")
+            overall_score = ai_verdict.get("overall_score", 50)
+            behavior_score = ai_verdict.get("behavior_score", 50)
+            confidence_score = ai_verdict.get("confidence_score", 50)
+            answer_score = ai_verdict.get("answer_score", 50)
+            
+            # Map AI recommendation to our verdict format
+            if verdict == "HIRE":
+                verdict = "PASS"
+            elif verdict == "REJECT":
+                verdict = "FAIL"
+            else:
+                verdict = "REVIEW"
+                
+        except Exception as e:
+            logger.warning(f"AI verdict generation failed, using fallback: {e}")
+            # Fallback to simple scoring
+            avg_answer_length = sum(len(m.get('content', '')) for m in user_messages) / max(total_answers, 1)
+            completion_score = min(100, (total_answers / max(total_questions, 1)) * 100) if total_questions > 0 else 50
+            detail_score = min(100, (avg_answer_length / 200) * 100)
+            overall_score = round((completion_score + detail_score) / 2, 1)
+            behavior_score = 50
+            confidence_score = 50
+            answer_score = int(detail_score)
+            
+            if overall_score >= 70:
+                verdict = "PASS"
+                verdict_summary = f"The candidate completed the interview successfully with a score of {overall_score}%."
+            elif overall_score >= 50:
+                verdict = "REVIEW"
+                verdict_summary = f"The candidate completed the interview with a score of {overall_score}%. Manual review recommended."
+            else:
+                verdict = "FAIL"
+                verdict_summary = f"The candidate's interview performance was below expectations with a score of {overall_score}%."
+            
+            ai_verdict = {
+                "recommendation": verdict,
+                "behavior_score": behavior_score,
+                "confidence_score": confidence_score,
+                "answer_score": answer_score,
+                "overall_score": overall_score,
+                "summary": verdict_summary,
+                "strengths": [],
+                "weaknesses": [],
+                "detailed_feedback": "Fallback scoring used - AI analysis unavailable."
+            }
         
-        # Simple scoring
-        completion_score = min(100, (total_answers / max(total_questions, 1)) * 100) if total_questions > 0 else 50
-        detail_score = min(100, (avg_answer_length / 200) * 100)  # 200 chars = 100%
-        overall_score = round((completion_score + detail_score) / 2, 1)
+        # Store detailed scores on interview record
+        interview.transcript = transcript_text
+        interview.ai_verdict = json.dumps(ai_verdict)
+        interview.ai_recommendation = verdict
+        interview.behavior_score = behavior_score
+        interview.confidence_score = confidence_score
+        interview.answer_score = answer_score
+        await db.commit()
         
-        # Generate verdict
-        if overall_score >= 70:
-            verdict = "PASS"
-            verdict_summary = f"The candidate completed the interview successfully with a score of {overall_score}%. They provided detailed responses to most questions."
-        elif overall_score >= 50:
-            verdict = "REVIEW"
-            verdict_summary = f"The candidate completed the interview with a score of {overall_score}%. Some responses were brief and may require further evaluation."
-        else:
-            verdict = "FAIL"
-            verdict_summary = f"The candidate's interview performance was below expectations with a score of {overall_score}%. Many responses were incomplete or missing."
-        
-        # Create AI Report with resume included
+        # Create AI Report with detailed verdict
         ai_report = AIReport(
             company_id=interview.company_id,
             candidate_id=interview.candidate_id,
@@ -1013,8 +1073,13 @@ async def save_interview_transcript(
             provider_response={
                 "verdict": verdict,
                 "overall_score": overall_score,
-                "completion_score": round(completion_score, 1),
-                "detail_score": round(detail_score, 1),
+                "behavior_score": behavior_score,
+                "confidence_score": confidence_score,
+                "answer_score": answer_score,
+                "strengths": ai_verdict.get("strengths", []),
+                "weaknesses": ai_verdict.get("weaknesses", []),
+                "detailed_feedback": ai_verdict.get("detailed_feedback", ""),
+                "key_answers": ai_verdict.get("key_answers", []),
                 "total_questions": total_questions,
                 "total_answers": total_answers,
                 "duration_seconds": duration,

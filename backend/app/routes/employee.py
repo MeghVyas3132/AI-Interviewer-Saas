@@ -239,8 +239,13 @@ async def get_candidate_detailed_profile(
                 "status": interview.status.value if interview.status else None,
                 "verdict": provider_response.get("verdict") if report else None,
                 "overall_score": report.score if report else None,
-                "completion_score": provider_response.get("completion_score") if report else None,
-                "detail_score": provider_response.get("detail_score") if report else None,
+                "behavior_score": provider_response.get("behavior_score") if report else None,
+                "confidence_score": provider_response.get("confidence_score") if report else None,
+                "answer_score": provider_response.get("answer_score") if report else None,
+                "strengths": provider_response.get("strengths", []) if report else [],
+                "weaknesses": provider_response.get("weaknesses", []) if report else [],
+                "detailed_feedback": provider_response.get("detailed_feedback", "") if report else "",
+                "key_answers": provider_response.get("key_answers", []) if report else [],
                 "summary": report.summary if report else None,
                 "duration_seconds": provider_response.get("duration_seconds"),
                 "total_questions": provider_response.get("total_questions"),
@@ -248,6 +253,8 @@ async def get_candidate_detailed_profile(
                 "qa_pairs": qa_pairs,
                 "resume_text": provider_response.get("resume_text", ""),
                 "resume_filename": provider_response.get("resume_filename", ""),
+                "ats_score": getattr(interview, 'ats_score', None),
+                "employee_verdict": getattr(interview, 'employee_verdict', None),
             })
 
         return {
@@ -276,6 +283,57 @@ async def get_candidate_detailed_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching candidate profile: {str(e)}"
+        )
+
+
+class EmployeeVerdictRequest(BaseModel):
+    verdict: str  # APPROVE, REJECT, or custom
+
+
+@router.post("/interviews/{interview_id}/verdict")
+async def submit_employee_verdict(
+    interview_id: UUID,
+    request: EmployeeVerdictRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Submit employee's verdict for an interview.
+    Used when AI verdict is NEUTRAL and requires human review.
+    """
+    try:
+        # Get interview
+        query = select(Interview).filter(
+            and_(
+                Interview.id == interview_id,
+                Interview.company_id == current_user.company_id
+            )
+        )
+        result = await db.execute(query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Update employee verdict
+        interview.employee_verdict = request.verdict
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Verdict submitted successfully",
+            "interview_id": str(interview_id),
+            "employee_verdict": request.verdict
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error submitting verdict: {str(e)}"
         )
 
 
@@ -821,7 +879,15 @@ async def create_ai_interview_for_candidate(
                 Question.job_template_id == candidate.job_template_id
             )
             questions_result = await db.execute(questions_query)
-            questions = [{"id": str(q.id), "text": q.text} for q in questions_result.scalars().all()]
+            all_questions = [{"id": str(q.id), "text": q.text} for q in questions_result.scalars().all()]
+            
+            # Limit to 10 questions - random selection if more than 10
+            import random
+            MAX_QUESTIONS = 10
+            if len(all_questions) > MAX_QUESTIONS:
+                questions = random.sample(all_questions, MAX_QUESTIONS)
+            else:
+                questions = all_questions
         
         # Create a new interview record (on-spot interview starts now)
         now = datetime.utcnow()

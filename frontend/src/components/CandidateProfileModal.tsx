@@ -8,6 +8,12 @@ interface QAPair {
   timestamp?: string
 }
 
+interface KeyAnswer {
+  question: string
+  answer: string
+  rating?: number | string
+}
+
 interface InterviewDetail {
   interview_id: string
   round: string
@@ -15,8 +21,13 @@ interface InterviewDetail {
   status?: string
   verdict?: string
   overall_score?: number
-  completion_score?: number
-  detail_score?: number
+  behavior_score?: number
+  confidence_score?: number
+  answer_score?: number
+  strengths?: string[]
+  weaknesses?: string[]
+  detailed_feedback?: string
+  key_answers?: KeyAnswer[]
   summary?: string
   duration_seconds?: number
   total_questions?: number
@@ -25,6 +36,7 @@ interface InterviewDetail {
   resume_text?: string
   resume_filename?: string
   ats_score?: number
+  employee_verdict?: string
 }
 
 interface CandidateProfile {
@@ -141,6 +153,18 @@ export default function CandidateProfileModal({
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}m ${secs}s`
+  }
+
+  // Handle employee verdict submission
+  const handleEmployeeVerdict = async (interviewId: string, verdict: string) => {
+    try {
+      await apiClient.post(`/employee/interviews/${interviewId}/verdict`, { verdict })
+      // Refresh data
+      fetchCandidateData()
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to submit verdict'
+      setError(errorMessage)
+    }
   }
 
   // Find first available resume
@@ -324,21 +348,53 @@ export default function CandidateProfileModal({
                           
                           {/* Scores */}
                           {interview.overall_score !== undefined && (
-                            <div className="mt-3 flex gap-4">
-                              <div>
-                                <span className="text-sm text-gray-500">Overall: </span>
-                                <span className="font-semibold text-gray-900">{interview.overall_score}%</span>
+                            <div className="mt-3 grid grid-cols-4 gap-2">
+                              <div className="bg-white p-2 rounded-lg text-center">
+                                <span className="text-xs text-gray-500 block">Overall</span>
+                                <span className="font-bold text-lg text-gray-900">{interview.overall_score}%</span>
                               </div>
-                              {interview.completion_score !== undefined && (
-                                <div>
-                                  <span className="text-sm text-gray-500">Completion: </span>
-                                  <span className="font-semibold text-gray-900">{interview.completion_score}%</span>
+                              {interview.behavior_score !== undefined && (
+                                <div className="bg-white p-2 rounded-lg text-center">
+                                  <span className="text-xs text-gray-500 block">Behavior</span>
+                                  <span className="font-bold text-lg text-blue-600">{interview.behavior_score}%</span>
                                 </div>
                               )}
-                              {interview.detail_score !== undefined && (
-                                <div>
-                                  <span className="text-sm text-gray-500">Detail: </span>
-                                  <span className="font-semibold text-gray-900">{interview.detail_score}%</span>
+                              {interview.confidence_score !== undefined && (
+                                <div className="bg-white p-2 rounded-lg text-center">
+                                  <span className="text-xs text-gray-500 block">Confidence</span>
+                                  <span className="font-bold text-lg text-purple-600">{interview.confidence_score}%</span>
+                                </div>
+                              )}
+                              {interview.answer_score !== undefined && (
+                                <div className="bg-white p-2 rounded-lg text-center">
+                                  <span className="text-xs text-gray-500 block">Answers</span>
+                                  <span className="font-bold text-lg text-green-600">{interview.answer_score}%</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Strengths & Weaknesses */}
+                          {(interview.strengths?.length || interview.weaknesses?.length) && (
+                            <div className="mt-3 grid grid-cols-2 gap-3">
+                              {interview.strengths && interview.strengths.length > 0 && (
+                                <div className="bg-green-50 p-3 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-green-800 mb-2">Strengths</h5>
+                                  <ul className="space-y-1">
+                                    {interview.strengths.slice(0, 3).map((s, i) => (
+                                      <li key={i} className="text-xs text-green-700">• {s}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {interview.weaknesses && interview.weaknesses.length > 0 && (
+                                <div className="bg-orange-50 p-3 rounded-lg">
+                                  <h5 className="text-xs font-semibold text-orange-800 mb-2">Areas to Improve</h5>
+                                  <ul className="space-y-1">
+                                    {interview.weaknesses.slice(0, 3).map((w, i) => (
+                                      <li key={i} className="text-xs text-orange-700">• {w}</li>
+                                    ))}
+                                  </ul>
                                 </div>
                               )}
                             </div>
@@ -362,11 +418,51 @@ export default function CandidateProfileModal({
                             <p className="text-sm text-gray-600 mt-3 bg-white p-3 rounded-lg">{interview.summary}</p>
                           )}
 
+                          {/* Detailed Feedback */}
+                          {interview.detailed_feedback && (
+                            <div className="mt-3 bg-blue-50 p-3 rounded-lg">
+                              <h5 className="text-xs font-semibold text-blue-800 mb-1">AI Feedback</h5>
+                              <p className="text-sm text-blue-700">{interview.detailed_feedback}</p>
+                            </div>
+                          )}
+
                           {/* ATS Score */}
                           {interview.ats_score !== undefined && (
                             <div className="mt-2">
                               <span className="text-sm text-gray-500">ATS Score: </span>
                               <span className="font-semibold text-primary-600">{interview.ats_score}%</span>
+                            </div>
+                          )}
+
+                          {/* Employee Verdict Actions - Show if AI verdict is REVIEW */}
+                          {interview.verdict === 'REVIEW' && !interview.employee_verdict && (
+                            <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                              <p className="text-sm text-yellow-800 mb-3">
+                                AI recommends manual review. Please submit your verdict:
+                              </p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleEmployeeVerdict(interview.interview_id, 'APPROVED')}
+                                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
+                                >
+                                  ✓ Approve
+                                </button>
+                                <button
+                                  onClick={() => handleEmployeeVerdict(interview.interview_id, 'REJECTED')}
+                                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                                >
+                                  ✗ Reject
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Show employee verdict if submitted */}
+                          {interview.employee_verdict && (
+                            <div className={`mt-3 p-2 rounded-lg text-center font-semibold ${
+                              interview.employee_verdict === 'APPROVED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              Employee Verdict: {interview.employee_verdict}
                             </div>
                           )}
                         </div>

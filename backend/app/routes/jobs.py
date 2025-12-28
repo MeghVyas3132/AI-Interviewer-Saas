@@ -76,3 +76,36 @@ async def list_questions(job_id: str, current_user: User = Depends(get_current_u
     result = await session.execute(query)
     rows = result.scalars().all()
     return [{"id": str(r.id), "text": r.text} for r in rows]
+
+
+@router.delete("/{job_id}")
+async def delete_job_template(job_id: str, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    """Delete a job template and its associated questions."""
+    if current_user.role not in [UserRole.HR, UserRole.SYSTEM_ADMIN]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    
+    try:
+        jt = await session.get(JobTemplate, job_id)
+        if not jt:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Only allow deletion of own company's jobs
+        if jt.company_id != current_user.company_id:
+            raise HTTPException(status_code=403, detail="Not allowed")
+        
+        # Delete associated questions first
+        from sqlalchemy import delete
+        await session.execute(
+            delete(Question).where(Question.job_template_id == uuid.UUID(job_id))
+        )
+        
+        # Delete the job template
+        await session.delete(jt)
+        await session.commit()
+        
+        return {"status": "success", "message": "Job template deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

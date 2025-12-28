@@ -467,3 +467,163 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
         "keywords_missing": parsed.get("keywords_missing") or [],
     }
 
+
+async def generate_interview_verdict(
+    transcript: list,
+    resume_text: str = "",
+    ats_score: int | None = None,
+    position: str = "",
+    model: str | None = None
+) -> Dict[str, Any]:
+    """
+    Generate a detailed interview verdict with AI analysis.
+    Analyzes behavior, confidence, answer quality, and provides hiring recommendation.
+    
+    Returns: {
+        recommendation: HIRE | REJECT | NEUTRAL,
+        behavior_score: 0-100,
+        confidence_score: 0-100,
+        answer_score: 0-100,
+        overall_score: 0-100,
+        summary: str,
+        strengths: list,
+        weaknesses: list,
+        detailed_feedback: str
+    }
+    """
+    model = "gemini-2.5-flash"
+    
+    # Format transcript for AI
+    transcript_text = "\n".join([
+        f"[{msg.get('role', 'unknown').upper()}]: {msg.get('content', '')}"
+        for msg in transcript
+    ])
+    
+    ats_context = ""
+    if ats_score is not None:
+        ats_context = f"\nCandidate's ATS/Resume Score: {ats_score}/100\n"
+    
+    resume_context = ""
+    if resume_text:
+        resume_context = f"\nCandidate's Resume Summary:\n{resume_text[:2000]}\n"
+    
+    position_context = f"Position: {position}\n" if position else ""
+    
+    prompt = f"""You are an expert interview evaluator and hiring manager. Analyze the following interview transcript and provide a comprehensive evaluation.
+
+{position_context}{ats_context}{resume_context}
+
+INTERVIEW TRANSCRIPT:
+{transcript_text}
+
+Evaluate the candidate based on:
+1. BEHAVIOR (professionalism, communication style, attitude)
+2. CONFIDENCE (self-assurance, clarity in responses, handling pressure)
+3. ANSWER QUALITY (relevance, depth, accuracy, problem-solving)
+
+Return a JSON object with EXACTLY these keys:
+- recommendation: One of "HIRE", "REJECT", or "NEUTRAL" based on overall performance
+- behavior_score: Integer 0-100 rating behavior/professionalism
+- confidence_score: Integer 0-100 rating confidence level
+- answer_score: Integer 0-100 rating answer quality and relevance
+- overall_score: Integer 0-100 weighted average (behavior 25%, confidence 25%, answers 50%)
+- summary: 2-3 sentence summary of candidate performance
+- strengths: Array of 3-5 specific strengths observed
+- weaknesses: Array of 2-4 areas for improvement
+- detailed_feedback: 1 paragraph detailed feedback for the hiring team
+- key_answers: Array of objects with question/answer/rating for the 3 most important Q&A pairs
+
+Rules for recommendation:
+- HIRE: overall_score >= 70 and no critical weaknesses
+- REJECT: overall_score < 50 or major red flags
+- NEUTRAL: overall_score 50-69 or mixed signals requiring human review
+
+Return ONLY valid JSON, no markdown, no explanation."""
+
+    # Google Gemini API
+    base = "https://generativelanguage.googleapis.com/v1beta"
+    endpoint = f"{base}/models/{model}:generateContent"
+    headers = {"Content-Type": "application/json"}
+    params = {}
+    if settings.ai_service_api_key:
+        params["key"] = settings.ai_service_api_key
+
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 4096,
+        }
+    }
+    
+    last_exc = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                resp = await client.post(endpoint, json=body, headers=headers, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except Exception as e:
+            last_exc = e
+            logger.warning(f"Gemini API attempt {attempt+1} failed for verdict: {e}")
+            await asyncio.sleep(2 ** attempt)
+    else:
+        raise last_exc
+
+    # Extract text output from Gemini response
+    text_output = None
+    if isinstance(data, dict):
+        candidates = data.get("candidates", [])
+        if candidates:
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            if parts:
+                text_output = parts[0].get("text")
+
+    if not text_output:
+        logger.error(f"No text output from Gemini for verdict: {data}")
+        raise Exception("No textual response from AI provider")
+
+    try:
+        # Clean markdown code blocks if present
+        clean_text = text_output.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        if clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        parsed = json.loads(clean_text.strip())
+    except Exception:
+        import re
+        m = re.search(r"\{.*\}", text_output, re.DOTALL)
+        if m:
+            parsed = json.loads(m.group(0))
+        else:
+            # Fallback to basic scoring
+            parsed = {
+                "recommendation": "NEUTRAL",
+                "behavior_score": 50,
+                "confidence_score": 50,
+                "answer_score": 50,
+                "overall_score": 50,
+                "summary": "Unable to fully analyze the interview transcript.",
+                "strengths": [],
+                "weaknesses": [],
+                "detailed_feedback": "Manual review recommended."
+            }
+
+    return {
+        "recommendation": parsed.get("recommendation", "NEUTRAL"),
+        "behavior_score": parsed.get("behavior_score", 50),
+        "confidence_score": parsed.get("confidence_score", 50),
+        "answer_score": parsed.get("answer_score", 50),
+        "overall_score": parsed.get("overall_score", 50),
+        "summary": parsed.get("summary", ""),
+        "strengths": parsed.get("strengths") or [],
+        "weaknesses": parsed.get("weaknesses") or [],
+        "detailed_feedback": parsed.get("detailed_feedback", ""),
+        "key_answers": parsed.get("key_answers") or [],
+        "raw": data
+    }

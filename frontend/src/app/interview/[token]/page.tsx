@@ -18,6 +18,9 @@ interface InterviewSession {
 interface ATSResult {
   score: number;
   summary: string;
+  verdict?: string;
+  highlights?: string[];
+  improvements?: string[];
   keywords_found?: string[];
   keywords_missing?: string[];
 }
@@ -172,10 +175,13 @@ export default function InterviewLandingPage() {
           if (response.ok) {
             const data = await response.json();
             setAtsResult({
-              score: data.ai_response?.score || data.score || 75,
-              summary: data.ai_response?.summary || data.summary || 'Resume analysis complete.',
-              keywords_found: data.ai_response?.keywords_found || [],
-              keywords_missing: data.ai_response?.keywords_missing || []
+              score: data.score || data.ai_response?.score || 75,
+              summary: data.summary || data.ai_response?.summary || 'Resume analysis complete.',
+              verdict: data.verdict || data.ai_response?.verdict,
+              highlights: data.highlights || data.ai_response?.highlights || [],
+              improvements: data.improvements || data.ai_response?.improvements || [],
+              keywords_found: data.keywords_found || data.ai_response?.keywords_found || [],
+              keywords_missing: data.keywords_missing || data.ai_response?.keywords_missing || []
             });
           } else {
             // Even if ATS fails, allow to continue
@@ -283,7 +289,7 @@ export default function InterviewLandingPage() {
                     index + 1 < getStepNumber() 
                       ? 'bg-green-600 text-white' 
                       : index + 1 === getStepNumber() 
-                        ? 'bg-blue-600 text-white' 
+                        ? 'bg-primary-600 text-white' 
                         : 'bg-gray-200 text-gray-500'
                   }`}>
                     {index + 1 < getStepNumber() ? (
@@ -327,7 +333,7 @@ export default function InterviewLandingPage() {
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h2>
               <p className="text-gray-600 mb-6">{error}</p>
-              <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+              <button onClick={() => window.location.reload()} className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
                 Try Again
               </button>
             </div>
@@ -369,8 +375,8 @@ export default function InterviewLandingPage() {
           {currentStep === 'resume' && (
             <div className="max-w-lg mx-auto">
               <div className="text-center mb-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 mx-auto mb-4 bg-primary-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
@@ -380,7 +386,7 @@ export default function InterviewLandingPage() {
 
               <div 
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition ${
-                  resumeFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-blue-400'
+                  resumeFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-primary-400'
                 }`}
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -398,8 +404,8 @@ export default function InterviewLandingPage() {
                   </div>
                 ) : (
                   <div>
-                    <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center">
-                      <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-12 h-12 mx-auto mb-3 bg-primary-100 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                     </div>
@@ -419,7 +425,7 @@ export default function InterviewLandingPage() {
                 onClick={handleResumeSubmit}
                 disabled={!resumeFile || uploadingResume}
                 className={`w-full mt-6 py-4 rounded-xl font-semibold text-white transition ${
-                  resumeFile && !uploadingResume ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'
+                  resumeFile && !uploadingResume ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-300 cursor-not-allowed'
                 }`}
               >
                 {uploadingResume ? 'Processing...' : 'Continue'}
@@ -430,8 +436,8 @@ export default function InterviewLandingPage() {
           {currentStep === 'ats-check' && (
             <div className="max-w-lg mx-auto">
               <div className="text-center mb-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 mx-auto mb-4 bg-primary-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
@@ -463,7 +469,56 @@ export default function InterviewLandingPage() {
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h3 className="font-semibold text-gray-900 mb-2">Analysis Summary</h3>
                     <p className="text-gray-600 text-sm">{atsResult.summary}</p>
+                    {atsResult.verdict && (
+                      <p className="mt-2 text-sm font-medium">
+                        Verdict: <span className={`${
+                          atsResult.verdict === 'EXCELLENT' ? 'text-green-600' :
+                          atsResult.verdict === 'GOOD' ? 'text-blue-600' :
+                          atsResult.verdict === 'FAIR' ? 'text-amber-600' : 'text-red-600'
+                        }`}>{atsResult.verdict}</span>
+                      </p>
+                    )}
                   </div>
+
+                  {/* Highlights/Strengths */}
+                  {atsResult.highlights && atsResult.highlights.length > 0 && (
+                    <div className="bg-primary-50 rounded-xl p-4">
+                      <h3 className="font-semibold text-primary-800 mb-2 flex items-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Strengths
+                      </h3>
+                      <ul className="space-y-1">
+                        {atsResult.highlights.slice(0, 5).map((highlight, i) => (
+                          <li key={i} className="text-sm text-primary-700 flex items-start gap-2">
+                            <span className="text-primary-400 mt-1">•</span>
+                            {highlight}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Improvements */}
+                  {atsResult.improvements && atsResult.improvements.length > 0 && (
+                    <div className="bg-orange-50 rounded-xl p-4">
+                      <h3 className="font-semibold text-orange-800 mb-2 flex items-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Areas for Improvement
+                      </h3>
+                      <ul className="space-y-1">
+                        {atsResult.improvements.slice(0, 5).map((improvement, i) => (
+                          <li key={i} className="text-sm text-orange-700 flex items-start gap-2">
+                            <span className="text-orange-400 mt-1">•</span>
+                            {improvement}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Keywords Found */}
                   {atsResult.keywords_found && atsResult.keywords_found.length > 0 && (
@@ -505,7 +560,7 @@ export default function InterviewLandingPage() {
 
                   <button
                     onClick={() => setCurrentStep('device-check')}
-                    className="w-full py-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 transition"
+                    className="w-full py-4 rounded-xl font-semibold text-white bg-primary-600 hover:bg-primary-700 transition"
                   >
                     Continue to Device Check
                   </button>
@@ -517,8 +572,8 @@ export default function InterviewLandingPage() {
           {currentStep === 'device-check' && (
             <div className="max-w-lg mx-auto">
               <div className="text-center mb-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-purple-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 mx-auto mb-4 bg-primary-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </div>

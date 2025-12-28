@@ -58,6 +58,76 @@ async def resume_analysis(request: Request, user=Depends(get_current_user)):
     body = await request.json()
     return await proxy_to_ai_service("/interview/{token}/get-resume-analysis", method="POST", data=body)
 
+
+@router.post("/ats")
+async def ats_for_interview(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
+    """ATS check for interview flow - saves score to interview record and creates AI report.
+    
+    Expected body: { resume_text, job_description (optional), interview_id (optional) }
+    Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing, verdict }
+    """
+    try:
+        payload = await request.json()
+        resume_text = payload.get("resume_text", "")
+        job_description = payload.get("job_description", "")
+        interview_id = payload.get("interview_id")
+        
+        if not resume_text:
+            raise HTTPException(status_code=400, detail="Missing resume_text")
+        
+        # Use AI service to generate enhanced ATS report
+        from app.services.ai_service import generate_ats_report_enhanced
+        
+        result = await generate_ats_report_enhanced(resume_text, job_description)
+        
+        # Add verdict based on score
+        score = result.get("score", 0)
+        if score >= 80:
+            result["verdict"] = "EXCELLENT"
+        elif score >= 70:
+            result["verdict"] = "GOOD"
+        elif score >= 60:
+            result["verdict"] = "FAIR"
+        else:
+            result["verdict"] = "NEEDS_IMPROVEMENT"
+        
+        # Save to interview if interview_id provided
+        if interview_id:
+            try:
+                from app.models.candidate import Interview
+                interview = await session.get(Interview, interview_id)
+                if interview:
+                    interview.ats_score = score
+                    interview.resume_text = resume_text[:10000]  # Store first 10k chars
+                    await session.commit()
+                    
+                    # Also create AI report for tracking
+                    report = await AIReportService.create_report(
+                        session=session,
+                        company_id=interview.company_id,
+                        report_type="ats_check",
+                        provider_response=result,
+                        candidate_id=interview.candidate_id,
+                        interview_id=interview_id,
+                        score=score,
+                        summary=result.get("summary"),
+                    )
+                    await session.commit()
+                    result["report_id"] = str(report.id)
+            except Exception as e:
+                logger.warning(f"Failed to save ATS score to interview: {e}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"ATS check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"ATS check failed: {str(e)}")
+
 @router.post("/ats-check")
 async def ats_check(
     request: Request,
@@ -332,4 +402,115 @@ async def transcript_callback(
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Transcript callback failed: {str(e)}")
 
-# Add more proxy endpoints as needed for other AI features
+
+# ==================== COMPANY AI CONFIG ====================
+
+from pydantic import BaseModel
+from typing import Optional
+
+class AIConfigUpdate(BaseModel):
+    min_passing_score: Optional[int] = None
+    min_ats_score: Optional[int] = None
+    auto_reject_below: Optional[int] = None
+    require_employee_review: Optional[bool] = None
+    ats_enabled: Optional[bool] = None
+    ai_verdict_enabled: Optional[bool] = None
+
+
+@router.get("/config")
+async def get_ai_config(
+    session: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Get company AI configuration settings.
+    """
+    try:
+        from app.models.company_ai_config import CompanyAIConfig
+        
+        result = await session.execute(
+            select(CompanyAIConfig).filter(CompanyAIConfig.company_id == user.company_id)
+        )
+        config = result.scalar_one_or_none()
+        
+        if config:
+            return config.to_dict()
+        else:
+            # Return default config
+            return {
+                "id": None,
+                "company_id": str(user.company_id),
+                "min_passing_score": 70,
+                "min_ats_score": 60,
+                "auto_reject_below": None,
+                "require_employee_review": True,
+                "ats_enabled": True,
+                "ai_verdict_enabled": True,
+            }
+    except Exception as e:
+        logger.error(f"Error fetching AI config: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch AI config: {str(e)}")
+
+
+@router.put("/config")
+async def update_ai_config(
+    request: AIConfigUpdate,
+    session: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Update company AI configuration settings.
+    Only HR_MANAGER and SYSTEM_ADMIN can update.
+    """
+    try:
+        from app.models.company_ai_config import CompanyAIConfig
+        import uuid
+        
+        # Check permission (only HR or Admin can update)
+        if user.role not in ["HR_MANAGER", "HR", "SYSTEM_ADMIN"]:
+            raise HTTPException(status_code=403, detail="Only HR Manager or Admin can update AI settings")
+        
+        result = await session.execute(
+            select(CompanyAIConfig).filter(CompanyAIConfig.company_id == user.company_id)
+        )
+        config = result.scalar_one_or_none()
+        
+        if not config:
+            # Create new config
+            config = CompanyAIConfig(
+                id=uuid.uuid4(),
+                company_id=user.company_id,
+                min_passing_score=request.min_passing_score if request.min_passing_score is not None else 70,
+                min_ats_score=request.min_ats_score if request.min_ats_score is not None else 60,
+                auto_reject_below=request.auto_reject_below,
+                require_employee_review=request.require_employee_review if request.require_employee_review is not None else True,
+                ats_enabled=request.ats_enabled if request.ats_enabled is not None else True,
+                ai_verdict_enabled=request.ai_verdict_enabled if request.ai_verdict_enabled is not None else True,
+            )
+            session.add(config)
+        else:
+            # Update existing config
+            if request.min_passing_score is not None:
+                config.min_passing_score = request.min_passing_score
+            if request.min_ats_score is not None:
+                config.min_ats_score = request.min_ats_score
+            if request.auto_reject_below is not None:
+                config.auto_reject_below = request.auto_reject_below
+            if request.require_employee_review is not None:
+                config.require_employee_review = request.require_employee_review
+            if request.ats_enabled is not None:
+                config.ats_enabled = request.ats_enabled
+            if request.ai_verdict_enabled is not None:
+                config.ai_verdict_enabled = request.ai_verdict_enabled
+        
+        await session.commit()
+        await session.refresh(config)
+        
+        return config.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Error updating AI config: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update AI config: {str(e)}")
+
