@@ -5,7 +5,7 @@ Handles file parsing, validation, and database operations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select, and_, func, create_engine
@@ -15,9 +15,12 @@ from app.core.celery_config import celery_app
 from app.core.config import settings
 from app.models.candidate import Candidate, CandidateStatus, CandidateSource
 from app.models.import_job import ImportJob, ImportJobStatus
-from app.services.candidate_service import CandidateService
-from app.services.email_async_service import EmailService
 from app.utils.file_parser import CandidateImportParser
+
+# Lazy imports to avoid circular dependency
+if TYPE_CHECKING:
+    from app.services.candidate_service import CandidateService
+    from app.services.email_async_service import EmailService
 
 logger = logging.getLogger(__name__)
 
