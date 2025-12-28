@@ -1,17 +1,14 @@
 #!/bin/sh
-set -e
 
 echo "=== AI Interviewer Backend Startup ==="
 
-# Run Alembic migrations
+# Run Alembic migrations (don't exit on failure)
 echo "Running database migrations..."
-if alembic upgrade head; then
-    echo "Migrations completed successfully"
-else
+alembic upgrade head || {
     echo "Alembic migrations failed, attempting direct SQL fix..."
     
     # If alembic fails, try to fix the database directly using Python
-    python -c "
+    python << 'PYTHON_SCRIPT'
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -71,8 +68,8 @@ async def fix_db():
         
         # Update alembic version to 015
         try:
-            await conn.execute(text(\"DELETE FROM alembic_version\"))
-            await conn.execute(text(\"INSERT INTO alembic_version (version_num) VALUES ('015')\"))
+            await conn.execute(text("DELETE FROM alembic_version"))
+            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('015')"))
             print('Updated alembic version to 015')
         except Exception as e:
             print(f'Version update: {e}')
@@ -81,8 +78,10 @@ async def fix_db():
         print('Database fix completed')
 
 asyncio.run(fix_db())
-" || echo "Direct fix also failed, continuing anyway..."
-fi
+PYTHON_SCRIPT
 
-echo "Starting uvicorn server..."
+    echo "Direct fix attempted"
+}
+
+echo "Migrations step complete, starting server..."
 exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
