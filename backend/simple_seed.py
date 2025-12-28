@@ -1,8 +1,14 @@
 import asyncio
+import sys
 from app.core.database import async_session_maker, init_db
 from app.models.user import User, UserRole
 from sqlalchemy import text
 from passlib.context import CryptContext
+
+print("=" * 50)
+print("SIMPLE SEED SCRIPT STARTING...")
+print("=" * 50)
+sys.stdout.flush()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -11,13 +17,13 @@ async def main():
     await init_db()
     
     async with async_session_maker() as session:
-        # Check if system admin already exists
-        result = await session.execute(
-            text("SELECT id FROM users WHERE email = 'admin@aigenthix.com'")
+        print("Checking for existing admin...")
+        
+        # Delete existing admin if exists (to ensure clean state)
+        await session.execute(
+            text("DELETE FROM users WHERE email = 'admin@aigenthix.com'")
         )
-        if result.fetchone():
-            print("System Admin already exists. Skipping seed.")
-            return
+        await session.commit()
         
         print("Creating SYSTEM_ADMIN user...")
         
@@ -45,10 +51,14 @@ async def main():
         
         print()
         print("SEED COMPLETE!")
+        print("=" * 50)
+        sys.stdout.flush()
         print()
         print("System Admin credentials:")
         print("  Email: admin@aigenthix.com")
         print("  Password: qwerty123")
 
 if __name__ == "__main__":
+    print("Running main()...")
+    sys.stdout.flush()
     asyncio.run(main())
