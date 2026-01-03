@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai_report_service import AIReportService
 import httpx
 import base64
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Form
 
 logger = logging.getLogger(__name__)
 
@@ -130,26 +130,76 @@ async def ats_for_interview(
 
 @router.post("/ats-check")
 async def ats_check(
-    request: Request,
+    resume: UploadFile = File(None),
+    job_description: str = Form(None),
     user=Depends(get_current_user),
 ):
-    """Simple ATS check without saving - for quick candidate self-check.
+    """ATS check for resume files or text - for quick candidate self-check.
     
-    Expected body: { resume_text, job_description (optional) }
+    Accepts file upload (resume) or JSON body with resume_text
     Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing }
     """
     try:
-        payload = await request.json()
-        resume_text = payload.get("resume_text", "")
-        job_description = payload.get("job_description", "")
+        resume_text = ""
+        job_desc = job_description or ""
         
-        if not resume_text:
-            raise HTTPException(status_code=400, detail="Missing resume_text")
+        # Handle file upload
+        if resume:
+            content = await resume.read()
+            filename = resume.filename.lower() if resume.filename else ""
+            
+            # Handle text files
+            if filename.endswith('.txt') or resume.content_type == 'text/plain':
+                resume_text = content.decode('utf-8', errors='ignore')
+            
+            # Handle PDF files
+            elif filename.endswith('.pdf') or resume.content_type == 'application/pdf':
+                try:
+                    import PyPDF2
+                    import io
+                    pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+                    for page in pdf_reader.pages:
+                        resume_text += page.extract_text() or ""
+                except Exception as pdf_err:
+                    logger.warning(f"PyPDF2 failed: {pdf_err}, trying pdfplumber")
+                    try:
+                        import pdfplumber
+                        import io
+                        with pdfplumber.open(io.BytesIO(content)) as pdf:
+                            for page in pdf.pages:
+                                resume_text += page.extract_text() or ""
+                    except Exception as plumber_err:
+                        logger.error(f"pdfplumber also failed: {plumber_err}")
+                        raise HTTPException(status_code=400, detail="Could not extract text from PDF. Please try a different file or paste the text directly.")
+            
+            # Handle Word documents
+            elif filename.endswith('.docx') or resume.content_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+                try:
+                    import docx
+                    import io
+                    doc = docx.Document(io.BytesIO(content))
+                    resume_text = "\n".join([para.text for para in doc.paragraphs])
+                except Exception as docx_err:
+                    logger.error(f"Failed to parse docx: {docx_err}")
+                    raise HTTPException(status_code=400, detail="Could not extract text from Word document.")
+            
+            elif filename.endswith('.doc'):
+                raise HTTPException(status_code=400, detail="Legacy .doc files are not supported. Please convert to .docx or PDF.")
+            
+            else:
+                # Try to decode as text
+                try:
+                    resume_text = content.decode('utf-8', errors='ignore')
+                except:
+                    raise HTTPException(status_code=400, detail="Unsupported file format. Please upload PDF, DOCX, or TXT.")
+        
+        if not resume_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from the resume. Please try a different file.")
         
         # Use AI service to generate ATS report
         from app.services.ai_service import generate_ats_report_enhanced
         
-        result = await generate_ats_report_enhanced(resume_text, job_description)
+        result = await generate_ats_report_enhanced(resume_text.strip(), job_desc)
         return result
         
     except HTTPException:
@@ -331,7 +381,21 @@ async def list_ai_reports(
     Returns a simple JSON structure: { reports: [ ... ] }
     """
     try:
-        stmt = select(AIReport).where(AIReport.company_id == user.company_id).order_by(AIReport.created_at.desc()).limit(limit).offset(offset)
+        from sqlalchemy import or_
+        
+        # Include reports for the user's company OR reports with no company (general reports)
+        stmt = (
+            select(AIReport)
+            .where(
+                or_(
+                    AIReport.company_id == user.company_id,
+                    AIReport.company_id.is_(None)
+                )
+            )
+            .order_by(AIReport.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         result = await session.execute(stmt)
         reports = result.scalars().all()
 
@@ -348,6 +412,7 @@ async def list_ai_reports(
 
         return {"reports": out}
     except Exception as e:
+        logger.error(f"Failed to list AI reports: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list AI reports: {str(e)}")
 
 # Example: Proxy for Transcript Fetching

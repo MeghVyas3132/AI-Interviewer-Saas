@@ -6,7 +6,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   isLoading?: boolean
-  children?: React.ReactNode
+  children: React.ReactNode
   onClick?: React.MouseEventHandler<HTMLButtonElement>
   className?: string
   disabled?: boolean

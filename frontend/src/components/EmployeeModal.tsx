@@ -29,17 +29,38 @@ export function EmployeeModal({ isOpen, onClose, onSuccess }: EmployeeModalProps
         setError('');
 
         try {
-            // POST /api/v1/users
+            // POST /api/v1/users - only send fields the backend expects
             await apiClient.post('/users', {
-                ...formData,
-                name: `${formData.first_name} ${formData.last_name}`
+                name: `${formData.first_name} ${formData.last_name}`.trim(),
+                email: formData.email,
+                password: formData.password,
+                role: formData.role,
+                department: formData.department || undefined,
+            });
+            // Reset form
+            setFormData({
+                first_name: '',
+                last_name: '',
+                email: '',
+                password: '',
+                role: 'EMPLOYEE',
+                department: 'Engineering'
             });
             onSuccess();
             onClose();
         } catch (err: any) {
             console.error('Failed to create employee:', err);
-            // Improve error message display from backend if available
-            const msg = err.response?.data?.detail?.[0]?.msg || err.message || 'Failed to create employee';
+            // Improve error message display from backend
+            let msg = 'Failed to create employee';
+            if (err.response?.data?.detail) {
+                if (typeof err.response.data.detail === 'string') {
+                    msg = err.response.data.detail;
+                } else if (Array.isArray(err.response.data.detail)) {
+                    msg = err.response.data.detail.map((e: any) => e.msg || e).join(', ');
+                }
+            } else if (err.message) {
+                msg = err.message;
+            }
             setError(msg);
         } finally {
             setLoading(false);

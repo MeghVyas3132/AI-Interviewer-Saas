@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, FormEvent } from 'react'
+import React, { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
@@ -10,7 +10,7 @@ type LoginTab = 'employee' | 'candidate'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, candidateLogin, isLoading } = useAuth()
+  const { login, candidateLogin, isLoading, isAuthenticated, user } = useAuth()
   const [activeTab, setActiveTab] = useState<LoginTab>('employee')
   const [error, setError] = useState('')
   const [candidateLoading, setCandidateLoading] = useState(false)
@@ -19,6 +19,24 @@ export default function LoginPage() {
     password: '',
   })
   const [candidateEmail, setCandidateEmail] = useState('')
+  const [pageReady, setPageReady] = useState(false)
+
+  // Redirect if already authenticated - check before rendering form
+  useEffect(() => {
+    if (!isLoading) {
+      if (isAuthenticated && user) {
+        // Already logged in - redirect to appropriate dashboard
+        if (user.role === 'CANDIDATE') {
+          router.replace('/candidate-portal')
+        } else {
+          router.replace('/dashboard')
+        }
+      } else {
+        // Not authenticated - show login form
+        setPageReady(true)
+      }
+    }
+  }, [isLoading, isAuthenticated, user, router])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -58,10 +76,33 @@ export default function LoginPage() {
     }
   }
 
+  // Show loading spinner while checking auth state
+  if (isLoading || !pageReady) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-screen flex overflow-hidden">
-      {/* Left Side - Branding (60%) */}
-      <div className="hidden lg:flex lg:w-[60%] bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
+    <div className="h-screen flex overflow-hidden relative">
+      {/* Logo - Fixed top-left corner with bookmark style */}
+      <div className="fixed top-0 left-0 z-50">
+        <div className="bg-white shadow-lg rounded-br-2xl px-5 py-4 flex items-center space-x-2">
+          <img
+            src="/images/logo.png"
+            alt="AIGENTHIX"
+            className="h-10 w-auto"
+          />
+        </div>
+      </div>
+
+      {/* Left Side - Branding (50%) */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 bg-white rounded-full blur-3xl"></div>
@@ -70,18 +111,10 @@ export default function LoginPage() {
         </div>
 
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-between w-full p-12">
-          {/* Logo */}
-          <div className="flex items-center space-x-3">
-            <img
-              src="/images/logo.png"
-              alt="AIGENTHIX"
-              className="h-10 w-auto"
-            />
-          </div>
+        <div className="relative z-10 flex flex-col justify-center w-full p-12 pt-20">
 
           {/* Center Content */}
-          <div className="flex-1 flex flex-col justify-center max-w-lg">
+          <div className="flex flex-col justify-center max-w-lg">
             <h1 className="text-4xl lg:text-5xl font-bold text-white leading-tight mb-6">
               Transform Your Hiring Process with AI
             </h1>
@@ -121,8 +154,8 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Side - Form (40%) */}
-      <div className="w-full lg:w-[40%] flex flex-col h-screen bg-white overflow-hidden">
+      {/* Right Side - Form (50%) */}
+      <div className="w-full lg:w-1/2 flex flex-col h-screen bg-white overflow-hidden">
         {/* Top Navigation */}
         <nav className="flex items-center justify-end px-8 py-6 border-b border-gray-100">
           {/* Help Icon */}

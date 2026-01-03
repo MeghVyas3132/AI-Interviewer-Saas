@@ -10,6 +10,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
   const [step, setStep] = useState<number>(1)
+  const [registrationSuccess, setRegistrationSuccess] = useState(false)
   const [formData, setFormData] = useState({
     mode: 'create' as 'create' | 'join',
     company_name: '',
@@ -66,7 +67,7 @@ export default function RegisterPage() {
     try {
       setIsLoading(true)
       await apiClient.post('/auth/register', payload)
-      router.push('/auth/login')
+      setRegistrationSuccess(true)
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Registration failed')
     } finally {
@@ -151,6 +152,42 @@ export default function RegisterPage() {
         {/* Form Container */}
         <div className="flex-1 flex items-center justify-center px-8 py-12">
           <div className="w-full max-w-md">
+            {registrationSuccess ? (
+              /* Registration Success Message */
+              <div className="text-center">
+                <div className="w-20 h-20 mx-auto mb-6 bg-green-100 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 mb-3">Registration Submitted!</h2>
+                <p className="text-gray-500 mb-6 leading-relaxed">
+                  Thank you for registering. Your account request has been submitted and is pending admin review.
+                </p>
+                <div className="bg-brand-50 border border-brand-200 rounded-xl p-4 mb-8 text-left">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-brand-800 mb-1">What happens next?</h4>
+                      <p className="text-sm text-brand-600">
+                        An administrator will review your registration request. Once approved, you&apos;ll receive an email notification and can log in to your account.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => router.push('/auth/login')}
+                  className="w-full py-3 px-4 bg-brand-600 text-white font-medium rounded-xl hover:bg-brand-700 transition-all"
+                >
+                  Back to Login
+                </button>
+              </div>
+            ) : (
+            <>
             {/* Header */}
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-3">Create your account</h2>
@@ -340,6 +377,8 @@ export default function RegisterPage() {
                 </Link>
               </p>
             </div>
+            </>
+            )}
           </div>
         </div>
 

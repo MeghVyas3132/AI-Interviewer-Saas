@@ -24,10 +24,10 @@ export async function customApiCallWithRotation<T>(
   operation: (apiKey: string) => Promise<T>
 ): Promise<T> {
   const { withApiKeyRotation } = await import('@/lib/api-key-manager');
-
+  
   return withApiKeyRotation(async (apiKey: string) => {
     // Your custom API call logic here
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,11 +40,11 @@ export async function customApiCallWithRotation<T>(
         }]
       })
     });
-
+    
     if (!response.ok) {
       throw new Error(`API call failed: ${response.status}`);
     }
-
+    
     return await response.json() as T;
   });
 }
@@ -89,10 +89,10 @@ export async function robustApiCall(prompt: string): Promise<string> {
     // Log the error and current key status
     console.error('API call failed:', error);
     console.log('Current API key status:', getApiKeyStatus());
-
+    
     // You could implement additional fallback logic here
     // For example, switching to a different AI provider
-
+    
     throw error;
   }
 }

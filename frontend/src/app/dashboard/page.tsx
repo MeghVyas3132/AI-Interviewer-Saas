@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { Navigation } from '@/components/Navigation'
@@ -9,22 +9,29 @@ import { getDefaultDashboardRoute } from '@/middleware/rbac'
 export default function DashboardPage() {
   const router = useRouter()
   const { user, isLoading, isAuthenticated } = useAuth()
+  const [isRedirecting, setIsRedirecting] = useState(true)
 
   useEffect(() => {
     // If no authenticated user, redirect to login
     if (!isLoading && !isAuthenticated) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
       return
     }
 
     // Use RBAC utility for role-based routing
     if (!isLoading && user) {
       const dashboardRoute = getDefaultDashboardRoute(user.role)
-      router.replace(dashboardRoute)
+      // Only show content if we're staying on /dashboard
+      if (dashboardRoute === '/dashboard') {
+        setIsRedirecting(false)
+      } else {
+        router.replace(dashboardRoute)
+      }
     }
   }, [isLoading, isAuthenticated, user, router])
 
-  if (isLoading) {
+  // Always show loading while redirecting or checking auth
+  if (isLoading || isRedirecting) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

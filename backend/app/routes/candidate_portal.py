@@ -116,7 +116,8 @@ async def get_my_interviews(
     Get all interviews scheduled for the candidate.
     """
     try:
-        # Get candidate record by email
+        # Get candidate record by email - search across all companies the candidate may have applied to
+        # First try exact company match
         candidate_query = select(Candidate).filter(
             and_(
                 Candidate.email == current_user.email,
@@ -126,13 +127,25 @@ async def get_my_interviews(
         result = await db.execute(candidate_query)
         candidate = result.scalars().first()
 
+        # If not found, try just by email (candidate may have applied to multiple companies)
         if not candidate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Candidate profile not found"
+            candidate_query = select(Candidate).filter(
+                Candidate.email == current_user.email
             )
+            result = await db.execute(candidate_query)
+            candidate = result.scalars().first()
 
-        # Get interviews
+        if not candidate:
+            # No candidate record yet - return empty interviews (not an error)
+            return {
+                "interviews": [],
+                "mentor": None,
+                "company": {"name": ""},
+                "position_applied": "",
+                "companies": []
+            }
+
+        # Get ALL interviews for this candidate across all applications
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
         ).order_by(Interview.scheduled_time.asc())
@@ -152,29 +165,44 @@ async def get_my_interviews(
                     "email": mentor.email,
                 }
 
-        # Get company info
-        company_query = select(Company).filter(Company.id == current_user.company_id)
+        # Get company info for the candidate's primary company
+        company_query = select(Company).filter(Company.id == candidate.company_id)
         company_result = await db.execute(company_query)
         company = company_result.scalars().first()
         
         company_name = company.name if company else "Unknown Company"
         position = candidate.position or "Not Specified"
 
+        # Build interview list with proper company names for each interview
+        interview_list = []
+        for i in interviews:
+            # Get company name for this specific interview
+            interview_company_name = company_name  # default
+            if i.company_id:
+                if i.company_id == candidate.company_id:
+                    interview_company_name = company_name
+                else:
+                    # Different company - fetch it
+                    ic_query = select(Company).filter(Company.id == i.company_id)
+                    ic_result = await db.execute(ic_query)
+                    ic = ic_result.scalars().first()
+                    if ic:
+                        interview_company_name = ic.name
+            
+            interview_list.append({
+                "id": str(i.id),
+                "company_name": interview_company_name,
+                "position": position,
+                "round": i.round.value if i.round else None,
+                "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
+                "timezone": i.timezone,
+                "status": i.status.value if i.status else None,
+                "meeting_link": i.meeting_link,
+                "ai_interview_token": i.ai_interview_token,
+            })
+
         return {
-            "interviews": [
-                {
-                    "id": str(i.id),
-                    "company_name": company_name,
-                    "position": position,
-                    "round": i.round.value if i.round else None,
-                    "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
-                    "timezone": i.timezone,
-                    "status": i.status.value if i.status else None,
-                    "meeting_link": i.meeting_link,
-                    "ai_interview_token": i.ai_interview_token,
-                }
-                for i in interviews
-            ],
+            "interviews": interview_list,
             "mentor": mentor_info,
             "company": {
                 "name": company_name,

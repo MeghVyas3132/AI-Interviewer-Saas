@@ -318,7 +318,9 @@ Return JSON only, no markdown, no explanation."""
 
     # Google Gemini API path
     base = "https://generativelanguage.googleapis.com/v1beta"
-    endpoint = f"{base}/models/{model}:generateContent"
+    # Use gemini-2.5-flash as primary model
+    model_to_use = "gemini-2.5-flash" if model in ["gemini-2.5-flash", None, ""] else model
+    endpoint = f"{base}/models/{model_to_use}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
     if settings.ai_service_api_key:
@@ -337,13 +339,17 @@ Return JSON only, no markdown, no explanation."""
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(endpoint, json=body, headers=headers, params=params)
+                if resp.status_code == 429:
+                    logger.warning(f"Rate limited on {model_to_use}, attempt {attempt+1}")
+                    await asyncio.sleep(5 * (attempt + 1))  # Longer delays: 5s, 10s, 15s
+                    continue
                 resp.raise_for_status()
                 data = resp.json()
             break
         except Exception as e:
             last_exc = e
-            logger.warning(f"Gemini API attempt {attempt+1} failed for questions: {e}")
-            await asyncio.sleep(2 ** attempt)
+            logger.warning(f"Gemini API attempt {attempt+1} failed for questions with {model_to_use}: {e}")
+            await asyncio.sleep(3 * (attempt + 1))
     else:
         raise last_exc
 
@@ -383,92 +389,42 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     Enhanced ATS report with detailed section-by-section analysis.
     Used for candidate-facing ATS checker tool.
     """
-    # Force Gemini model
+    # Use gemini-2.5-flash - verified available
     model = "gemini-2.5-flash"
     
     jd_context = ""
     if job_description:
-        jd_context = f"\n\nTARGET JOB DESCRIPTION:\n{job_description}\n"
+        jd_context = f"\n\nTARGET JOB DESCRIPTION/ROLE:\n{job_description}\n\nAnalyze the resume specifically for this role. Check if the candidate's skills and experience align with this position."
 
-    prompt = f"""You are an expert ATS (Applicant Tracking System) analyst and career coach with 15+ years of experience in technical recruiting.
+    prompt = f"""You are an expert ATS (Applicant Tracking System) analyst. Analyze this resume and provide a detailed assessment.
 
-RESUME TO ANALYZE:
+RESUME:
 {resume_text}
 {jd_context}
 
-Perform a COMPREHENSIVE ATS analysis covering ALL of the following aspects:
+Analyze the resume for ATS compatibility and provide specific, actionable feedback. Look at:
+- Contact information completeness
+- Format and structure clarity
+- Work experience quality and quantification
+- Skills relevance and presentation
+- Education and certifications
+- Keyword optimization for the target role
 
-1. **CONTACT INFORMATION** (5 points)
-   - Is name clearly visible at top?
-   - Is email professional and present?
-   - Is phone number included?
-   - Is LinkedIn/GitHub present (for tech roles)?
-   - Is location included?
+Provide your analysis as a JSON object with these exact fields:
+- score: integer 0-100 overall ATS compatibility score
+- summary: 2-3 sentence summary of the resume's ATS compatibility and overall quality
+- section_scores: object with scores for each section (contact_info out of 5, format_structure out of 5, professional_summary out of 5, work_experience out of 5, technical_skills out of 5, education out of 5, keyword_optimization out of 5) - each with score and feedback
+- highlights: array of 3-5 specific strengths found in this resume
+- improvements: array of 5-7 specific, actionable improvements for this resume
+- keywords_found: array of relevant technical/professional keywords found
+- keywords_missing: array of important keywords that should be added for the target role
+- formatting_issues: array of any formatting problems detected
+- action_verbs_used: array of strong action verbs found in experience section
+- quantified_achievements: integer count of achievements with numbers/metrics
+- ats_friendly: boolean whether this resume will parse well in ATS systems
 
-2. **FORMAT & STRUCTURE** (15 points)
-   - Is the format ATS-parseable (no tables, columns, graphics)?
-   - Are section headers clear (Experience, Education, Skills)?
-   - Is font readable (standard fonts like Arial, Calibri)?
-   - Is length appropriate (1-2 pages)?
-   - Are dates formatted consistently?
-
-3. **PROFESSIONAL SUMMARY** (10 points)
-   - Is there a clear summary/objective?
-   - Does it mention the target role?
-   - Does it highlight key qualifications?
-
-4. **WORK EXPERIENCE** (25 points)
-   - Are job titles clear and industry-standard?
-   - Are company names included?
-   - Are employment dates present and consistent?
-   - Do bullet points start with action verbs?
-   - Are achievements quantified (numbers, percentages)?
-   - Is there career progression shown?
-
-5. **TECHNICAL SKILLS** (20 points)
-   - Is there a dedicated skills section?
-   - Are skills listed with specific technologies/tools?
-   - Are skills relevant to the target role?
-   - Are skill levels indicated where appropriate?
-   - Are both hard and soft skills covered?
-
-6. **EDUCATION & CERTIFICATIONS** (10 points)
-   - Are degrees clearly listed with dates?
-   - Are relevant certifications included?
-   - Is GPA included if notable?
-   - Are relevant coursework/projects mentioned?
-
-7. **KEYWORD OPTIMIZATION** (15 points)
-   - Does resume contain industry-standard keywords?
-   - Are keywords naturally integrated (not keyword stuffing)?
-   - Do keywords match the job description (if provided)?
-   - Are acronyms spelled out on first use?
-
-Return a JSON object with EXACTLY these keys:
-{{
-    "score": <integer 0-100 overall ATS score>,
-    "summary": "<2-3 sentence executive summary of ATS compatibility>",
-    "section_scores": {{
-        "contact_info": {{"score": <0-5>, "feedback": "<specific feedback>"}},
-        "format_structure": {{"score": <0-15>, "feedback": "<specific feedback>"}},
-        "professional_summary": {{"score": <0-10>, "feedback": "<specific feedback>"}},
-        "work_experience": {{"score": <0-25>, "feedback": "<specific feedback>"}},
-        "technical_skills": {{"score": <0-20>, "feedback": "<specific feedback>"}},
-        "education": {{"score": <0-10>, "feedback": "<specific feedback>"}},
-        "keyword_optimization": {{"score": <0-15>, "feedback": "<specific feedback>"}}
-    }},
-    "highlights": ["<strength 1>", "<strength 2>", ...],
-    "improvements": ["<specific actionable improvement 1>", "<specific actionable improvement 2>", ...],
-    "keywords_found": ["<keyword1>", "<keyword2>", ...],
-    "keywords_missing": ["<missing keyword1>", "<missing keyword2>", ...],
-    "formatting_issues": ["<issue 1>", "<issue 2>", ...],
-    "action_verbs_used": ["<verb1>", "<verb2>", ...],
-    "quantified_achievements": <number of quantified achievements found>,
-    "ats_friendly": <true/false whether resume will parse well in most ATS systems>
-}}
-
-Be thorough and specific. If the resume is plain text, evaluate it based on content quality. If keywords are weak, suggest specific keywords for the role.
-Return ONLY valid JSON, no markdown formatting."""
+Be specific to THIS resume. Reference actual content from the resume in your feedback. Do not give generic advice.
+Return ONLY valid JSON."""
 
     # Google Gemini API
     base = "https://generativelanguage.googleapis.com/v1beta"
@@ -481,19 +437,36 @@ Return ONLY valid JSON, no markdown formatting."""
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 4096,
+            "temperature": 0.2,
+            "maxOutputTokens": 8192,  # Increased to prevent truncation
         }
     }
     
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(5):  # Increased retries
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=90) as client:
                 resp = await client.post(endpoint, json=body, headers=headers, params=params)
+                
+                # Handle rate limiting specifically
+                if resp.status_code == 429:
+                    wait_time = min(30, 5 * (attempt + 1))  # Wait longer for rate limits
+                    logger.warning(f"Rate limited (429). Waiting {wait_time}s before retry {attempt+1}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                    
                 resp.raise_for_status()
                 data = resp.json()
             break
+        except httpx.HTTPStatusError as e:
+            last_exc = e
+            if e.response.status_code == 429:
+                wait_time = min(30, 5 * (attempt + 1))
+                logger.warning(f"Rate limited (429). Waiting {wait_time}s before retry {attempt+1}")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.warning(f"Gemini API attempt {attempt+1} failed for ATS enhanced: {e}")
+                await asyncio.sleep(2 ** attempt)
         except Exception as e:
             last_exc = e
             logger.warning(f"Gemini API attempt {attempt+1} failed for ATS enhanced: {e}")
@@ -524,22 +497,80 @@ Return ONLY valid JSON, no markdown formatting."""
             clean_text = clean_text[3:]
         if clean_text.endswith("```"):
             clean_text = clean_text[:-3]
-        parsed = json.loads(clean_text.strip())
-    except Exception:
+        clean_text = clean_text.strip()
+        
+        # Try to fix common JSON issues
+        # Remove any trailing commas before closing braces/brackets
         import re
-        m = re.search(r"\{.*\}", text_output, re.DOTALL)
-        if m:
-            parsed = json.loads(m.group(0))
-        else:
-            # Return a default response if parsing fails
-            parsed = {
-                "score": 50,
-                "summary": "Unable to fully analyze resume",
-                "highlights": [],
-                "improvements": ["Ensure resume is in a clear, readable format"],
-                "keywords_found": [],
-                "keywords_missing": []
-            }
+        clean_text = re.sub(r',\s*}', '}', clean_text)
+        clean_text = re.sub(r',\s*]', ']', clean_text)
+        
+        parsed = json.loads(clean_text)
+    except (json.JSONDecodeError, ValueError, Exception) as json_err:
+        logger.warning(f"JSON decode error: {json_err}. Attempting to salvage partial data...")
+        import re
+        
+        # Try to extract key fields even from truncated JSON
+        parsed = {}
+        
+        # Extract score
+        score_match = re.search(r'"score"\s*:\s*(\d+)', text_output)
+        if score_match:
+            parsed["score"] = int(score_match.group(1))
+        
+        # Extract summary
+        summary_match = re.search(r'"summary"\s*:\s*"([^"]+)"', text_output)
+        if summary_match:
+            parsed["summary"] = summary_match.group(1)
+        
+        # Extract ats_friendly
+        ats_match = re.search(r'"ats_friendly"\s*:\s*(true|false)', text_output, re.IGNORECASE)
+        if ats_match:
+            parsed["ats_friendly"] = ats_match.group(1).lower() == "true"
+        
+        # Extract arrays using regex
+        def extract_array(key):
+            pattern = rf'"{key}"\s*:\s*\[(.*?)\]'
+            match = re.search(pattern, text_output, re.DOTALL)
+            if match:
+                items = re.findall(r'"([^"]+)"', match.group(1))
+                return items[:10]  # Limit to 10 items
+            return []
+        
+        parsed["highlights"] = extract_array("highlights") or ["Resume analyzed"]
+        parsed["improvements"] = extract_array("improvements") or ["Continue improving your resume"]
+        parsed["keywords_found"] = extract_array("keywords_found")
+        parsed["keywords_missing"] = extract_array("keywords_missing")
+        parsed["formatting_issues"] = extract_array("formatting_issues")
+        parsed["action_verbs_used"] = extract_array("action_verbs_used")
+        
+        # Extract quantified_achievements
+        quant_match = re.search(r'"quantified_achievements"\s*:\s*(\d+)', text_output)
+        if quant_match:
+            parsed["quantified_achievements"] = int(quant_match.group(1))
+        
+        # If we couldn't extract a score, try full JSON parse with fixes
+        if "score" not in parsed:
+            m = re.search(r"\{.*\}", text_output, re.DOTALL)
+            if m:
+                try:
+                    extracted = m.group(0)
+                    extracted = re.sub(r',\s*}', '}', extracted)
+                    extracted = re.sub(r',\s*]', ']', extracted)
+                    # Try to close unclosed strings and objects
+                    if extracted.count('"') % 2 != 0:
+                        extracted = extracted.rsplit('"', 1)[0] + '"'
+                    parsed = json.loads(extracted)
+                except:
+                    pass
+        
+        # Set defaults for anything still missing
+        if "score" not in parsed:
+            parsed["score"] = 65  # Default middle score
+        if "summary" not in parsed:
+            parsed["summary"] = "Resume analysis completed with partial results. Some details may be incomplete."
+        
+        logger.info(f"Salvaged partial data: score={parsed.get('score')}, summary_len={len(parsed.get('summary', ''))}")
 
     return {
         "score": parsed.get("score", 0),

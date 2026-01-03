@@ -111,17 +111,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
-    setIsLoading(true)
+    // Clear user state FIRST to prevent flash of authenticated content
+    setUser(null)
+    // Clear persisted user data immediately
+    localStorage.removeItem('user')
+    localStorage.removeItem('candidate_companies')
+    localStorage.removeItem('candidate_interviews')
+    Cookies.remove('access_token')
+    Cookies.remove('refresh_token')
+    
+    // Then try to call backend logout (non-blocking)
     try {
       await apiClient.logout()
-      setUser(null)
-      // Clear persisted user data
-      localStorage.removeItem('user')
-      localStorage.removeItem('candidate_companies')
-      localStorage.removeItem('candidate_interviews')
-    } finally {
-      setIsLoading(false)
+    } catch (error) {
+      // Ignore logout API errors - user is already logged out locally
+      console.warn('Backend logout failed (non-critical):', error)
     }
+    // Don't set isLoading during logout to prevent UI flash
   }
 
   const refreshUser = async () => {

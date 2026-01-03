@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
           {
             key: 'Content-Security-Policy',
             value: "frame-ancestors 'self' http://localhost:3000 http://localhost:3001 http://localhost:9002;"
-          }
+          },
         ],
       },
     ];

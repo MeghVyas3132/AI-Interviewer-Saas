@@ -220,9 +220,9 @@ export function AIConfigManager() {
                                             ...prev,
                                             min_ats_score: parseInt(e.target.value)
                                         }))}
-                                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600"
                                     />
-                                    <span className="w-14 text-center font-bold text-blue-600 text-lg">
+                                    <span className="w-14 text-center font-bold text-brand-600 text-lg">
                                         {config.min_ats_score}%
                                     </span>
                                 </div>

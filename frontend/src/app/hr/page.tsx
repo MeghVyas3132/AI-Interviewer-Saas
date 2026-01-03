@@ -53,6 +53,13 @@ export default function HRDashboard() {
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'overview' | 'candidates' | 'employees' | 'pipeline' | 'ai-tools' | 'ai-reports'>('overview')
   const [activeFilter, setActiveFilter] = useState<'all' | 'assigned' | 'unassigned'>('all')
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
+  // Delete all confirmation modal
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false)
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('')
+  const [isDeletingAll, setIsDeletingAll] = useState(false)
   // Kanban pipeline state
   const [pendingPipeline, setPendingPipeline] = useState<Record<string, string>>({})
   const [pipelineDirty, setPipelineDirty] = useState(false)
@@ -87,6 +94,18 @@ export default function HRDashboard() {
     return true;
   });
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCandidates.length / itemsPerPage);
+  const paginatedCandidates = filteredCandidates.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilter]);
+
   const handleDeleteCandidate = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Are you sure you want to delete this candidate?')) return;
@@ -96,6 +115,26 @@ export default function HRDashboard() {
     } catch (err) {
       console.error('Failed to delete:', err);
       alert('Failed to delete candidate');
+    }
+  };
+
+  // Delete all candidates handler
+  const handleDeleteAllCandidates = async () => {
+    if (deleteAllConfirmText !== 'DELETE ALL') return;
+    
+    setIsDeletingAll(true);
+    try {
+      // Delete all candidates one by one (or use bulk endpoint if available)
+      await Promise.all(candidates.map(c => apiClient.delete(`/candidates/${c.id}`)));
+      setCandidates([]);
+      setShowDeleteAllModal(false);
+      setDeleteAllConfirmText('');
+    } catch (err) {
+      console.error('Failed to delete all candidates:', err);
+      alert('Failed to delete all candidates. Some may have been deleted.');
+      fetchData(); // Refresh to get current state
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -429,6 +468,14 @@ export default function HRDashboard() {
                       </div>
                     </div>
                     <div className="flex gap-3">
+                      <Button 
+                        variant="outline" 
+                        className="rounded-xl px-6 font-bold text-red-600 border-red-200 bg-white hover:bg-red-50" 
+                        onClick={() => setShowDeleteAllModal(true)}
+                        disabled={candidates.length === 0}
+                      >
+                        Delete All
+                      </Button>
                       <Button variant="outline" className="rounded-xl px-6 font-bold text-gray-600 bg-white border-gray-200" onClick={() => setIsBulkImportModalOpen(true)}>Import CSV</Button>
                       <Button className="rounded-xl px-6 font-bold" onClick={() => router.push('/candidates/new')}>+ Add Candidate</Button>
                     </div>
@@ -444,7 +491,7 @@ export default function HRDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {filteredCandidates.map((candidate) => (
+                        {paginatedCandidates.map((candidate) => (
                           <tr key={candidate.id} className="group hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => handleCandidateClick(candidate.id)}>
                             <td className="px-6 py-5 whitespace-nowrap">
                               <div className="flex items-center gap-4">
@@ -483,6 +530,50 @@ export default function HRDashboard() {
                       </tbody>
                     </table>
                   </div>
+                  
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
+                      <div className="text-sm text-gray-500 font-medium">
+                        Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredCandidates.length)} of {filteredCandidates.length} candidates
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl font-bold"
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                            <button
+                              key={page}
+                              onClick={() => setCurrentPage(page)}
+                              className={`w-8 h-8 rounded-lg text-sm font-bold transition-all ${
+                                currentPage === page
+                                  ? 'bg-primary-600 text-white'
+                                  : 'text-gray-500 hover:bg-gray-100'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          ))}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl font-bold"
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
             )}
@@ -570,6 +661,64 @@ export default function HRDashboard() {
         }}
         candidateId={selectedCandidateId}
       />
+
+      {/* Delete All Confirmation Modal */}
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Delete All Candidates</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <p className="text-gray-600 mb-6">
+              You are about to permanently delete <span className="font-bold text-red-600">{candidates.length}</span> candidates. 
+              This will remove all their data, interview history, and scores.
+            </p>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Type <span className="font-bold text-red-600">DELETE ALL</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={deleteAllConfirmText}
+                onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
+                placeholder="Type DELETE ALL"
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl font-bold"
+                onClick={() => {
+                  setShowDeleteAllModal(false)
+                  setDeleteAllConfirmText('')
+                }}
+                disabled={isDeletingAll}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white"
+                onClick={handleDeleteAllCandidates}
+                disabled={deleteAllConfirmText !== 'DELETE ALL' || isDeletingAll}
+              >
+                {isDeletingAll ? 'Deleting...' : 'Delete All'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

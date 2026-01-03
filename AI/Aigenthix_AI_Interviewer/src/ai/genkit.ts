@@ -1,5 +1,5 @@
-import { genkit } from 'genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import {genkit} from 'genkit';
+import {googleAI} from '@genkit-ai/googleai';
 import { getApiKeyManager, withApiKeyRotation } from '@/lib/api-key-manager';
 
 // Initialize API key manager
@@ -18,7 +18,7 @@ const googleAIPlugin = googleAI({
 
 export const ai = genkit({
   plugins: [googleAIPlugin],
-  model: 'googleai/gemini-2.0-flash-exp',
+  model: 'googleai/gemini-1.5-flash',
   config: {
     temperature: 0.7, // Balanced creativity and consistency
     topP: 0.9, // Good balance for diverse responses
@@ -33,7 +33,7 @@ export const ai = genkit({
 function createGenkitInstance(apiKey: string) {
   return genkit({
     plugins: [googleAI({ apiKey })],
-    model: 'googleai/gemini-2.0-flash-exp',
+    model: 'googleai/gemini-1.5-flash',
     config: {
       temperature: 0.7,
       topP: 0.9,
@@ -57,7 +57,7 @@ export async function executeFlowWithRotation<T>(
   return withApiKeyRotation(async (apiKey: string) => {
     // Create a temporary genkit instance with the rotated API key
     const tempAI = createGenkitInstance(apiKey);
-
+    
     // Execute the flow logic with the new instance
     return await flowLogic(tempAI, input);
   });
@@ -70,30 +70,30 @@ export const aiWithRotation = {
       // Create a temporary genkit instance with the current API key
       const tempAI = genkit({
         plugins: [googleAI({ apiKey })],
-        model: 'googleai/gemini-2.0-flash-exp',
+        model: 'googleai/gemini-1.5-flash',
         config: {
           temperature: 0.7,
           topP: 0.9,
           maxOutputTokens: 2048,
         },
       });
-
+      
       return await tempAI.generate(prompt, options);
     });
   },
-
+  
   generateText: async (prompt: string, options?: any) => {
     return withApiKeyRotation(async (apiKey: string) => {
       const tempAI = genkit({
         plugins: [googleAI({ apiKey })],
-        model: 'googleai/gemini-2.0-flash-exp',
+        model: 'googleai/gemini-1.5-flash',
         config: {
           temperature: 0.7,
           topP: 0.9,
           maxOutputTokens: 2048,
         },
       });
-
+      
       return await tempAI.generateText(prompt, options);
     });
   }

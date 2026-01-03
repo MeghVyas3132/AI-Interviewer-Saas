@@ -60,7 +60,7 @@ interface Job {
 
 export default function EmployeeDashboardPage() {
   const router = useRouter()
-  const { user, isLoading: authLoading } = useAuth()
+  const { user, isLoading: authLoading, logout } = useAuth()
   const [candidates, setCandidates] = useState<AssignedCandidate[]>([])
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
@@ -463,7 +463,10 @@ export default function EmployeeDashboardPage() {
                 Employee
               </span>
               <button
-                onClick={() => router.push('/auth/login')}
+                onClick={async () => {
+                  await logout()
+                  router.push('/auth/login')
+                }}
                 className="px-4 py-2 text-gray-700 hover:text-gray-900"
               >
                 Logout
