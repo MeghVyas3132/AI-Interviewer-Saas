@@ -202,9 +202,11 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
     headers = {"Content-Type": "application/json"}
     params = {}
     # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    gemini_key = getattr(settings, "gemini_api_key", None)
+    api_key = gemini_key if gemini_key else settings.ai_service_api_key
     if api_key:
         params["key"] = api_key
+        logger.info(f"Using API key starting with: {api_key[:8]}... for ATS")
     else:
         raise Exception("GEMINI_API_KEY environment variable is required for ATS analysis. Please set it in your .env file.")
 
@@ -359,9 +361,11 @@ Return JSON only, no markdown, no explanation."""
     headers = {"Content-Type": "application/json"}
     params = {}
     # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    gemini_key = getattr(settings, "gemini_api_key", None)
+    api_key = gemini_key if gemini_key else settings.ai_service_api_key
     if api_key:
         params["key"] = api_key
+        logger.info(f"Using API key starting with: {api_key[:8]}... for questions")
     else:
         raise Exception("GEMINI_API_KEY environment variable is required for question generation. Please set it in your .env file.")
 
@@ -496,9 +500,11 @@ Return ONLY valid JSON."""
     headers = {"Content-Type": "application/json"}
     params = {}
     # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    gemini_key = getattr(settings, "gemini_api_key", None)
+    api_key = gemini_key if gemini_key else settings.ai_service_api_key
     if api_key:
         params["key"] = api_key
+        logger.info(f"Using API key starting with: {api_key[:8]}... for verdict")
     else:
         raise Exception("GEMINI_API_KEY environment variable is required for ATS analysis. Please set it in your .env file.")
 
