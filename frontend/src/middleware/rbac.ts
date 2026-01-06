@@ -3,7 +3,7 @@
  * Defines permissions for each role and provides utilities for permission checking
  */
 
-export type UserRole = 'CANDIDATE' | 'EMPLOYEE' | 'TEAM_LEAD' | 'HR' | 'SYSTEM_ADMIN';
+export type UserRole = 'CANDIDATE' | 'EMPLOYEE' | 'HR' | 'SYSTEM_ADMIN';
 
 export type Permission =
     // HR & Admin Permissions
@@ -38,8 +38,8 @@ export const PERMISSIONS: Record<Permission, UserRole[]> = {
     VIEW_OWN_RESULTS: ['CANDIDATE'],
 
     // Employee Permissions
-    VIEW_ASSIGNED_CANDIDATES: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
-    SCHEDULE_INTERVIEWS: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
+    VIEW_ASSIGNED_CANDIDATES: ['EMPLOYEE', 'HR', 'SYSTEM_ADMIN'],
+    SCHEDULE_INTERVIEWS: ['EMPLOYEE', 'HR', 'SYSTEM_ADMIN'],
 };
 
 // ============================================================================
@@ -97,7 +97,7 @@ export const ROUTE_PERMISSIONS: RoutePermission[] = [
     },
     {
         path: '/employee-interviews',
-        allowedRoles: ['EMPLOYEE', 'TEAM_LEAD', 'HR', 'SYSTEM_ADMIN'],
+        allowedRoles: ['EMPLOYEE', 'HR', 'SYSTEM_ADMIN'],
         requiredPermissions: ['VIEW_ASSIGNED_CANDIDATES'],
     },
     {
@@ -139,7 +139,6 @@ export function getDefaultDashboardRoute(role: UserRole): string {
         case 'SYSTEM_ADMIN':
             return '/admin';
         case 'EMPLOYEE':
-        case 'TEAM_LEAD':
             return '/employee-interviews';
         case 'CANDIDATE':
             return '/candidate-portal';

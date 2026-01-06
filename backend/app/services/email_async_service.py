@@ -76,7 +76,7 @@ class EmailService:
             email_id = email_queue.id
             
             logger.info(
-                f"📧 Email queued: {email_type.value} to {recipient_email} "
+                f"Email queued: {email_type.value} to {recipient_email} "
                 f"(ID: {email_id}, Priority: {priority.value})"
             )
             
@@ -133,7 +133,7 @@ class EmailService:
                 email_ids.append(email_id)
             
             await session.commit()
-            logger.info(f"📧 Bulk: {len(email_ids)} emails queued for {company_id}")
+            logger.info(f"Bulk: {len(email_ids)} emails queued for {company_id}")
             
             return email_ids
             
@@ -190,7 +190,7 @@ async def send_email_task(self, email_id: str):
     Retries up to 3 times with exponential backoff
     """
     try:
-        logger.info(f"📤 Starting email send for ID: {email_id}")
+        logger.info(f"Starting email send for ID: {email_id}")
         
         # Get database session
         async with get_db_session() as session:
@@ -220,7 +220,7 @@ async def send_email_task(self, email_id: str):
                 email_queue.sent_at = datetime.utcnow()
                 await session.commit()
                 
-                logger.info(f"✅ Email sent successfully: {email_id} (Provider ID: {provider_id})")
+                logger.info(f"Email sent successfully: {email_id} (Provider ID: {provider_id})")
                 
             except Exception as send_error:
                 logger.error(f"Error sending email: {str(send_error)}", exc_info=True)
@@ -236,7 +236,7 @@ async def send_email_task(self, email_id: str):
                     # Retry with exponential backoff
                     retry_delay = 60 * (2 ** (email_queue.retry_count - 1))
                     logger.warning(
-                        f"⚠️ Retrying email {email_id} in {retry_delay}s "
+                        f"Retrying email {email_id} in {retry_delay}s "
                         f"(Attempt {email_queue.retry_count}/{email_queue.max_retries})"
                     )
                     raise self.retry(countdown=retry_delay)
@@ -244,7 +244,7 @@ async def send_email_task(self, email_id: str):
                     # Mark as failed after max retries
                     email_queue.status = EmailStatus.FAILED
                     await session.commit()
-                    logger.error(f"❌ Email failed after {email_queue.max_retries} retries: {email_id}")
+                    logger.error(f"Email failed after {email_queue.max_retries} retries: {email_id}")
                     
     except self.retry.retry_later():
         # Celery retry
@@ -265,7 +265,7 @@ async def send_bulk_emails_task(self, email_ids: List[str]):
     Distributes across multiple send_email tasks
     """
     try:
-        logger.info(f"📤 Starting bulk email send for {len(email_ids)} emails")
+        logger.info(f"Starting bulk email send for {len(email_ids)} emails")
         
         # Queue individual email tasks
         for email_id in email_ids:
@@ -275,7 +275,7 @@ async def send_bulk_emails_task(self, email_ids: List[str]):
                 queue="email_default",
             )
         
-        logger.info(f"✅ Queued {len(email_ids)} individual email tasks")
+        logger.info(f"Queued {len(email_ids)} individual email tasks")
         
     except Exception as e:
         logger.error(f"Error in bulk email task: {str(e)}", exc_info=True)
@@ -323,7 +323,7 @@ class EmailProviderService:
             
             # SendGrid returns message ID in headers
             message_id = response.headers.get("X-Message-Id", "sendgrid_" + str(email_queue.id))
-            logger.info(f"📧 SendGrid: Message sent (ID: {message_id})")
+            logger.info(f"SendGrid: Message sent (ID: {message_id})")
             
             return message_id
             
@@ -357,7 +357,7 @@ class EmailProviderService:
             )
             
             message_id = response.get("MessageId", "ses_" + str(email_queue.id))
-            logger.info(f"📧 AWS SES: Message sent (ID: {message_id})")
+            logger.info(f"AWS SES: Message sent (ID: {message_id})")
             
             return message_id
             
@@ -371,7 +371,7 @@ class EmailProviderService:
         message_id = f"console_{email_queue.id}"
         logger.info(
             f"\n{'='*80}\n"
-            f"📧 CONSOLE EMAIL (Development Only)\n"
+            f"CONSOLE EMAIL (Development Only)\n"
             f"{'='*80}\n"
             f"To: {email_queue.recipient_email}\n"
             f"Subject: {email_queue.subject}\n"

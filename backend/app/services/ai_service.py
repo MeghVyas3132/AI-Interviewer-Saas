@@ -8,6 +8,34 @@ from app.models.candidate import Candidate
 
 logger = logging.getLogger(__name__)
 
+# Global HTTP client with connection pooling for better performance
+# This reuses connections instead of creating new ones for each request
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    """Get or create a shared HTTP client with connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            limits=httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=50,
+                keepalive_expiry=30.0,
+            ),
+        )
+    return _http_client
+
+
+async def close_http_client():
+    """Close the shared HTTP client (call on app shutdown)."""
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+
+
 class AIService:
     def __init__(self):
         self.base_url = settings.ai_service_url.rstrip('/')
@@ -50,24 +78,24 @@ class AIService:
         }
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload, headers=self.headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    # Response format: { success: true, data: { candidate_id: ... } }
-                    candidate_id = data['data']['candidate_id']
-                    logger.info(f"Successfully synced candidate {candidate.email} to AI Service. AI Candidate ID: {candidate_id}")
-                    return candidate_id
-                elif response.status_code == 409:
-                    data = response.json()
-                    # Response format: { success: false, error: ..., candidate: { candidate_id: ... } }
-                    candidate_id = data['candidate']['candidate_id']
-                    logger.info(f"Candidate {candidate.email} already exists in AI Service. Using existing AI Candidate ID: {candidate_id}")
-                    return candidate_id
-                else:
-                    logger.error(f"Failed to sync candidate: {response.status_code} {response.text}")
-                    raise Exception(f"Failed to sync candidate: {response.text}")
+            client = await get_http_client()
+            response = await client.post(url, json=payload, headers=self.headers)
+            
+            if response.status_code in [200, 201]:
+                data = response.json()
+                # Response format: { success: true, data: { candidate_id: ... } }
+                candidate_id = data['data']['candidate_id']
+                logger.info(f"Successfully synced candidate {candidate.email} to AI Service. AI Candidate ID: {candidate_id}")
+                return candidate_id
+            elif response.status_code == 409:
+                data = response.json()
+                # Response format: { success: false, error: ..., candidate: { candidate_id: ... } }
+                candidate_id = data['candidate']['candidate_id']
+                logger.info(f"Candidate {candidate.email} already exists in AI Service. Using existing AI Candidate ID: {candidate_id}")
+                return candidate_id
+            else:
+                logger.error(f"Failed to sync candidate: {response.status_code} {response.text}")
+                raise Exception(f"Failed to sync candidate: {response.text}")
         except Exception as e:
             logger.error(f"Error calling AI Service sync_candidate: {str(e)}")
             raise
@@ -84,16 +112,16 @@ class AIService:
         }
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=payload, headers=self.headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    logger.info(f"Successfully created interview session for AI Candidate ID {ai_candidate_id}")
-                    return data['data']
-                else:
-                    logger.error(f"Failed to create interview session: {response.status_code} {response.text}")
-                    raise Exception(f"Failed to create interview session: {response.text}")
+            client = await get_http_client()
+            response = await client.post(url, json=payload, headers=self.headers)
+            
+            if response.status_code in [200, 201]:
+                data = response.json()
+                logger.info(f"Successfully created interview session for AI Candidate ID {ai_candidate_id}")
+                return data['data']
+            else:
+                logger.error(f"Failed to create interview session: {response.status_code} {response.text}")
+                raise Exception(f"Failed to create interview session: {response.text}")
         except Exception as e:
             logger.error(f"Error calling AI Service create_interview_session: {str(e)}")
             raise
@@ -173,8 +201,12 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    if settings.ai_service_api_key:
-        params["key"] = settings.ai_service_api_key
+    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
+    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    if api_key:
+        params["key"] = api_key
+    else:
+        raise Exception("GEMINI_API_KEY environment variable is required for ATS analysis. Please set it in your .env file.")
 
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -323,8 +355,12 @@ Return JSON only, no markdown, no explanation."""
     endpoint = f"{base}/models/{model_to_use}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    if settings.ai_service_api_key:
-        params["key"] = settings.ai_service_api_key
+    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
+    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    if api_key:
+        params["key"] = api_key
+    else:
+        raise Exception("GEMINI_API_KEY environment variable is required for question generation. Please set it in your .env file.")
 
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -376,10 +412,32 @@ Return JSON only, no markdown, no explanation."""
             clean_text = clean_text[3:]
         if clean_text.endswith("```"):
             clean_text = clean_text[:-3]
-        parsed = json.loads(clean_text.strip())
+        clean_text = clean_text.strip()
+        
+        logger.info(f"Parsing questions JSON: {clean_text[:200]}...")
+        parsed = json.loads(clean_text)
+        
+        # Extract questions array from parsed JSON
         questions = parsed.get("questions") or parsed.get("items") or []
-    except Exception:
-        questions = [q.strip() for q in text_output.splitlines() if q.strip()][:max_questions]
+        
+        # Ensure questions is a list of strings, not a nested structure
+        if questions and isinstance(questions, list):
+            # If first item is a dict or the entire JSON, extract properly
+            if len(questions) > 0 and isinstance(questions[0], dict):
+                # Questions might be in a different format
+                questions = [q.get("text") or q.get("question") or str(q) for q in questions]
+            # Filter to only include string items
+            questions = [q for q in questions if isinstance(q, str) and len(q) > 10]
+            
+        logger.info(f"Extracted {len(questions)} questions from Gemini response")
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse error for questions: {e}. Text: {text_output[:500]}")
+        # fallback: split by newlines
+        questions = [q.strip() for q in text_output.splitlines() if q.strip() and len(q.strip()) > 20][:max_questions]
+    except Exception as e:
+        logger.error(f"Error parsing questions: {e}")
+        questions = [q.strip() for q in text_output.splitlines() if q.strip() and len(q.strip()) > 20][:max_questions]
 
     return {"questions": questions[:max_questions], "raw": data}
 
@@ -431,8 +489,12 @@ Return ONLY valid JSON."""
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    if settings.ai_service_api_key:
-        params["key"] = settings.ai_service_api_key
+    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
+    api_key = getattr(settings, "gemini_api_key", None) or settings.ai_service_api_key
+    if api_key:
+        params["key"] = api_key
+    else:
+        raise Exception("GEMINI_API_KEY environment variable is required for ATS analysis. Please set it in your .env file.")
 
     body = {
         "contents": [{"parts": [{"text": prompt}]}],

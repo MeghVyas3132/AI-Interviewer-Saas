@@ -7,7 +7,7 @@
 // User & Authentication
 // ============================================================================
 
-export type UserRole = 'HR' | 'ADMIN' | 'EMPLOYEE' | 'TEAM_LEAD' | 'CANDIDATE' | 'SYSTEM_ADMIN';
+export type UserRole = 'HR' | 'ADMIN' | 'EMPLOYEE' | 'CANDIDATE' | 'SYSTEM_ADMIN';
 
 export interface User {
     id: string;

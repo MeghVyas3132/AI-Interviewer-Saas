@@ -24,14 +24,15 @@ class Settings(BaseSettings):
 
     # Database - use environment variables only in production
     database_url: str
-    database_pool_size: int = 20
-    database_max_overflow: int = 10
-    database_pool_recycle: int = 3600
-    database_query_timeout: int = 30
+    database_pool_size: int = 20  # Concurrent connections
+    database_max_overflow: int = 10  # Extra connections under load
+    database_pool_recycle: int = 1800  # Recycle connections every 30 mins (was 1 hour)
+    database_query_timeout: int = 15  # Query timeout reduced from 30s
+    database_pool_timeout: int = 10  # Connection acquisition timeout
 
     # Redis
     redis_url: str
-    redis_max_connections: int = 50
+    redis_max_connections: int = 100  # Increased from 50 for better caching
 
     # JWT - SECRET_KEY MUST be set via environment variable
     secret_key: str
@@ -109,7 +110,9 @@ class Settings(BaseSettings):
     
     # AI Service Integration
     ai_service_url: str = "http://localhost:9004"
-    ai_service_api_key: str = ""  # Optional: For future security
+    ai_service_api_key: str = ""  # For internal API key (AI service)
+    # Google Gemini API Key (REQUIRED for ATS checker and question generation)
+    gemini_api_key: str = ""  # Set GEMINI_API_KEY in environment
     # AI Interview Coach Service (for actual interviews)
     # In Docker: use container name, outside Docker: use localhost:3001
     ai_interview_service_url: str = "http://ai-interviewer-coach:3000"

@@ -26,7 +26,7 @@ interface CompanyRequest {
 
 export default function AdminDashboard() {
   const router = useRouter()
-  const { user, isLoading: authLoading } = useAuth()
+  const { user, isLoading: authLoading, logout } = useAuth()
   const [companies, setCompanies] = useState<Company[]>([])
   const [pendingRequests, setPendingRequests] = useState<CompanyRequest[]>([])
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
@@ -309,7 +309,10 @@ export default function AdminDashboard() {
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-700">{user?.full_name}</span>
               <button
-                onClick={() => router.push('/auth/login')}
+                onClick={async () => {
+                  await logout()
+                  router.push('/auth/login')
+                }}
                 className="px-4 py-2 text-gray-700 hover:text-gray-900 transition text-sm"
               >
                 Logout

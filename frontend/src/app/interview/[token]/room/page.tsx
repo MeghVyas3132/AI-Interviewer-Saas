@@ -47,6 +47,7 @@ export default function InterviewRoomPage() {
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [hasTranscriptContent, setHasTranscriptContent] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
 
   // Pause detection state
@@ -228,6 +229,9 @@ export default function InterviewRoomPage() {
       // Display: finalized text + current interim (not accumulated interim)
       const displayText = finalizedTranscriptRef.current + currentInterim;
       setTranscript(displayText);
+      
+      // Track if we have any content to submit
+      setHasTranscriptContent(displayText.trim().length > 0);
 
       // Set silence timeout - if no speech for 5 seconds and we have content, show pause modal
       silenceTimeoutRef.current = setTimeout(() => {
@@ -286,6 +290,7 @@ export default function InterviewRoomPage() {
     if (recognitionRef.current) {
       setTranscript('');
       setSavedTranscript('');
+      setHasTranscriptContent(false);
       finalizedTranscriptRef.current = ''; // Reset finalized transcript
       lastSpeechTimeRef.current = Date.now();
       try {
@@ -320,6 +325,7 @@ export default function InterviewRoomPage() {
     setShowPauseModal(false);
     setTranscript('');
     setSavedTranscript('');
+    setHasTranscriptContent(false);
     finalizedTranscriptRef.current = ''; // Reset finalized transcript
     lastSpeechTimeRef.current = Date.now();
     // Recognition should auto-restart
@@ -377,12 +383,25 @@ export default function InterviewRoomPage() {
 
   // Submit answer
   const submitAnswer = useCallback(async () => {
-    if (!transcript.trim()) return;
+    // Use finalizedTranscriptRef as the source of truth, fall back to transcript state
+    const answerText = finalizedTranscriptRef.current.trim() || transcript.trim();
+    if (!answerText) {
+      console.log('No answer to submit');
+      return;
+    }
     
     stopListening();
-    addMessage('user', transcript);
+    
+    // Clear silence timeout
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+    
+    addMessage('user', answerText);
     setTranscript('');
     setSavedTranscript('');
+    setHasTranscriptContent(false);
+    finalizedTranscriptRef.current = ''; // Reset finalized transcript
     
     // Move to next question
     const nextIndex = currentQuestionIndex + 1;
@@ -585,9 +604,9 @@ export default function InterviewRoomPage() {
               <div className="flex gap-2">
                 <button
                   onClick={submitAnswer}
-                  disabled={!transcript.trim() || isAISpeaking}
+                  disabled={!hasTranscriptContent || isAISpeaking}
                   className={`flex-1 py-3 rounded-xl font-semibold transition ${
-                    transcript.trim() && !isAISpeaking
+                    hasTranscriptContent && !isAISpeaking
                       ? 'bg-green-600 hover:bg-green-700'
                       : 'bg-gray-600 cursor-not-allowed'
                   }`}

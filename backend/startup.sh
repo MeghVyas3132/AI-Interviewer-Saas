@@ -102,5 +102,25 @@ PYTHON_SCRIPT
 
 echo "Database step complete, starting server..."
 
-echo "Migrations step complete, starting server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Calculate optimal worker count based on CPU cores
+# Formula: (2 x $num_cores) + 1 for I/O bound applications
+WORKERS=${UVICORN_WORKERS:-$(python -c "import os; print(min((os.cpu_count() or 1) * 2 + 1, 4))")}
+
+echo "Starting uvicorn with $WORKERS workers..."
+
+# Production-optimized uvicorn settings:
+# --workers: Multiple workers for parallelism
+# --loop uvloop: Faster event loop (2x faster than asyncio)
+# --http httptools: Faster HTTP parsing
+# --limit-concurrency: Prevent resource exhaustion
+# --timeout-keep-alive: Keep connections alive for reuse
+exec uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port ${PORT:-8000} \
+    --workers $WORKERS \
+    --loop uvloop \
+    --http httptools \
+    --limit-concurrency 100 \
+    --timeout-keep-alive 30 \
+    --access-log \
+    --log-level ${LOG_LEVEL:-info}

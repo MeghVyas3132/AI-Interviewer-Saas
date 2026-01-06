@@ -94,7 +94,7 @@ export default function InterviewRoomPage() {
       {/* Proctoring Warning Banner */}
       {interviewStarted && (tabSwitchCount > 0 || windowBlurCount > 0) && (
         <div className="fixed top-0 left-0 right-0 bg-red-600 text-white py-2 px-4 text-center text-sm font-medium z-40">
-          ⚠️ Warning: {tabSwitchCount > 0 && `${tabSwitchCount} tab switch(es) detected`}
+          Warning: {tabSwitchCount > 0 && `${tabSwitchCount} tab switch(es) detected`}
           {tabSwitchCount > 0 && windowBlurCount > 0 && ', '}
           {windowBlurCount > 0 && `${windowBlurCount} window focus loss(es) detected`}
         </div>

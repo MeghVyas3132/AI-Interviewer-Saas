@@ -64,7 +64,7 @@ class ImportJobService:
         await session.flush()
         
         logger.info(
-            f"✅ Created import job {import_job.id} for company {company_id} "
+            f"Created import job {import_job.id} for company {company_id} "
             f"with {total_records} records"
         )
         
@@ -188,7 +188,7 @@ class ImportJobService:
             countdown=1,  # Start immediately
         )
         
-        logger.info(f"📤 Queued bulk import task {task.id} for job {import_job.id}")
+        logger.info(f"Queued bulk import task {task.id} for job {import_job.id}")
         
         return task.id
 
@@ -256,7 +256,7 @@ class ImportJobService:
         import_job.updated_at = datetime.utcnow()
         await session.commit()
         
-        logger.info(f"✅ Cancelled import job {import_job_id}")
+        logger.info(f"Cancelled import job {import_job_id}")
         return True
 
     @staticmethod

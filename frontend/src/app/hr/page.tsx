@@ -118,6 +118,18 @@ export default function HRDashboard() {
     }
   };
 
+  // Delete employee handler
+  const handleDeleteEmployee = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete employee "${name}"? This action cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/users/${id}`);
+      setEmployees(prev => prev.filter(e => e.id !== id));
+    } catch (err: any) {
+      console.error('Failed to delete employee:', err);
+      alert(err.response?.data?.detail || 'Failed to delete employee');
+    }
+  };
+
   // Delete all candidates handler
   const handleDeleteAllCandidates = async () => {
     if (deleteAllConfirmText !== 'DELETE ALL') return;
@@ -194,6 +206,14 @@ export default function HRDashboard() {
         name: c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.email,
         scheduled_at: scheduleMap.get(c.id)
       }))
+      
+      // Debug: Log assigned_to values
+      console.log('Candidates with assigned_to:', enrichedCandidates.map(c => ({
+        name: c.name,
+        assigned_to: c.assigned_to,
+        assigned_employee_name: (c as any).assigned_employee_name
+      })))
+      
       setCandidates(enrichedCandidates)
 
 
@@ -214,7 +234,9 @@ export default function HRDashboard() {
   }
 
   useEffect(() => {
-    if (authLoading || user?.role !== 'HR') return
+    if (authLoading) return
+    // Allow HR, ADMIN, and SYSTEM_ADMIN roles to access this dashboard
+    if (!['HR', 'ADMIN', 'SYSTEM_ADMIN'].includes(user?.role || '')) return
     fetchData()
   }, [authLoading, user])
 
@@ -598,16 +620,25 @@ export default function HRDashboard() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {employees.map((emp) => (
-                    <div key={emp.id} className="p-6 bg-gray-50/50 rounded-3xl border border-gray-100 hover:bg-white hover:shadow-xl hover:border-transparent transition-all group">
+                    <div key={emp.id} className="p-6 bg-gray-50/50 rounded-3xl border border-gray-100 hover:bg-white hover:shadow-xl hover:border-transparent transition-all group relative">
                       <div className="flex items-center gap-5">
                         <div className="w-16 h-16 bg-white shadow-md rounded-2xl flex items-center justify-center font-bold text-2xl text-primary-600 border border-gray-100 group-hover:scale-105 transition-transform group-hover:bg-primary-50">
                           {emp.name?.charAt(0) || '?'}
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="text-lg font-bold text-gray-900 leading-tight">{emp.name || 'Unknown'}</p>
                           <p className="text-sm text-gray-500 font-bold mt-1 uppercase tracking-wider">{emp.role}</p>
                           <p className="text-xs text-primary-600 font-black mt-1 bg-primary-50 inline-block px-2 py-0.5 rounded-lg">{emp.department || 'General'}</p>
                         </div>
+                        <button
+                          onClick={() => handleDeleteEmployee(emp.id, emp.name)}
+                          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                          title="Delete employee"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -660,6 +691,8 @@ export default function HRDashboard() {
           setSelectedCandidateId(null)
         }}
         candidateId={selectedCandidateId}
+        useDetailedEndpoint={true}
+        userRole="hr"
       />
 
       {/* Delete All Confirmation Modal */}

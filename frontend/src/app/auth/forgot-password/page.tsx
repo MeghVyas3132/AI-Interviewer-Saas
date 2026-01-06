@@ -2,6 +2,7 @@
 
 import React, { useState, FormEvent } from 'react'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -20,14 +21,12 @@ export default function ForgotPasswordPage() {
 
     try {
       setIsLoading(true)
-      // API call would go here
-      // await apiClient.post('/auth/forgot-password', { email })
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Call the backend forgot-password endpoint
+      await apiClient.post('/auth/forgot-password', { email })
       setIsSubmitted(true)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Something went wrong. Please try again.')
+      // Even if there's an error, show success to prevent email enumeration
+      setIsSubmitted(true)
     } finally {
       setIsLoading(false)
     }

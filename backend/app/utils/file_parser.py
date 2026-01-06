@@ -71,7 +71,7 @@ class CandidateImportParser:
             csv_string = file_content.decode("utf-8")
             df = pd.read_csv(io.StringIO(csv_string))
             
-            logger.info(f"✅ CSV parsed: {len(df)} rows, {len(df.columns)} columns")
+            logger.info(f"CSV parsed: {len(df)} rows, {len(df.columns)} columns")
             return CandidateImportParser._process_dataframe(df)
             
         except UnicodeDecodeError:
@@ -87,7 +87,7 @@ class CandidateImportParser:
             excel_file = io.BytesIO(file_content)
             df = pd.read_excel(excel_file, sheet_name=0)  # First sheet
             
-            logger.info(f"✅ Excel parsed: {len(df)} rows, {len(df.columns)} columns")
+            logger.info(f"Excel parsed: {len(df)} rows, {len(df.columns)} columns")
             return CandidateImportParser._process_dataframe(df)
             
         except Exception as e:
@@ -131,7 +131,7 @@ class CandidateImportParser:
                 errors.append(f"Row {row_num}: {str(e)}")
         
         logger.info(
-            f"✅ Processed {len(valid_candidates)} valid candidates, "
+            f"Processed {len(valid_candidates)} valid candidates, "
             f"{len(errors)} errors"
         )
         

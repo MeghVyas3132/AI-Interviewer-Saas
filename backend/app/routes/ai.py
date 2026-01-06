@@ -66,14 +66,75 @@ async def ats_for_interview(
 ):
     """ATS check for interview flow - saves score to interview record and creates AI report.
     
+    If candidate already has an ATS score (from dashboard), returns that instead of running again.
+    
     Expected body: { resume_text, job_description (optional), interview_id (optional) }
-    Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing, verdict }
+    Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing, verdict, from_cache }
     """
     try:
+        import json as json_lib
         payload = await request.json()
         resume_text = payload.get("resume_text", "")
         job_description = payload.get("job_description", "")
         interview_id = payload.get("interview_id")
+        
+        # Check if interview already has ATS score (from dashboard or previous check)
+        if interview_id:
+            try:
+                from app.models.candidate import Interview, Candidate
+                interview = await session.get(Interview, interview_id)
+                if interview:
+                    # First check if interview already has ATS score
+                    if interview.ats_score is not None and interview.ats_score > 0:
+                        logger.info(f"Using cached ATS score {interview.ats_score} from interview {interview_id}")
+                        score = interview.ats_score
+                        if score >= 80:
+                            verdict = "EXCELLENT"
+                        elif score >= 70:
+                            verdict = "GOOD"
+                        elif score >= 60:
+                            verdict = "FAIR"
+                        else:
+                            verdict = "NEEDS_IMPROVEMENT"
+                        return {
+                            "score": score,
+                            "summary": "Resume analysis was completed earlier. Using saved score.",
+                            "verdict": verdict,
+                            "highlights": [],
+                            "improvements": [],
+                            "keywords_found": [],
+                            "keywords_missing": [],
+                            "from_cache": True
+                        }
+                    
+                    # Check if candidate has ATS score from dashboard
+                    candidate = await session.get(Candidate, interview.candidate_id)
+                    if candidate and candidate.ats_score is not None and candidate.ats_score > 0:
+                        logger.info(f"Using ATS score {candidate.ats_score} from candidate dashboard check")
+                        # Copy to interview for consistency
+                        interview.ats_score = candidate.ats_score
+                        await session.commit()
+                        
+                        # Try to parse stored report
+                        cached_report = {}
+                        if candidate.ats_report:
+                            try:
+                                cached_report = json_lib.loads(candidate.ats_report)
+                            except:
+                                pass
+                        
+                        return {
+                            "score": candidate.ats_score,
+                            "summary": cached_report.get("summary", "Resume analysis was completed from dashboard. Using saved score."),
+                            "verdict": cached_report.get("verdict", "FAIR"),
+                            "highlights": cached_report.get("highlights", []),
+                            "improvements": cached_report.get("improvements", []),
+                            "keywords_found": cached_report.get("keywords_found", []),
+                            "keywords_missing": cached_report.get("keywords_missing", []),
+                            "from_cache": True
+                        }
+            except Exception as e:
+                logger.warning(f"Error checking cached ATS: {e}")
         
         if not resume_text:
             raise HTTPException(status_code=400, detail="Missing resume_text")
@@ -94,14 +155,23 @@ async def ats_for_interview(
         else:
             result["verdict"] = "NEEDS_IMPROVEMENT"
         
+        result["from_cache"] = False
+        
         # Save to interview if interview_id provided
         if interview_id:
             try:
-                from app.models.candidate import Interview
+                from app.models.candidate import Interview, Candidate
                 interview = await session.get(Interview, interview_id)
                 if interview:
                     interview.ats_score = score
                     interview.resume_text = resume_text[:10000]  # Store first 10k chars
+                    
+                    # Also save to candidate record for future interviews
+                    candidate = await session.get(Candidate, interview.candidate_id)
+                    if candidate:
+                        candidate.ats_score = score
+                        candidate.ats_report = json_lib.dumps(result)
+                    
                     await session.commit()
                     
                     # Also create AI report for tracking
@@ -132,16 +202,35 @@ async def ats_for_interview(
 async def ats_check(
     resume: UploadFile = File(None),
     job_description: str = Form(None),
+    candidate_id: str = Form(None),
     user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
 ):
     """ATS check for resume files or text - for quick candidate self-check.
     
-    Accepts file upload (resume) or JSON body with resume_text
-    Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing }
+    Accepts file upload (resume) or JSON body with resume_text.
+    If user is a candidate, automatically saves the ATS score to their candidate record.
+    Returns: { score, summary, highlights, improvements, keywords_found, keywords_missing, verdict }
     """
     try:
+        import json
+        from app.models.user import UserRole
+        from app.models.candidate import Candidate
+        from sqlalchemy import select
+        
         resume_text = ""
         job_desc = job_description or ""
+        
+        # Auto-detect candidate_id from user email if user is a candidate
+        actual_candidate_id = candidate_id
+        if not actual_candidate_id and user and user.role == UserRole.CANDIDATE:
+            # Look up candidate by email
+            candidate_query = select(Candidate).filter(Candidate.email == user.email)
+            result = await session.execute(candidate_query)
+            candidate = result.scalars().first()
+            if candidate:
+                actual_candidate_id = str(candidate.id)
+                logger.info(f"Auto-detected candidate_id {actual_candidate_id} for user {user.email}")
         
         # Handle file upload
         if resume:
@@ -200,6 +289,33 @@ async def ats_check(
         from app.services.ai_service import generate_ats_report_enhanced
         
         result = await generate_ats_report_enhanced(resume_text.strip(), job_desc)
+        
+        # Add verdict based on score
+        score = result.get("score", 0)
+        if score >= 80:
+            result["verdict"] = "EXCELLENT"
+        elif score >= 70:
+            result["verdict"] = "GOOD"
+        elif score >= 60:
+            result["verdict"] = "FAIR"
+        else:
+            result["verdict"] = "NEEDS_IMPROVEMENT"
+        
+        # Save to candidate record if actual_candidate_id is available (explicit or auto-detected)
+        if actual_candidate_id:
+            try:
+                from uuid import UUID as UUID_TYPE
+                cand_uuid = UUID_TYPE(actual_candidate_id)
+                candidate = await session.get(Candidate, cand_uuid)
+                if candidate:
+                    candidate.ats_score = score
+                    candidate.ats_report = json.dumps(result)
+                    candidate.resume_text = resume_text.strip()[:50000]  # Save resume text (limit to 50KB)
+                    await session.commit()
+                    logger.info(f"Saved ATS score {score} to candidate {actual_candidate_id}")
+            except Exception as e:
+                logger.warning(f"Failed to save ATS score to candidate: {e}")
+        
         return result
         
     except HTTPException:

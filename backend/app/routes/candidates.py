@@ -98,7 +98,7 @@ async def create_candidate(
         
         await session.commit()
         
-        logger.info(f"✅ Candidate created and invitation sent: {candidate.email}")
+        logger.info(f"Candidate created and invitation sent: {candidate.email}")
         
         return CandidateResponse.model_validate(candidate)
         
@@ -162,6 +162,8 @@ async def list_candidates(
     - **skip**: Pagination offset
     - **limit**: Number of results per page
     """
+    from app.utils.cache import get_cached, set_cached, CACHE_TTL_SHORT
+    
     try:
         # Parse status if provided
         parsed_status = None
@@ -174,6 +176,14 @@ async def list_candidates(
                     detail=f"Invalid status: {status}"
                 )
         
+        # Build cache key
+        cache_key = f"candidates:list:{current_user.company_id}:{status}:{domain}:{skip}:{limit}"
+        
+        # Check cache first for performance
+        cached_response = await get_cached(cache_key)
+        if cached_response:
+            return CandidateListResponse(**cached_response)
+        
         candidates, total = await CandidateService.list_candidates(
             session=session,
             company_id=current_user.company_id,
@@ -183,9 +193,17 @@ async def list_candidates(
             limit=limit,
         )
         
-        # Fetch assigned employee names
+        # Batch fetch assigned employee names in ONE query (avoiding N+1)
         from sqlalchemy import select
         from app.models.user import User as UserModel
+        
+        assigned_ids = [c.assigned_to for c in candidates if c.assigned_to]
+        employee_names = {}
+        if assigned_ids:
+            emp_result = await session.execute(
+                select(UserModel.id, UserModel.name).where(UserModel.id.in_(assigned_ids))
+            )
+            employee_names = {row.id: row.name for row in emp_result}
         
         candidate_responses = []
         for c in candidates:
@@ -205,28 +223,25 @@ async def list_candidates(
                 "created_by": c.created_by,
                 "resume_url": c.resume_url,
                 "assigned_to": c.assigned_to,
-                "assigned_employee_name": None,
+                "assigned_employee_name": employee_names.get(c.assigned_to) if c.assigned_to else None,
+                "ats_score": c.ats_score,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at,
             }
             
-            # Get employee name if assigned
-            if c.assigned_to:
-                emp_result = await session.execute(
-                    select(UserModel).where(UserModel.id == c.assigned_to)
-                )
-                emp = emp_result.scalar_one_or_none()
-                if emp:
-                    response_dict["assigned_employee_name"] = emp.name
-            
             candidate_responses.append(CandidateResponse(**response_dict))
         
-        return CandidateListResponse(
+        response = CandidateListResponse(
             candidates=candidate_responses,
             total=total,
             page=skip // limit + 1,
             page_size=limit,
         )
+        
+        # Cache the response for 30 seconds to reduce DB load
+        await set_cached(cache_key, response.model_dump(), ttl=CACHE_TTL_SHORT)
+        
+        return response
         
     except HTTPException:
         raise
@@ -247,6 +262,8 @@ async def update_candidate(
     current_user: User = Depends(get_current_user),
 ) -> CandidateResponse:
     """Update candidate information"""
+    from app.utils.cache import invalidate_cache
+    
     try:
         candidate = await CandidateService.get_candidate_by_id(
             session=session,
@@ -274,6 +291,9 @@ async def update_candidate(
         
         await session.commit()
         await session.refresh(candidate)
+        
+        # Invalidate cached candidate lists for this company
+        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
         
         return CandidateResponse.model_validate(candidate)
         
@@ -310,7 +330,7 @@ async def delete_candidate(
         await session.delete(candidate)
         await session.commit()
         
-        logger.info(f"✅ Candidate deleted: {candidate_id}")
+        logger.info(f"Candidate deleted: {candidate_id}")
         
     except HTTPException:
         raise
@@ -342,7 +362,7 @@ async def bulk_import_file(
     """
     Bulk import candidates from file (ASYNC)
     
-    ⚡ **This endpoint is now ASYNC** - returns immediately with a job ID
+    **This endpoint is now ASYNC** - returns immediately with a job ID
     
     The file is queued for processing by Celery workers in the background.
     Use the job ID to poll status: `GET /api/v1/candidates/import-jobs/{job_id}`
@@ -414,7 +434,7 @@ async def bulk_import_file(
             )
         
         logger.info(
-            f"✅ File validated: {len(parsed_candidates)} candidates in {file.filename}"
+            f"File validated: {len(parsed_candidates)} candidates in {file.filename}"
         )
         
         # Determine file format
@@ -444,14 +464,14 @@ async def bulk_import_file(
         await session.commit()
         
         logger.info(
-            f"✅ Queued bulk import job {import_job.id} with Celery task {celery_task_id}"
+            f"Queued bulk import job {import_job.id} with Celery task {celery_task_id}"
         )
         
         return ImportJobResponse(
             job_id=import_job.id,
             status=import_job.status,
             message=(
-                f"✅ Import job queued for processing. "
+                f"Import job queued for processing. "
                 f"Total records: {len(parsed_candidates)}. "
                 f"Check status with: GET /api/v1/candidates/import-jobs/{import_job.id}"
             ),
@@ -600,7 +620,7 @@ async def bulk_import_candidates(
         )
         
         logger.info(
-            f"✅ Bulk import complete: {len(created)} created, {len(errors)} errors"
+            f"Bulk import complete: {len(created)} created, {len(errors)} errors"
         )
         
         return CandidateBulkImportResponse(
@@ -730,7 +750,7 @@ async def get_dashboard_stats(
             company_id=current_user.company_id,
         )
         
-        logger.info(f"📊 Dashboard stats retrieved for company: {current_user.company_id}")
+        logger.info(f"Dashboard stats retrieved for company: {current_user.company_id}")
         
         return stats
         
@@ -760,7 +780,7 @@ async def get_funnel_analytics(
             company_id=current_user.company_id,
         )
         
-        logger.info(f"📈 Funnel analytics retrieved for company: {current_user.company_id}")
+        logger.info(f"Funnel analytics retrieved for company: {current_user.company_id}")
         
         return funnel
         
@@ -792,7 +812,7 @@ async def get_time_to_hire(
             company_id=current_user.company_id,
         )
         
-        logger.info(f"⏱️  Time-to-hire metrics retrieved for company: {current_user.company_id}")
+        logger.info(f"Time-to-hire metrics retrieved for company: {current_user.company_id}")
         
         return metrics
         
@@ -887,7 +907,7 @@ async def bulk_import_candidates_csv(
         )
         
         logger.info(
-            f"✅ CSV Bulk import complete: {len(created)} created, {len(errors)} errors"
+            f"CSV Bulk import complete: {len(created)} created, {len(errors)} errors"
         )
         
         return CandidateBulkImportResponse(

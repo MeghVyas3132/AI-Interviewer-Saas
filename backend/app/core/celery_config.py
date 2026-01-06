@@ -175,19 +175,19 @@ celery_app.conf.task_routes = {
 @task_success.connect
 def task_success_handler(sender=None, result=None, **kwargs):
     """Handle successful task completion"""
-    logger.info(f"✅ Task {sender.name} completed successfully. Result: {result}")
+    logger.info(f"Task {sender.name} completed successfully. Result: {result}")
 
 
 @task_retry.connect
 def task_retry_handler(sender=None, reason=None, einfo=None, **kwargs):
     """Handle task retry"""
-    logger.warning(f"⚠️ Task {sender.name} retrying. Reason: {reason}")
+    logger.warning(f"Task {sender.name} retrying. Reason: {reason}")
 
 
 @task_failure.connect
 def task_failure_handler(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, einfo=None, **kwargs_extra):
     """Handle task failure"""
-    logger.error(f"❌ Task {sender.name} failed. Exception: {exception}")
+    logger.error(f"Task {sender.name} failed. Exception: {exception}")
 
 
 # Worker configuration

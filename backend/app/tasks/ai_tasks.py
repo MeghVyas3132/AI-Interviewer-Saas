@@ -5,6 +5,7 @@ from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 import asyncio
+import json
 import logging
 import uuid as uuid_module
 from uuid import UUID
@@ -50,7 +51,28 @@ def generate_questions_task(self, job_template_id: str, max_questions: int = 10)
                 result = await generate_questions(jt.ai_prompt or jt.description or jt.title, max_questions=max_questions, model=jt.ai_model)
                 questions = result.get("questions", [])
                 
+                # Handle case where questions might be returned as a single JSON string
+                if len(questions) == 1 and isinstance(questions[0], str):
+                    try:
+                        # Try to parse if it's a JSON string
+                        parsed = json.loads(questions[0])
+                        if isinstance(parsed, dict) and "questions" in parsed:
+                            questions = parsed["questions"]
+                        elif isinstance(parsed, list):
+                            questions = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # Keep original questions list
+                
+                logger.info(f"Processing {len(questions)} questions for job_template {job_template_id}")
+                
                 for q_text in questions:
+                    # Skip if q_text is not a valid question string
+                    if not isinstance(q_text, str) or len(q_text) < 10:
+                        continue
+                    # Skip if it looks like JSON
+                    if q_text.strip().startswith('{') or q_text.strip().startswith('['):
+                        continue
+                        
                     q = Question(
                         id=uuid_module.uuid4(),
                         job_template_id=jt.id,

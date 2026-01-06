@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 
 interface InterviewSession {
   id: number;
+  candidate_id: string;
   candidate_name: string;
   candidate_email: string;
   position: string;
@@ -13,6 +14,9 @@ interface InterviewSession {
   duration_minutes: number;
   status: string;
   questions_generated: string[];
+  ats_score?: number;
+  ats_report?: ATSResult;
+  resume_text?: string;
 }
 
 interface ATSResult {
@@ -153,6 +157,23 @@ export default function InterviewLandingPage() {
         localStorage.setItem(`resume_${token}`, text);
         localStorage.setItem(`resume_filename_${token}`, resumeFile.name);
         setUploadingResume(false);
+        
+        // Check if ATS score already exists from dashboard check
+        if (session?.ats_score && session.ats_report) {
+          // Use cached ATS result from dashboard
+          setAtsResult({
+            score: session.ats_score,
+            summary: session.ats_report.summary || 'Resume analysis complete (from dashboard check).',
+            verdict: session.ats_report.verdict,
+            highlights: session.ats_report.highlights || [],
+            improvements: session.ats_report.improvements || [],
+            keywords_found: session.ats_report.keywords_found || [],
+            keywords_missing: session.ats_report.keywords_missing || []
+          });
+          setCurrentStep('ats-check');
+          return;
+        }
+        
         setCurrentStep('ats-check');
         
         // Run ATS check

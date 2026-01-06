@@ -1,49 +1,59 @@
-# Build stage
+# ============================================
+# OPTIMIZED BACKEND DOCKERFILE
+# Multi-stage build for minimal production image
+# ============================================
+
+# Build stage - compile dependencies
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies only (will be discarded)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    postgresql-client \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and build wheels
 COPY backend/requirements.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
-# Final stage
+# Final stage - minimal runtime image
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copy wheels and install
+# Copy wheels and install (no compilation needed)
 COPY --from=builder /app/wheels /wheels
 COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache /wheels/*
+RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
-# Copy application code from backend folder
+# Copy application code
 COPY backend/ .
 
 # Make startup script executable
 RUN chmod +x startup.sh
 
-# Create non-root user
-RUN addgroup --system appgroup && adduser --system --group appuser
-RUN chown -R appuser:appgroup /app
+# Create non-root user for security
+RUN addgroup --system --gid 1001 appgroup \
+    && adduser --system --uid 1001 --gid 1001 appuser \
+    && chown -R appuser:appgroup /app
 
-# Switch to non-root user
 USER appuser
 
 # Expose port
 EXPOSE 8000
 
-# Run command - Use startup script for robust migration handling
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run with optimized uvicorn settings
 CMD ["./startup.sh"]

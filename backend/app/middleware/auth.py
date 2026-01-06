@@ -195,7 +195,7 @@ async def require_team_lead(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """
-    Require Team Lead or HR role.
+    Require Employee or HR role.
 
     Args:
         current_user: Current authenticated user
@@ -203,10 +203,10 @@ async def require_team_lead(
     Returns:
         Current user
     """
-    if current_user.role not in [UserRole.TEAM_LEAD, UserRole.HR]:
+    if current_user.role not in [UserRole.EMPLOYEE, UserRole.HR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Team Lead or HR role required",
+            detail="Employee or HR role required",
         )
     return current_user
 
@@ -223,7 +223,7 @@ async def require_employee(
     Returns:
         Current user
     """
-    if current_user.role not in [UserRole.EMPLOYEE, UserRole.TEAM_LEAD, UserRole.HR]:
+    if current_user.role not in [UserRole.EMPLOYEE, UserRole.HR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Employee or higher role required",

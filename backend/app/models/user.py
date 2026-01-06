@@ -24,8 +24,7 @@ class UserRole(str, Enum):
 
     SYSTEM_ADMIN = "SYSTEM_ADMIN"  # Global system administrator (sees all companies)
     HR = "HR"  # Company HR/Admin (sees all company data)
-    TEAM_LEAD = "TEAM_LEAD"  # Senior employee (batch operations)
-    EMPLOYEE = "EMPLOYEE"  # Regular employee
+    EMPLOYEE = "EMPLOYEE"  # Regular employee (interviewer)
     CANDIDATE = "CANDIDATE"  # Job candidate
 
 

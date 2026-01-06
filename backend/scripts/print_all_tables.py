@@ -5,13 +5,14 @@ Usage: python print_all_tables.py
 """
 
 import asyncio
+import os
 import sys
 from datetime import datetime
 from typing import List
 from uuid import UUID
 
-# Add the backend app to path
-sys.path.insert(0, "/Users/vaibhavchauhan/Desktop/ai-interview/backend")
+# Add backend directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select

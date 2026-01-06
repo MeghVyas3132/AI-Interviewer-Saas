@@ -28,17 +28,32 @@ from app.core.database import Base
 
 
 class CandidateStatus(str, Enum):
-    """Candidate status throughout the hiring pipeline"""
-    APPLIED = "applied"
-    SCREENING = "screening"
-    ASSESSMENT = "assessment"
-    INTERVIEW = "interview"
-    SELECTED = "selected"
-    OFFER = "offer"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-    WITHDRAWN = "withdrawn"
-    ON_HOLD = "on_hold"
+    """Candidate status throughout the hiring pipeline
+    
+    NOTE: Values must match EXACTLY what's in the PostgreSQL enum.
+    The database has mixed case - legacy UPPERCASE and new lowercase.
+    """
+    # New simplified pipeline stages (lowercase in DB)
+    UPLOADED = "uploaded"           # Candidate just uploaded/added
+    ASSIGNED = "assigned"           # Assigned to an employee/interviewer
+    INTERVIEW_SCHEDULED = "interview_scheduled"  # Interview has been scheduled
+    INTERVIEW_COMPLETED = "interview_completed"  # Interview taken, awaiting result
+    PASSED = "passed"               # AI verdict: PASS or manually approved
+    FAILED = "failed"               # AI verdict: FAIL or manually rejected
+    REVIEW = "review"               # AI verdict: REVIEW - needs manual review
+    AUTO_REJECTED = "auto_rejected" # Auto-rejected due to low score
+    
+    # Legacy statuses (UPPERCASE in DB - for backward compatibility)
+    APPLIED = "APPLIED"
+    SCREENING = "SCREENING"
+    ASSESSMENT = "ASSESSMENT"
+    INTERVIEW = "INTERVIEW"
+    SELECTED = "SELECTED"
+    OFFER = "OFFER"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    WITHDRAWN = "WITHDRAWN"
+    ON_HOLD = "ON_HOLD"
 
 
 class InterviewStatus(str, Enum):
@@ -167,13 +182,24 @@ class Candidate(Base):
 
     # File references
     resume_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # ATS Score from dashboard check (synced with interview)
+    ats_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    ats_report: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON string with full ATS report
+    resume_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # Extracted text from resume
 
     # AI Service Integration
     ai_candidate_id: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
 
     # Status and metadata
+    # Use values_callable to match database values (lowercase) instead of enum names (UPPERCASE)
     status: Mapped[CandidateStatus] = mapped_column(
-        SQLEnum(CandidateStatus),
+        SQLEnum(
+            CandidateStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name='candidatestatus',
+            create_type=False,  # Type already exists in DB
+        ),
         nullable=False,
         default=CandidateStatus.APPLIED,
     )

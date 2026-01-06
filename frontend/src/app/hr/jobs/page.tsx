@@ -25,6 +25,7 @@ export default function HRJobsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [generationQueued, setGenerationQueued] = useState<string | null>(null);
+  const [generationComplete, setGenerationComplete] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Record<string, Question[]>>({});
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [questionsLoading, setQuestionsLoading] = useState(false);
@@ -85,16 +86,42 @@ export default function HRJobsPage() {
   const handleGenerateQuestions = async (id: string) => {
     setGeneratingFor(id);
     setGenerationQueued(null);
+    setGenerationComplete(null);
     try {
       await apiClient.post(`/jobs/${id}/generate-questions`, {});
       setGenerationQueued(id);
-      // Auto-refresh questions after a delay
-      setTimeout(() => {
-        if (selectedJobId === id) {
-          fetchQuestions(id);
+      
+      // Poll for questions every 3 seconds for up to 30 seconds
+      let attempts = 0;
+      const maxAttempts = 10;
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const data = await apiClient.get<Question[]>(`/jobs/${id}/questions`);
+          const cleanedData = (data || []).map(q => ({
+            ...q,
+            text: q.text.replace(/^\{?"questions":\s*\[?"?|"?\]?\}?$/g, '').trim()
+          })).filter(q => q.text.length > 10 && !q.text.startsWith('{'));
+          
+          if (cleanedData.length > 0) {
+            setQuestions(qs => ({ ...qs, [id]: cleanedData }));
+            setGenerationQueued(null);
+            setGenerationComplete(id);
+            clearInterval(pollInterval);
+            // Clear success message after 5 seconds
+            setTimeout(() => setGenerationComplete(null), 5000);
+          }
+        } catch (err) {
+          // Continue polling
         }
-        setGenerationQueued(null);
-      }, 15000);
+        
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          setGenerationQueued(null);
+          fetchQuestions(id); // Final attempt
+        }
+      }, 3000);
+      
     } catch {
       setError('Failed to queue question generation');
     } finally {
@@ -180,6 +207,19 @@ export default function HRJobsPage() {
             <div>
               <p className="font-medium">Question generation in progress</p>
               <p className="text-sm text-blue-600">Estimated time: ~15 seconds. Questions will appear automatically.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Generation Complete Banner */}
+        {generationComplete && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 flex items-center gap-3">
+            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="font-medium">Questions generated successfully!</p>
+              <p className="text-sm text-green-600">Click "View Questions" on the job to see them.</p>
             </div>
           </div>
         )}

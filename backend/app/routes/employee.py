@@ -26,9 +26,9 @@ router = APIRouter(prefix="/api/v1/employee", tags=["employee"])
 
 def require_employee(current_user: User = Depends(get_current_user)) -> User:
     """
-    Dependency to require EMPLOYEE or TEAM_LEAD role.
+    Dependency to require EMPLOYEE role.
     """
-    if current_user.role not in [UserRole.EMPLOYEE, UserRole.TEAM_LEAD]:
+    if current_user.role != UserRole.EMPLOYEE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only employees can access this resource",
@@ -232,12 +232,22 @@ async def get_candidate_detailed_profile(
                     })
                     current_question = None
             
+            # Calculate verdict from score if not present
+            verdict = provider_response.get("verdict") if report else None
+            if not verdict and report and report.score is not None:
+                if report.score >= 70:
+                    verdict = "PASS"
+                elif report.score >= 50:
+                    verdict = "REVIEW"
+                else:
+                    verdict = "FAIL"
+            
             interview_details.append({
                 "interview_id": str(interview.id),
                 "round": interview.round.value if interview.round else "unknown",
                 "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
                 "status": interview.status.value if interview.status else None,
-                "verdict": provider_response.get("verdict") if report else None,
+                "verdict": verdict,
                 "overall_score": report.score if report else None,
                 "behavior_score": provider_response.get("behavior_score") if report else None,
                 "confidence_score": provider_response.get("confidence_score") if report else None,
@@ -577,6 +587,15 @@ async def schedule_interview(
         )
 
         db.add(interview)
+        
+        # Update candidate status to interview_scheduled
+        # Use .value to ensure lowercase value is sent to database
+        from sqlalchemy import text
+        await db.execute(
+            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+            {"status": "interview_scheduled", "id": str(candidate_id)}
+        )
+        
         await db.commit()
         await db.refresh(interview)
 
@@ -649,6 +668,13 @@ async def cancel_interview(
 
         # Delete the interview
         await db.delete(interview)
+        
+        # Revert candidate status to assigned using service method
+        from app.services.candidate_service import CandidateService
+        await CandidateService.update_candidate_status(
+            db, candidate.id, CandidateStatus.ASSIGNED
+        )
+        
         await db.commit()
 
         return {
@@ -718,8 +744,18 @@ async def get_my_interviews(
             
             for report in reports:
                 provider_response = report.provider_response or {}
+                # Calculate verdict from score if not present
+                verdict = provider_response.get("verdict")
+                if not verdict and report.score is not None:
+                    if report.score >= 70:
+                        verdict = "PASS"
+                    elif report.score >= 50:
+                        verdict = "REVIEW"
+                    else:
+                        verdict = "FAIL"
+                
                 reports_dict[report.interview_id] = {
-                    "verdict": provider_response.get("verdict"),
+                    "verdict": verdict,
                     "score": report.score,
                     "summary": report.summary,
                     "completion_score": provider_response.get("completion_score"),
@@ -905,6 +941,13 @@ async def create_ai_interview_for_candidate(
             notes=f"On-spot AI interview created by {current_user.name}"
         )
         db.add(new_interview)
+        
+        # Update candidate status using service method
+        from app.services.candidate_service import CandidateService
+        await CandidateService.update_candidate_status(
+            db, candidate.id, CandidateStatus.INTERVIEW_SCHEDULED
+        )
+        
         await db.flush()
         
         # Sync to AI service

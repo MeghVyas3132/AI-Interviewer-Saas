@@ -140,7 +140,6 @@ export function EmployeeModal({ isOpen, onClose, onSuccess }: EmployeeModalProps
                             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                         >
                             <option value="EMPLOYEE">Employee (Interviewer)</option>
-                            <option value="TEAM_LEAD">Team Lead</option>
                             <option value="HR">HR Admin</option>
                         </select>
                     </div>

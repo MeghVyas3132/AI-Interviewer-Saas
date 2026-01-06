@@ -92,7 +92,7 @@ def process_bulk_import(
         )
         return result
     except Exception as e:
-        logger.error(f"❌ Bulk import task failed: {str(e)}", exc_info=True)
+        logger.error(f"Bulk import task failed: {str(e)}", exc_info=True)
         # Retry with exponential backoff
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
     finally:
@@ -129,7 +129,7 @@ def _process_bulk_import_sync(
         import_job.celery_task_id = celery_task_id
         session.commit()
         
-        logger.info(f"🔄 Starting bulk import for job {import_job_id}")
+        logger.info(f"Starting bulk import for job {import_job_id}")
         
         # Parse file
         try:
@@ -138,7 +138,7 @@ def _process_bulk_import_sync(
                 filename,
             )
         except Exception as e:
-            logger.error(f"❌ File parsing failed: {str(e)}")
+            logger.error(f"File parsing failed: {str(e)}")
             import_job.status = ImportJobStatus.FAILED
             import_job.error_message = f"File parsing error: {str(e)}"
             import_job.detailed_errors = [str(e)]
@@ -150,7 +150,7 @@ def _process_bulk_import_sync(
             session.commit()
             raise
         
-        logger.info(f"✅ Parsed {len(parsed_candidates)} candidates from {filename}")
+        logger.info(f"Parsed {len(parsed_candidates)} candidates from {filename}")
         
         # Auto-detect domain from email and apply default domain if needed
         for candidate in parsed_candidates:
@@ -228,7 +228,7 @@ def _process_bulk_import_sync(
                         experience_years=candidate_data.get("experience_years"),
                         qualifications=candidate_data.get("qualifications"),
                         resume_url=candidate_data.get("resume_url"),
-                        status=CandidateStatus.APPLIED,
+                        status=CandidateStatus.UPLOADED,
                         source=CandidateSource.EXCEL_IMPORT,
                         created_by=created_by,
                     )
@@ -239,7 +239,7 @@ def _process_bulk_import_sync(
                     
                 except Exception as e:
                     logger.error(
-                        f"❌ Error creating candidate {candidate_data.get('email')}: {str(e)}"
+                        f"Error creating candidate {candidate_data.get('email')}: {str(e)}"
                     )
                     failed_records.append({
                         "row": batch_start + idx,
@@ -252,7 +252,7 @@ def _process_bulk_import_sync(
         
         # Queue invitation emails if requested
         if send_invitations and created_candidates:
-            logger.info(f"📧 Queueing {len(created_candidates)} invitation emails")
+            logger.info(f"Queueing {len(created_candidates)} invitation emails")
             # Note: Email queueing is done via CandidateService which handles async
             # For now, we'll skip email queueing in Celery task to keep it simple
             # Users can send bulk emails separately via the bulk email endpoint
@@ -274,7 +274,7 @@ def _process_bulk_import_sync(
         session.commit()
         
         logger.info(
-            f"✅ Bulk import completed: {len(created_candidates)} created, "
+            f"Bulk import completed: {len(created_candidates)} created, "
             f"{len(failed_records)} failed, {skipped_count} skipped in {processing_duration:.1f}s"
         )
         
@@ -288,7 +288,7 @@ def _process_bulk_import_sync(
         }
         
     except Exception as e:
-        logger.error(f"❌ Bulk import task failed: {str(e)}", exc_info=True)
+        logger.error(f"Bulk import task failed: {str(e)}", exc_info=True)
         
         # Mark job as failed
         try:

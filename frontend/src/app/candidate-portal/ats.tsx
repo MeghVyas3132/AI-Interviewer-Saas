@@ -126,7 +126,7 @@ export default function CandidateAtsPage() {
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       report.ats_friendly ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
-                      {report.ats_friendly ? '✓ ATS Friendly' : '✗ Not ATS Friendly'}
+                      {report.ats_friendly ? 'ATS Friendly' : 'Not ATS Friendly'}
                     </span>
                   )}
                   {report.quantified_achievements !== undefined && (
@@ -228,7 +228,7 @@ export default function CandidateAtsPage() {
               <div className="grid md:grid-cols-2 gap-6">
                 {report.keywords_found && report.keywords_found.length > 0 && (
                   <div>
-                    <h4 className="font-medium text-green-700 mb-2">Keywords Found ✓</h4>
+                    <h4 className="font-medium text-green-700 mb-2">Keywords Found</h4>
                     <div className="flex flex-wrap gap-2">
                       {report.keywords_found.map((k, idx) => (
                         <span key={idx} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
@@ -240,7 +240,7 @@ export default function CandidateAtsPage() {
                 )}
                 {report.keywords_missing && report.keywords_missing.length > 0 && (
                   <div>
-                    <h4 className="font-medium text-red-700 mb-2">Missing Keywords ✗</h4>
+                    <h4 className="font-medium text-red-700 mb-2">Missing Keywords</h4>
                     <div className="flex flex-wrap gap-2">
                       {report.keywords_missing.map((k, idx) => (
                         <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.config import settings
 from app.middleware.auth import get_current_user
-from app.models.candidate import Interview, InterviewStatus, Candidate
+from app.models.candidate import Interview, InterviewStatus, Candidate, CandidateStatus
 from app.models.user import User, UserRole
 from app.services.ai_service import ai_service
 from app.schemas.interview_schema import (
@@ -40,12 +40,12 @@ async def create_interview(
 ):
     """
     Create a new interview.
-    Only ADMIN and TEAM_LEAD can create interviews.
+    Only ADMIN and HR can create interviews.
     """
-    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.TEAM_LEAD]:
+    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.HR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators and team leads can create interviews",
+            detail="Only administrators and HR can create interviews",
         )
 
     try:
@@ -86,6 +86,13 @@ async def create_interview(
             meeting_link=meeting_link
         )
         session.add(interview)
+        
+        # Update candidate status using service method to handle enum correctly
+        from app.services.candidate_service import CandidateService
+        await CandidateService.update_candidate_status(
+            session, candidate.id, CandidateStatus.INTERVIEW_SCHEDULED
+        )
+        
         await session.commit()
         await session.refresh(interview)
         return interview
@@ -134,9 +141,9 @@ async def get_assigned_interviews(
 ):
     """
     Get interviews assigned to the current user (as interviewer).
-    Only EMPLOYEE and TEAM_LEAD can access this.
+    Only EMPLOYEE can access this.
     """
-    if current_user.role not in [UserRole.EMPLOYEE, UserRole.TEAM_LEAD]:
+    if current_user.role != UserRole.EMPLOYEE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only employees can access assigned interviews"
@@ -230,10 +237,10 @@ async def update_interview(
     Update an interview.
     Only the assigned interviewer or an admin can update.
     """
-    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.TEAM_LEAD]:
+    if current_user.role not in [UserRole.SYSTEM_ADMIN, UserRole.HR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators and team leads can update interviews",
+            detail="Only administrators and HR can update interviews",
         )
 
     try:

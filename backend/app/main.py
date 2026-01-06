@@ -2,14 +2,17 @@
 FastAPI application factory and initialization.
 
 Backend-only API application for AI Interviewer Platform.
+Optimized for production with compression, connection pooling, and async patterns.
 """
 
 from contextlib import asynccontextmanager
 import logging
+import os
 
-from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, status, Request
+from fastapi.responses import JSONResponse, ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from sqlalchemy import text
 
@@ -28,66 +31,92 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Manage application lifecycle: startup and shutdown.
+    Initializes all connections and cleanly shuts them down.
     """
-    # Startup
+    # Startup - initialize all connections
+    logger.info("Starting application...")
     await init_db()
     await redis_client.connect()
+    logger.info("Database and Redis connected")
+    
     yield
 
-    # Shutdown
+    # Shutdown - clean up all connections gracefully
+    logger.info("Shutting down application...")
+    try:
+        from app.services.ai_service import close_http_client
+        await close_http_client()
+    except Exception as e:
+        logger.warning(f"Error closing HTTP client: {e}")
+    
     await redis_client.disconnect()
     await close_db()
+    logger.info("All connections closed")
 
 
 def create_app() -> FastAPI:
     """
-    Create and configure FastAPI application.
+    Create and configure FastAPI application with production optimizations.
 
     Returns:
         Configured FastAPI application
     """
+    # Use ORJSON for faster JSON serialization (2-3x faster than stdlib json)
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
+        default_response_class=ORJSONResponse,
+        # Disable docs in production for security
+        docs_url="/docs" if settings.debug else None,
+        redoc_url="/redoc" if settings.debug else None,
+        openapi_url="/openapi.json" if settings.debug else None,
     )
 
-    # Add request logging middleware (after security but before other middleware)
+    # === MIDDLEWARE ORDER MATTERS ===
+    # Middleware is processed in REVERSE order (last added = first executed)
+    
+    # 1. GZip compression (innermost - compresses responses)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+    
+    # 2. Request logging (logs all requests with timing)
     app.add_middleware(RequestLoggingMiddleware)
 
-    # Add security headers middleware (must be before CORS)
+    # 3. Security headers (add security headers to all responses)
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # Add rate limiting middleware (must be before CORS)
-    # TEMPORARILY DISABLED for heavy testing - will re-enable before production deployment
-    # app.add_middleware(RateLimitMiddleware)
+    # 4. Rate limiting - DISABLED for testing phase
+    # Uncomment for production deployment:
+    # if settings.environment == "production":
+    #     app.add_middleware(RateLimitMiddleware)
 
-    # Add CORS middleware
+    # 5. CORS (outermost - handles preflight requests first)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        max_age=86400,  # Cache preflight for 24 hours
     )
 
-    # Include routers
-    app.include_router(admin.router)  # System admin routes
+    # Include routers with tags for better organization
+    app.include_router(admin.router)
     app.include_router(auth.router)
-    app.include_router(hr.router)  # HR company-specific routes
-    app.include_router(employee.router)  # Employee routes
-    app.include_router(candidate_portal.router)  # Candidate portal routes
+    app.include_router(hr.router)
+    app.include_router(employee.router)
+    app.include_router(candidate_portal.router)
     app.include_router(company.router)
     app.include_router(register.router)
     app.include_router(users.router)
     app.include_router(roles.router)
     app.include_router(interviews.router)
-    app.include_router(interview_rounds.router)  # Phase 2: Interview Scheduling
+    app.include_router(interview_rounds.router)
     app.include_router(scores.router)
     app.include_router(logs.router)
     app.include_router(email.router)
-    app.include_router(candidates.router)  # Phase 2: Candidates
-    app.include_router(ai.router)  # AI Interviewer service proxy
+    app.include_router(candidates.router)
+    app.include_router(ai.router)
     app.include_router(jobs.router)
 
     @app.get("/health")

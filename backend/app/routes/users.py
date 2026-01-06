@@ -83,14 +83,14 @@ async def list_users(
     custom_role_id: Optional[UUID] = None,
 ) -> List[UserListResponse]:
     """
-    List users in the company (Team Lead and above).
+    List users in the company (Employee and above).
 
     Args:
         current_user: Current authenticated user
         session: Database session
         skip: Number of records to skip
         limit: Maximum number of records
-        role: Optional system role filter (HR, TEAM_LEAD, EMPLOYEE, CANDIDATE)
+        role: Optional system role filter (HR, EMPLOYEE, CANDIDATE)
         custom_role_id: Optional custom role ID filter
 
     Returns:
@@ -125,9 +125,9 @@ async def get_user(
     Returns:
         User details
     """
-    # Users can view themselves or their company members (if Team Lead+)
+    # Users can view themselves or their company members (if HR)
     if user_id != current_user.id and current_user.role not in [
-        UserRole.TEAM_LEAD,
+        UserRole.EMPLOYEE,
         UserRole.HR,
     ]:
         raise HTTPException(
@@ -194,11 +194,11 @@ async def delete_user(
     session: AsyncSession = Depends(get_db),
 ) -> None:
     """
-    Delete user (soft delete - HR only).
+    Delete user (soft delete - HR can delete employees, System Admin can delete anyone).
 
     Args:
         user_id: User ID
-        current_user: Current authenticated HR user
+        current_user: Current authenticated admin user
         session: Database session
     """
     user = await UserService.get_user_by_id(session, user_id)
@@ -207,10 +207,36 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+    
+    # HR can only delete EMPLOYEE role
+    if current_user.role == UserRole.HR:
+        if user.role != UserRole.EMPLOYEE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="HR users can only delete employees. Contact system admin for other roles.",
+            )
+    # Non-admin roles (except HR) cannot delete users
+    elif current_user.role != UserRole.SYSTEM_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only HR and system administrators can delete users.",
+        )
+    
+    # Prevent deleting yourself
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account.",
+        )
 
-    await UserService.delete_user(session, user_id)
+    # Store user info for logging before deletion
+    deleted_user_email = user.email
+    deleted_user_name = user.name
 
-    # Log delete action
+    # Hard delete user and related records
+    await UserService.delete_user(session, user_id, hard_delete=True)
+
+    # Log delete action (use current user's ID since deleted user no longer exists)
     await AuditLogService.log_action(
         session,
         current_user.company_id,
@@ -218,6 +244,7 @@ async def delete_user(
         "DELETE_USER",
         resource_type="user",
         resource_id=user_id,
+        metadata={"deleted_user": deleted_user_name, "deleted_email": deleted_user_email},
     )
 
     await session.commit()

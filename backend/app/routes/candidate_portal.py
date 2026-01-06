@@ -546,16 +546,40 @@ async def get_my_interview_results(
         for report in reports:
             reports_dict[report.interview_id] = report
 
+        def _get_verdict(report) -> str:
+            """Get verdict from provider_response or calculate from score."""
+            if not report:
+                return None
+            provider_response = report.provider_response or {}
+            
+            # Check if verdict is in provider_response
+            verdict = provider_response.get("verdict")
+            if verdict:
+                return verdict
+            
+            # Calculate verdict from score
+            score = report.score
+            if score is None:
+                return None
+            
+            if score >= 70:
+                return "PASS"
+            elif score >= 50:
+                return "REVIEW"
+            else:
+                return "FAIL"
+
         results = []
         for interview in interviews:
             report = reports_dict.get(interview.id)
             provider_response = report.provider_response if report else {}
+            verdict = _get_verdict(report)
             
             results.append({
                 "interview_id": str(interview.id),
                 "round": interview.round.value if interview.round else "Interview",
                 "completed_at": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
-                "verdict": provider_response.get("verdict") if report else None,
+                "verdict": verdict,
                 "score": report.score if report else None,
                 "summary": report.summary if report else None,
                 "completion_score": provider_response.get("completion_score") if report else None,
@@ -564,7 +588,7 @@ async def get_my_interview_results(
                 "total_answers": provider_response.get("total_answers") if report else None,
                 "duration_seconds": provider_response.get("duration_seconds") if report else None,
                 "feedback": _generate_candidate_feedback(
-                    provider_response.get("verdict") if report else None,
+                    verdict,
                     report.score if report else None,
                     provider_response.get("completion_score") if report else None,
                     provider_response.get("detail_score") if report else None

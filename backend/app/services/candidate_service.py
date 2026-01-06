@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select, and_, desc, func
+from sqlalchemy import select, and_, desc, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import (
@@ -27,6 +27,27 @@ logger = logging.getLogger(__name__)
 
 class CandidateService:
     """Service for candidate management and operations"""
+
+    @staticmethod
+    async def update_candidate_status(
+        session: AsyncSession,
+        candidate_id: UUID,
+        status: CandidateStatus,
+    ) -> None:
+        """
+        Update candidate status safely using raw SQL to avoid enum value issues.
+        
+        The database has mixed case enum values (legacy UPPERCASE, new lowercase).
+        This method ensures the correct lowercase value is always used.
+        """
+        # Always use the lowercase value for the status
+        status_value = status.value if hasattr(status, 'value') else str(status).lower()
+        
+        await session.execute(
+            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+            {"status": status_value, "id": str(candidate_id)}
+        )
+        logger.info(f"Candidate {candidate_id} status updated to {status_value}")
 
     @staticmethod
     async def create_candidate(
@@ -88,7 +109,7 @@ class CandidateService:
                 resume_url=resume_url,
                 source=source,
                 created_by=created_by,
-                status=CandidateStatus.APPLIED,
+                status=CandidateStatus.UPLOADED,
             )
             
             session.add(candidate)
@@ -123,7 +144,7 @@ class CandidateService:
                 # flush to ensure the user row exists for any subsequent FK checks
                 await session.flush()
             
-            logger.info(f"✅ Candidate created: {email} (ID: {candidate.id}) in {company_id}")
+            logger.info(f"Candidate created: {email} (ID: {candidate.id}) in {company_id}")
             
             return candidate
             
@@ -213,7 +234,7 @@ class CandidateService:
             result = await session.execute(query)
             candidates = result.scalars().all()
             
-            logger.info(f"📊 Listed {len(candidates)} candidates for {company_id}")
+            logger.info(f"Listed {len(candidates)} candidates for {company_id}")
             
             return candidates, total
             
@@ -347,7 +368,7 @@ class CandidateService:
             
             # Commit all created candidates
             await session.commit()
-            logger.info(f"✅ Bulk created {len(created_candidates)} candidates for {company_id}")
+            logger.info(f"Bulk created {len(created_candidates)} candidates for {company_id}")
             
             # Queue invitation emails if enabled
             if send_invitation_emails and created_candidates:
@@ -394,7 +415,7 @@ class CandidateService:
                 priority=EmailPriority.HIGH,
             )
             
-            logger.info(f"📧 Queued {len(recipients)} invitation emails")
+            logger.info(f"Queued {len(recipients)} invitation emails")
             
         except Exception as e:
             logger.error(f"Error queueing bulk invitations: {str(e)}", exc_info=True)
@@ -429,7 +450,7 @@ class CandidateService:
                     "success_rate": f"{(created/total*100):.1f}%" if total > 0 else "0%",
                 }
             )
-            logger.info(f"✅ Logged bulk import: {created}/{total} created")
+            logger.info(f"Logged bulk import: {created}/{total} created")
         except Exception as e:
             logger.error(f"Error logging bulk import: {str(e)}")
 

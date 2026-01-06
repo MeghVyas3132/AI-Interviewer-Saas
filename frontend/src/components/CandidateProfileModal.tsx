@@ -66,6 +66,7 @@ interface CandidateProfileModalProps {
   candidateId: string | null
   onCreateAIInterview?: (candidateId: string) => void
   useDetailedEndpoint?: boolean
+  userRole?: 'hr' | 'employee'
 }
 
 export default function CandidateProfileModal({
@@ -74,6 +75,7 @@ export default function CandidateProfileModal({
   candidateId,
   onCreateAIInterview,
   useDetailedEndpoint = false,
+  userRole = 'employee',
 }: CandidateProfileModalProps) {
   const [loading, setLoading] = useState(true)
   const [candidate, setCandidate] = useState<CandidateProfile | null>(null)
@@ -98,8 +100,11 @@ export default function CandidateProfileModal({
     
     try {
       if (useDetailedEndpoint) {
-        // Use detailed endpoint for employee view with Q&A, resume, etc.
-        const data = await apiClient.get<DetailedProfileResponse>(`/employee/candidate-profile/${candidateId}`)
+        // Use detailed endpoint based on user role
+        const endpoint = userRole === 'hr' 
+          ? `/hr/candidate-profile/${candidateId}`
+          : `/employee/candidate-profile/${candidateId}`
+        const data = await apiClient.get<DetailedProfileResponse>(endpoint)
         setCandidate(data.candidate)
         setInterviews(data.interviews || [])
       } else {
@@ -445,13 +450,13 @@ export default function CandidateProfileModal({
                                   onClick={() => handleEmployeeVerdict(interview.interview_id, 'APPROVED')}
                                   className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
                                 >
-                                  ✓ Approve
+                                  Approve
                                 </button>
                                 <button
                                   onClick={() => handleEmployeeVerdict(interview.interview_id, 'REJECTED')}
                                   className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
                                 >
-                                  ✗ Reject
+                                  Reject
                                 </button>
                               </div>
                             </div>

@@ -28,7 +28,11 @@ interface Question {
     text: string;
 }
 
-export function AIConfigManager() {
+interface AIConfigManagerProps {
+    readOnly?: boolean;
+}
+
+export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
     const [config, setConfig] = useState<AIConfig>({
         id: null,
         company_id: '',

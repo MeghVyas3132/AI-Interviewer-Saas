@@ -5,10 +5,12 @@ User service for user management operations.
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.user import User, UserRole
+from app.models.audit_log import AuditLog
 from app.schemas.user_schema import UserCreate, UserUpdate
 from app.services.auth_service import AuthService
 from app.utils.password_hashing import verify_password
@@ -114,7 +116,7 @@ class UserService:
             company_id: Company ID
             skip: Number of records to skip
             limit: Maximum number of records to return
-            role: Optional system role filter (HR, TEAM_LEAD, etc.)
+            role: Optional system role filter (HR, EMPLOYEE, etc.)
             custom_role_id: Optional custom role ID filter
 
         Returns:
@@ -173,13 +175,16 @@ class UserService:
     async def delete_user(
         session: AsyncSession,
         user_id: UUID,
+        hard_delete: bool = True,
     ) -> bool:
         """
-        Soft delete user (set is_active to False).
+        Delete user - either hard delete (removes from DB) or soft delete (set is_active to False).
 
         Args:
             session: Database session
             user_id: User ID
+            hard_delete: If True, permanently delete user and related records. 
+                        If False, soft delete (set is_active=False).
 
         Returns:
             True if successful
@@ -188,7 +193,19 @@ class UserService:
         if not user:
             return False
 
-        user.is_active = False
+        if hard_delete:
+            # Delete related audit logs first (foreign key constraint)
+            await session.execute(
+                delete(AuditLog).where(AuditLog.user_id == user_id)
+            )
+            # Now delete the user
+            await session.execute(
+                delete(User).where(User.id == user_id)
+            )
+        else:
+            # Soft delete - just mark as inactive
+            user.is_active = False
+        
         await session.flush()
         return True
 

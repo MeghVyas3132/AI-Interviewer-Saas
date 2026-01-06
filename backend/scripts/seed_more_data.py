@@ -4,9 +4,11 @@ Seed script to create demo companies and users with different roles.
 Run: python seed_more_data.py
 """
 import asyncio
+import os
 import sys
 
-sys.path.insert(0, "/Users/vaibhavchauhan/Desktop/ai-interview/backend")
+# Add backend directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.database import async_session_maker, init_db
 from app.services.company_service import CompanyService
@@ -31,7 +33,7 @@ async def main() -> None:
         )
         company2 = await CompanyService.create_company(session, company2_data)
         await session.commit()
-        print(f"✓ Created company: {company2.name} (ID: {company2.id})")
+        print(f"Created company: {company2.name} (ID: {company2.id})")
         
         # Create users for Company 2
         user2_data = UserCreate(
@@ -43,7 +45,7 @@ async def main() -> None:
         )
         user2 = await UserService.create_user(session, company2.id, user2_data)
         await session.commit()
-        print(f"✓ Created user: {user2.name} ({user2.role.value})")
+        print(f"Created user: {user2.name} ({user2.role.value})")
         
         # Third user for Company 2
         user3_data = UserCreate(
@@ -55,9 +57,9 @@ async def main() -> None:
         )
         user3 = await UserService.create_user(session, company2.id, user3_data)
         await session.commit()
-        print(f"✓ Created user: {user3.name} ({user3.role.value})")
+        print(f"Created user: {user3.name} ({user3.role.value})")
         
-        print("\n✓ Seed data created successfully!")
+        print("\nSeed data created successfully!")
         print("\nSummary:")
         print("- 2 Companies")
         print("- 3 Users (1 HR + 1 TEAM_LEAD + 1 EMPLOYEE)")

@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api'
 import { Card } from '@/components/Card'
 import { CandidatePipeline } from '@/components/CandidatePipeline'
 import CandidateProfileModal from '@/components/CandidateProfileModal'
+import { AIConfigManager } from '@/components/ai-admin'
 
 interface AssignedCandidate {
   id: string
@@ -85,18 +86,6 @@ export default function EmployeeDashboardPage() {
   const [selectedJobForQuestions, setSelectedJobForQuestions] = useState<Job | null>(null)
   const [jobQuestions, setJobQuestions] = useState<{ id: string; text: string }[]>([])
   const [loadingQuestions, setLoadingQuestions] = useState(false)
-
-  // Availability settings
-  const [availabilitySlots, setAvailabilitySlots] = useState<any[]>([])
-  const [autoScheduleConfig, setAutoScheduleConfig] = useState<any>(null)
-  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false)
-  const [loadingAvailability, setLoadingAvailability] = useState(false)
-  const [newSlot, setNewSlot] = useState({
-    day_of_week: 'monday',
-    start_time: '09:00',
-    end_time: '17:00',
-    slot_duration_minutes: 30
-  })
 
   // Candidate profile modal
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -354,91 +343,6 @@ export default function EmployeeDashboardPage() {
       setError(err.response?.data?.detail || 'Failed to create AI interview')
     }
   }
-
-  // Fetch availability data
-  const fetchAvailability = async () => {
-    try {
-      setLoadingAvailability(true)
-      const [availRes, configRes] = await Promise.all([
-        apiClient.get<{ slots?: any[], config?: any } | any[]>('/employee/availability'),
-        apiClient.get<any>('/employee/availability/config')
-      ])
-      
-      // Handle the response - could be { slots: [], config: {} } or just an array
-      if (availRes && typeof availRes === 'object' && 'slots' in availRes) {
-        setAvailabilitySlots(Array.isArray(availRes.slots) ? availRes.slots : [])
-      } else if (Array.isArray(availRes)) {
-        setAvailabilitySlots(availRes)
-      } else {
-        setAvailabilitySlots([])
-      }
-      
-      setAutoScheduleConfig(configRes)
-    } catch (err: any) {
-      console.error('Error fetching availability:', err)
-    } finally {
-      setLoadingAvailability(false)
-    }
-  }
-
-  // Save auto-schedule config
-  const handleSaveAutoConfig = async () => {
-    try {
-      setLoadingAvailability(true)
-      setError('')
-      await apiClient.put('/employee/availability/config', autoScheduleConfig)
-      setSuccess('Auto-schedule settings saved successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to save settings')
-    } finally {
-      setLoadingAvailability(false)
-    }
-  }
-
-  // Add availability slot
-  const handleAddAvailability = async () => {
-    try {
-      setLoadingAvailability(true)
-      setError('')
-      await apiClient.post('/employee/availability', newSlot)
-      await fetchAvailability()
-      setShowAvailabilityModal(false)
-      setNewSlot({
-        day_of_week: 'monday',
-        start_time: '09:00',
-        end_time: '17:00',
-        slot_duration_minutes: 30
-      })
-      setSuccess('Availability slot added')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to add availability slot')
-    } finally {
-      setLoadingAvailability(false)
-    }
-  }
-
-  // Delete availability slot
-  const handleDeleteAvailability = async (slotId: string) => {
-    if (!window.confirm('Remove this availability slot?')) return
-    try {
-      setError('')
-      await apiClient.delete(`/employee/availability/${slotId}`)
-      setAvailabilitySlots(prev => prev.filter(s => s.id !== slotId))
-      setSuccess('Availability slot removed')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to remove slot')
-    }
-  }
-
-  // Load availability when settings tab is active
-  useEffect(() => {
-    if (activeTab === 'settings' && availabilitySlots.length === 0 && !loadingAvailability) {
-      fetchAvailability()
-    }
-  }, [activeTab])
 
   if (authLoading || loading) {
     return (
@@ -918,179 +822,20 @@ export default function EmployeeDashboardPage() {
           </Card>
         )}
 
-        {/* Settings Tab */}
+        {/* Settings Tab - View Only AI Config */}
         {activeTab === 'settings' && (
           <div className="space-y-6">
-            {/* Auto-Schedule Configuration */}
-            <Card>
-              <div className="p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">Auto-Schedule Settings</h2>
-                    <p className="text-sm text-gray-500">Configure automatic interview scheduling after AI rounds</p>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  {/* Auto-Schedule Toggle */}
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                    <div>
-                      <h3 className="font-medium text-gray-900">Enable Auto-Scheduling</h3>
-                      <p className="text-sm text-gray-500">Automatically schedule next round when candidate passes AI interview</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={autoScheduleConfig?.auto_schedule_enabled || false}
-                        onChange={(e) => setAutoScheduleConfig(prev => ({
-                          ...prev,
-                          auto_schedule_enabled: e.target.checked,
-                          pass_threshold: prev?.pass_threshold || 70,
-                          buffer_minutes: prev?.buffer_minutes || 30
-                        }))}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Pass Threshold */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Pass Threshold (%)
-                    </label>
-                    <div className="flex items-center gap-4">
-                      <input
-                        type="range"
-                        min="50"
-                        max="100"
-                        value={autoScheduleConfig?.pass_threshold || 70}
-                        onChange={(e) => setAutoScheduleConfig(prev => ({
-                          ...prev,
-                          auto_schedule_enabled: prev?.auto_schedule_enabled || false,
-                          pass_threshold: parseInt(e.target.value),
-                          buffer_minutes: prev?.buffer_minutes || 30
-                        }))}
-                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-                      />
-                      <span className="w-12 text-center font-medium text-gray-900">
-                        {autoScheduleConfig?.pass_threshold || 70}%
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">Minimum score required to auto-schedule next round</p>
-                  </div>
-
-                  {/* Buffer Time */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Buffer Time Between Interviews
-                    </label>
-                    <select
-                      value={autoScheduleConfig?.buffer_minutes || 30}
-                      onChange={(e) => setAutoScheduleConfig(prev => ({
-                        ...prev,
-                        auto_schedule_enabled: prev?.auto_schedule_enabled || false,
-                        pass_threshold: prev?.pass_threshold || 70,
-                        buffer_minutes: parseInt(e.target.value)
-                      }))}
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    >
-                      <option value={15}>15 minutes</option>
-                      <option value={30}>30 minutes</option>
-                      <option value={45}>45 minutes</option>
-                      <option value={60}>1 hour</option>
-                      <option value={120}>2 hours</option>
-                    </select>
-                  </div>
-
-                  {/* Save Button */}
-                  <button
-                    onClick={handleSaveAutoConfig}
-                    disabled={loadingAvailability}
-                    className="w-full px-4 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors"
-                  >
-                    {loadingAvailability ? 'Saving...' : 'Save Auto-Schedule Settings'}
-                  </button>
-                </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm text-blue-700">
+                  <strong>View Only:</strong> Contact HR to modify AI settings and job configurations.
+                </p>
               </div>
-            </Card>
-
-            {/* Availability Slots */}
-            <Card>
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-900">Availability Schedule</h2>
-                      <p className="text-sm text-gray-500">Set your weekly availability for interviews</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowAvailabilityModal(true)}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add Time Slot
-                  </button>
-                </div>
-
-                {availabilitySlots.length === 0 ? (
-                  <div className="text-center py-12 bg-gray-50 rounded-xl">
-                    <svg className="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="text-gray-500 mb-2">No availability slots configured</p>
-                    <p className="text-sm text-gray-400">Add your available time slots for auto-scheduling</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
-                      const daySlots = availabilitySlots.filter(slot => slot.day_of_week === day)
-                      if (daySlots.length === 0) return null
-                      return (
-                        <div key={day} className="border border-gray-200 rounded-xl p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-medium text-gray-900 capitalize">{day}</h3>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {daySlots.map(slot => (
-                              <div
-                                key={slot.id}
-                                className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm"
-                              >
-                                <span className="text-green-700 font-medium">
-                                  {slot.start_time} - {slot.end_time}
-                                </span>
-                                <button
-                                  onClick={() => handleDeleteAvailability(slot.id)}
-                                  className="text-red-400 hover:text-red-600 transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </Card>
+            </div>
+            <AIConfigManager readOnly={true} />
           </div>
         )}
       </div>
@@ -1295,107 +1040,6 @@ export default function EmployeeDashboardPage() {
               >
                 Close
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Availability Modal */}
-      {showAvailabilityModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-green-600 to-green-700 px-6 py-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-white">Add Availability Slot</h3>
-                  <p className="text-green-100 text-sm mt-1">Set when you're available for interviews</p>
-                </div>
-                <button
-                  onClick={() => setShowAvailabilityModal(false)}
-                  className="text-white/80 hover:text-white transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Form */}
-            <div className="p-6 space-y-5">
-              {/* Day Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Day of Week</label>
-                <select
-                  value={newSlot.day_of_week}
-                  onChange={(e) => setNewSlot({ ...newSlot, day_of_week: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                >
-                  <option value="monday">Monday</option>
-                  <option value="tuesday">Tuesday</option>
-                  <option value="wednesday">Wednesday</option>
-                  <option value="thursday">Thursday</option>
-                  <option value="friday">Friday</option>
-                  <option value="saturday">Saturday</option>
-                  <option value="sunday">Sunday</option>
-                </select>
-              </div>
-
-              {/* Time Range */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                  <input
-                    type="time"
-                    value={newSlot.start_time}
-                    onChange={(e) => setNewSlot({ ...newSlot, start_time: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                  <input
-                    type="time"
-                    value={newSlot.end_time}
-                    onChange={(e) => setNewSlot({ ...newSlot, end_time: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
-                </div>
-              </div>
-
-              {/* Slot Duration */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Interview Slot Duration</label>
-                <select
-                  value={newSlot.slot_duration_minutes}
-                  onChange={(e) => setNewSlot({ ...newSlot, slot_duration_minutes: parseInt(e.target.value) })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                >
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={45}>45 minutes</option>
-                  <option value={60}>1 hour</option>
-                </select>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAvailabilityModal(false)}
-                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddAvailability}
-                  disabled={loadingAvailability}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-medium hover:from-green-700 hover:to-green-800 disabled:opacity-50 transition-all"
-                >
-                  {loadingAvailability ? 'Adding...' : 'Add Slot'}
-                </button>
-              </div>
             </div>
           </div>
         </div>

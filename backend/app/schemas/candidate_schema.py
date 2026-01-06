@@ -81,6 +81,7 @@ class CandidateResponse(CandidateBase):
     resume_url: Optional[str]
     assigned_to: Optional[UUID] = Field(None, description="Assigned employee ID")
     assigned_employee_name: Optional[str] = Field(None, description="Assigned employee name")
+    ats_score: Optional[int] = Field(None, description="ATS resume score")
     full_name: Optional[str] = Field(None, description="Computed full name from first_name and last_name")
     created_at: datetime
     updated_at: datetime

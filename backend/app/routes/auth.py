@@ -8,8 +8,12 @@ Login Flow:
 4. Cookie setting - Send refresh token via secure HTTP-only cookie
 """
 
+import secrets
+import logging
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -24,6 +28,8 @@ from app.models.user import User, UserRole
 from app.models.company import Company
 from app.models.company_request import CompanyRequest, RequestStatus
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
@@ -35,6 +41,17 @@ class VerifyEmailRequest(BaseModel):
 class ResendVerificationRequest(BaseModel):
     """Resend verification email request."""
     email: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Forgot password request."""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password request."""
+    token: str
+    new_password: str
 
 
 class RegistrationResponse(BaseModel):
@@ -297,6 +314,133 @@ async def resend_verification(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=str(e),
+        )
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Request password reset email.
+    
+    This is a public endpoint - no authentication required.
+    Always returns success to prevent email enumeration attacks.
+    """
+    try:
+        # Look up the user
+        result = await session.execute(
+            select(User).where(User.email == request.email)
+        )
+        user = result.scalars().first()
+        
+        if user:
+            # Generate reset token
+            reset_token = secrets.token_urlsafe(32)
+            
+            # Store token in Redis with 24-hour expiry
+            from app.utils.redis_client import redis_client
+            await redis_client.set(
+                f"password_reset:{reset_token}",
+                str(user.id),
+                ex=86400  # 24 hours
+            )
+            
+            # Send password reset email
+            from app.services.email_service import EmailService
+            email_service = EmailService()
+            
+            frontend_url = "http://localhost:3000"  # TODO: Get from settings
+            reset_link = f"{frontend_url}/auth/reset-password?token={reset_token}"
+            
+            await email_service.send_password_reset_email(
+                recipient_email=user.email,
+                recipient_name=user.name or user.email,
+                reset_link=reset_link,
+                expiry_minutes=1440,  # 24 hours
+            )
+            
+            logger.info(f"Password reset email sent to {user.email}")
+        else:
+            # Don't reveal whether email exists
+            logger.info(f"Password reset requested for non-existent email: {request.email}")
+        
+        # Always return success to prevent email enumeration
+        return {
+            "message": "If an account with that email exists, we've sent a password reset link.",
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"Error processing password reset request: {str(e)}")
+        # Still return success to prevent information leakage
+        return {
+            "message": "If an account with that email exists, we've sent a password reset link.",
+            "success": True
+        }
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Reset password using reset token.
+    
+    This is a public endpoint - no authentication required.
+    """
+    try:
+        # Validate token from Redis
+        from app.utils.redis_client import redis_client
+        user_id = await redis_client.get(f"password_reset:{request.token}")
+        
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token. Please request a new password reset.",
+            )
+        
+        # Validate password requirements
+        if len(request.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters long.",
+            )
+        
+        # Get user
+        from uuid import UUID
+        result = await session.execute(
+            select(User).where(User.id == UUID(user_id))
+        )
+        user = result.scalars().first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User not found.",
+            )
+        
+        # Update password
+        user.password_hash = AuthService.hash_password(request.new_password)
+        await session.commit()
+        
+        # Delete the reset token
+        await redis_client.delete(f"password_reset:{request.token}")
+        
+        logger.info(f"Password reset successful for user: {user.email}")
+        
+        return {
+            "message": "Password reset successful. You can now log in with your new password.",
+            "success": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting password: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password. Please try again.",
         )
 
 

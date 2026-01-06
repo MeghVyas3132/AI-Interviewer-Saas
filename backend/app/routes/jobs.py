@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 @router.get("")
 async def list_job_templates(current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
     """List all job templates for the current user's company."""
-    if current_user.role not in [UserRole.HR, UserRole.SYSTEM_ADMIN, UserRole.TEAM_LEAD, UserRole.EMPLOYEE]:
+    if current_user.role not in [UserRole.HR, UserRole.SYSTEM_ADMIN, UserRole.EMPLOYEE]:
         raise HTTPException(status_code=403, detail="Not allowed")
     query = select(JobTemplate).filter(JobTemplate.company_id == current_user.company_id)
     result = await session.execute(query)
