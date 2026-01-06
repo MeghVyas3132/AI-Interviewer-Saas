@@ -43,12 +43,31 @@ class InterviewRound(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    round_type = Column(SQLEnum(RoundType), default=RoundType.SCREENING, nullable=False)
+    round_type = Column(
+        SQLEnum(
+            RoundType,
+            values_callable=lambda x: [e.value for e in x],
+            name='roundtype',
+            create_type=False,
+        ),
+        default=RoundType.SCREENING,
+        nullable=False
+    )
     interviewer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     scheduled_at = Column(DateTime(timezone=True), nullable=False, index=True)
     timezone = Column(String(50), default="UTC", nullable=False)  # e.g., "America/New_York"
     duration_minutes = Column(Integer, default=60, nullable=False)
-    status = Column(SQLEnum(RoundStatus), default=RoundStatus.SCHEDULED, nullable=False, index=True)
+    status = Column(
+        SQLEnum(
+            RoundStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name='roundstatus',
+            create_type=False,
+        ),
+        default=RoundStatus.SCHEDULED,
+        nullable=False,
+        index=True
+    )
     notes = Column(Text, nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False, index=True)

@@ -38,7 +38,16 @@ class User(Base):
     name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(SQLEnum(UserRole), nullable=False, index=True)
+    role = Column(
+        SQLEnum(
+            UserRole,
+            values_callable=lambda x: [e.value for e in x],
+            name='userrole',
+            create_type=False,
+        ),
+        nullable=False,
+        index=True
+    )
     custom_role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=True, index=True)
     manager_id = Column(
         UUID(as_uuid=True),

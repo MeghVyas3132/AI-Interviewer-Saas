@@ -80,7 +80,12 @@ class ImportJob(Base):
 
     # Job status tracking
     status: Mapped[ImportJobStatus] = mapped_column(
-        SQLEnum(ImportJobStatus),
+        SQLEnum(
+            ImportJobStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name='importjobstatus',
+            create_type=False,
+        ),
         nullable=False,
         default=ImportJobStatus.QUEUED,
     )

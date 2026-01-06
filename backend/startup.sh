@@ -54,9 +54,25 @@ try:
     for col_name, col_type in columns_to_add:
         try:
             cur.execute(f"ALTER TABLE interviews ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
-            print(f"Column {col_name}: OK")
+            print(f"interviews.{col_name}: OK")
         except Exception as e:
-            print(f"Column {col_name}: {e}")
+            print(f"interviews.{col_name}: {e}")
+    
+    # 3b. Add missing columns to candidates table
+    print("\nChecking candidates table columns...")
+    candidate_columns = [
+        ('ats_score', 'INTEGER'),
+        ('ats_report', 'TEXT'),
+        ('resume_text', 'TEXT'),
+        ('ai_candidate_id', 'INTEGER'),
+    ]
+    
+    for col_name, col_type in candidate_columns:
+        try:
+            cur.execute(f"ALTER TABLE candidates ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+            print(f"candidates.{col_name}: OK")
+        except Exception as e:
+            print(f"candidates.{col_name}: {e}")
     
     # 4. Create company_ai_config table if not exists
     print("Checking company_ai_config table...")

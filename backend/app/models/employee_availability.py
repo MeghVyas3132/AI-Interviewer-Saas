@@ -39,7 +39,15 @@ class EmployeeAvailability(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     
     # Day and time slot
-    day_of_week = Column(SQLEnum(DayOfWeek), nullable=False)
+    day_of_week = Column(
+        SQLEnum(
+            DayOfWeek,
+            values_callable=lambda x: [e.value for e in x],
+            name='dayofweek',
+            create_type=False,
+        ),
+        nullable=False
+    )
     start_time = Column(Time, nullable=False)  # e.g., 14:00
     end_time = Column(Time, nullable=False)    # e.g., 16:00
     

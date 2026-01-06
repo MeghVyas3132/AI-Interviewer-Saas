@@ -204,7 +204,12 @@ class Candidate(Base):
         default=CandidateStatus.APPLIED,
     )
     source: Mapped[Optional[CandidateSource]] = mapped_column(
-        SQLEnum(CandidateSource),
+        SQLEnum(
+            CandidateSource,
+            values_callable=lambda x: [e.value for e in x],
+            name='candidatesource',
+            create_type=False,
+        ),
         nullable=True,
     )
 
@@ -288,7 +293,12 @@ class Interview(Base):
 
     # Interview details
     round: Mapped[InterviewRound] = mapped_column(
-        SQLEnum(InterviewRound),
+        SQLEnum(
+            InterviewRound,
+            values_callable=lambda x: [e.value for e in x],
+            name='interviewround',
+            create_type=False,
+        ),
         nullable=False,
     )
     scheduled_time: Mapped[datetime] = mapped_column(
@@ -308,7 +318,12 @@ class Interview(Base):
 
     # Interview execution
     status: Mapped[InterviewStatus] = mapped_column(
-        SQLEnum(InterviewStatus),
+        SQLEnum(
+            InterviewStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name='interviewstatus',
+            create_type=False,
+        ),
         nullable=False,
         default=InterviewStatus.SCHEDULED,
     )
@@ -393,16 +408,31 @@ class EmailQueue(Base):
 
     # Email metadata
     email_type: Mapped[EmailType] = mapped_column(
-        SQLEnum(EmailType),
+        SQLEnum(
+            EmailType,
+            values_callable=lambda x: [e.value for e in x],
+            name='emailtype',
+            create_type=False,
+        ),
         nullable=False,
     )
     priority: Mapped[EmailPriority] = mapped_column(
-        SQLEnum(EmailPriority),
+        SQLEnum(
+            EmailPriority,
+            values_callable=lambda x: [e.value for e in x],
+            name='emailpriority',
+            create_type=False,
+        ),
         nullable=False,
         default=EmailPriority.MEDIUM,
     )
     status: Mapped[EmailStatus] = mapped_column(
-        SQLEnum(EmailStatus),
+        SQLEnum(
+            EmailStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name='emailstatus',
+            create_type=False,
+        ),
         nullable=False,
         default=EmailStatus.QUEUED,
     )
