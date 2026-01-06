@@ -106,6 +106,9 @@ echo "Database step complete, starting server..."
 # Formula: (2 x $num_cores) + 1 for I/O bound applications
 WORKERS=${UVICORN_WORKERS:-$(python -c "import os; print(min((os.cpu_count() or 1) * 2 + 1, 4))")}
 
+# Ensure log level is lowercase (uvicorn requires lowercase)
+LOG_LEVEL_LOWER=$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')
+
 echo "Starting uvicorn with $WORKERS workers..."
 
 # Production-optimized uvicorn settings:
@@ -123,4 +126,4 @@ exec uvicorn app.main:app \
     --limit-concurrency 100 \
     --timeout-keep-alive 30 \
     --access-log \
-    --log-level ${LOG_LEVEL:-info}
+    --log-level $LOG_LEVEL_LOWER
