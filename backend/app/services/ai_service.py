@@ -135,7 +135,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
     Includes simple retries/backoff for transient failures.
     """
     # Force Gemini model
-    model = "gemini-pro"
+    model = "gemini-2.0-flash"
 
     prompt = (
         "You are an expert applicant-tracking-system (ATS) evaluator. "
@@ -196,7 +196,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
 
         return report
 
-    # Google Gemini API path (using v1beta for gemini-pro)
+    # Google Gemini API path (using v1beta for gemini-2.0-flash)
     base = "https://generativelanguage.googleapis.com/v1beta"
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
@@ -284,7 +284,7 @@ async def generate_questions(job_description: str, max_questions: int = 10, mode
     Returns: { "questions": ["q1", "q2", ...], "raw": <provider response> }
     """
     # Force Gemini model for question generation
-    model = "gemini-pro"
+    model = "gemini-2.0-flash"
 
     prompt = f"""You are an expert TECHNICAL interviewer for software engineering and tech roles.
 
@@ -355,8 +355,8 @@ Return JSON only, no markdown, no explanation."""
 
     # Google Gemini API path
     base = "https://generativelanguage.googleapis.com/v1beta"
-    # Use gemini-pro as primary model
-    model_to_use = "gemini-pro" if model in ["gemini-pro", None, ""] else model
+    # Use gemini-2.0-flash as primary model
+    model_to_use = "gemini-2.0-flash" if model in ["gemini-2.0-flash", None, ""] else model
     endpoint = f"{base}/models/{model_to_use}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
@@ -457,8 +457,8 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     Enhanced ATS report with detailed section-by-section analysis.
     Used for candidate-facing ATS checker tool.
     """
-    # Use gemini-pro - verified available
-    model = "gemini-pro"
+    # Use gemini-2.0-flash - verified available
+    model = "gemini-2.0-flash"
     
     jd_context = ""
     if job_description:
@@ -684,7 +684,7 @@ async def generate_interview_verdict(
         detailed_feedback: str
     }
     """
-    model = "gemini-pro"
+    model = "gemini-2.0-flash"
     
     # Format transcript for AI
     transcript_text = "\n".join([
