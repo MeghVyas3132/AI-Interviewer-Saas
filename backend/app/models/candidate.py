@@ -57,34 +57,34 @@ class CandidateStatus(str, Enum):
 
 
 class InterviewStatus(str, Enum):
-    """Interview status tracking"""
-    SCHEDULED = "scheduled"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELED = "canceled"
-    RESCHEDULED = "rescheduled"
-    NO_SHOW = "no_show"
-    EXPIRED = "expired"
-    ABANDONED = "abandoned"
+    """Interview status tracking - values match database enum (UPPERCASE)"""
+    SCHEDULED = "SCHEDULED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    CANCELED = "CANCELED"
+    RESCHEDULED = "RESCHEDULED"
+    NO_SHOW = "NO_SHOW"
+    EXPIRED = "EXPIRED"
+    ABANDONED = "ABANDONED"
 
 
 class InterviewRound(str, Enum):
-    """Interview round types"""
-    SCREENING = "screening"
-    TECHNICAL = "technical"
-    HR_ROUND = "hr_round"
-    FINAL = "final"
-    ASSESSMENT = "assessment"
+    """Interview round types - values match database enum (UPPERCASE)"""
+    SCREENING = "SCREENING"
+    TECHNICAL = "TECHNICAL"
+    HR_ROUND = "HR_ROUND"
+    FINAL = "FINAL"
+    ASSESSMENT = "ASSESSMENT"
 
 
 class EmailStatus(str, Enum):
-    """Email queue status"""
-    QUEUED = "queued"
-    SENDING = "sending"
-    SENT = "sent"
-    FAILED = "failed"
-    BOUNCED = "bounced"
-    INVALID = "invalid"
+    """Email queue status - values match database enum (UPPERCASE)"""
+    QUEUED = "QUEUED"
+    SENDING = "SENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    BOUNCED = "BOUNCED"
+    INVALID = "INVALID"
 
 
 class EmailPriority(str, Enum):
