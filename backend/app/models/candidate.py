@@ -111,13 +111,13 @@ class EmailType(str, Enum):
 
 
 class CandidateSource(str, Enum):
-    """Source of candidate origin"""
-    LINKEDIN = "linkedin"
-    REFERRAL = "referral"
-    JOB_PORTAL = "job_portal"
-    EXCEL_IMPORT = "excel_import"
-    DIRECT = "direct"
-    RECRUITER = "recruiter"
+    """Source of candidate origin - values match database enum"""
+    LINKEDIN = "LINKEDIN"
+    REFERRAL = "REFERRAL"
+    JOB_PORTAL = "JOB_PORTAL"
+    EXCEL_IMPORT = "EXCEL_IMPORT"
+    DIRECT = "DIRECT"
+    RECRUITER = "RECRUITER"
 
 
 class Candidate(Base):
