@@ -220,6 +220,9 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(endpoint, json=body, headers=headers, params=params)
+                if resp.status_code >= 400:
+                    error_body = resp.text
+                    logger.error(f"Gemini API error {resp.status_code}: {error_body}")
                 resp.raise_for_status()
                 data = resp.json()
             break
@@ -379,6 +382,9 @@ Return JSON only, no markdown, no explanation."""
                     logger.warning(f"Rate limited on {model_to_use}, attempt {attempt+1}")
                     await asyncio.sleep(5 * (attempt + 1))  # Longer delays: 5s, 10s, 15s
                     continue
+                if resp.status_code >= 400:
+                    error_body = resp.text
+                    logger.error(f"Gemini API error {resp.status_code} for questions: {error_body}")
                 resp.raise_for_status()
                 data = resp.json()
             break
