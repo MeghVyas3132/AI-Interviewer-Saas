@@ -74,6 +74,19 @@ try:
         except Exception as e:
             print(f"candidates.{col_name}: {e}")
     
+    # 3c. Add missing enum values to candidatestatus
+    print("\nChecking candidatestatus enum values...")
+    new_status_values = [
+        'uploaded', 'assigned', 'interview_scheduled', 'interview_completed',
+        'passed', 'failed', 'review', 'auto_rejected'
+    ]
+    for value in new_status_values:
+        try:
+            cur.execute(f"ALTER TYPE candidatestatus ADD VALUE IF NOT EXISTS '{value}'")
+            print(f"candidatestatus.{value}: OK")
+        except Exception as e:
+            print(f"candidatestatus.{value}: {e}")
+    
     # 4. Create company_ai_config table if not exists
     print("Checking company_ai_config table...")
     try:
