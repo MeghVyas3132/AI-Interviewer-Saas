@@ -194,10 +194,37 @@ class UserService:
             return False
 
         if hard_delete:
-            # Delete related audit logs first (foreign key constraint)
+            # Delete related records first (foreign key constraints)
+            # 1. Delete audit logs
             await session.execute(
                 delete(AuditLog).where(AuditLog.user_id == user_id)
             )
+            
+            # 2. Delete auto_schedule_config (employee scheduling preferences)
+            from sqlalchemy import text
+            await session.execute(
+                text("DELETE FROM auto_schedule_config WHERE employee_id = :user_id"),
+                {"user_id": user_id}
+            )
+            
+            # 3. Delete employee_availability
+            await session.execute(
+                text("DELETE FROM employee_availability WHERE employee_id = :user_id"),
+                {"user_id": user_id}
+            )
+            
+            # 4. Update candidates assigned to this employee (set assigned_to to NULL)
+            await session.execute(
+                text("UPDATE candidates SET assigned_to = NULL WHERE assigned_to = :user_id"),
+                {"user_id": user_id}
+            )
+            
+            # 5. Update interviews where this user is interviewer (set to NULL)
+            await session.execute(
+                text("UPDATE interviews SET interviewer_id = NULL WHERE interviewer_id = :user_id"),
+                {"user_id": user_id}
+            )
+            
             # Now delete the user
             await session.execute(
                 delete(User).where(User.id == user_id)
