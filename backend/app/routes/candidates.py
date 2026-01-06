@@ -98,6 +98,10 @@ async def create_candidate(
         
         await session.commit()
         
+        # Invalidate candidates cache so new candidate shows immediately
+        from app.utils.cache import invalidate_cache
+        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
+        
         logger.info(f"Candidate created and invitation sent: {candidate.email}")
         
         return CandidateResponse.model_validate(candidate)
@@ -905,6 +909,10 @@ async def bulk_import_candidates_csv(
             created_by=current_user.id,
             send_invitation_emails=False,
         )
+        
+        # Invalidate candidates cache for this company so new candidates show immediately
+        from app.utils.cache import invalidate_cache
+        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
         
         logger.info(
             f"CSV Bulk import complete: {len(created)} created, {len(errors)} errors"
