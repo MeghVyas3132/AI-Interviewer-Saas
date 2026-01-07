@@ -1,7 +1,8 @@
 import httpx
 import json
 import asyncio
-from typing import Optional, Dict, Any
+import random
+from typing import Optional, Dict, Any, List
 import logging
 from app.core.config import settings
 from app.models.candidate import Candidate
@@ -11,6 +12,35 @@ logger = logging.getLogger(__name__)
 # Global HTTP client with connection pooling for better performance
 # This reuses connections instead of creating new ones for each request
 _http_client: Optional[httpx.AsyncClient] = None
+
+# API Key rotation for rate limit mitigation
+_api_key_index = 0
+
+
+def get_gemini_api_key() -> str:
+    """
+    Get a Gemini API key, rotating through multiple keys if available.
+    Set GEMINI_API_KEYS as comma-separated list for rotation, or use single key.
+    """
+    global _api_key_index
+    
+    # Check for multiple keys (comma-separated)
+    multi_keys = getattr(settings, "gemini_api_keys", "")
+    if multi_keys:
+        keys = [k.strip() for k in multi_keys.split(",") if k.strip()]
+        if keys:
+            # Round-robin rotation
+            key = keys[_api_key_index % len(keys)]
+            _api_key_index += 1
+            return key
+    
+    # Fall back to single key
+    gemini_key = getattr(settings, "gemini_api_key", None)
+    if gemini_key:
+        return gemini_key
+    
+    # Final fallback to ai_service_api_key
+    return settings.ai_service_api_key or ""
 
 
 async def get_http_client() -> httpx.AsyncClient:
@@ -153,7 +183,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
         groq_url = getattr(settings, "groq_api_url", "https://api.groq.ai").rstrip('/')
         headers = {"Content-Type": "application/json", "x-api-key": settings.groq_api_key}
         body = {"model": model or "groq-1", "input": prompt}
-        last_exc = None
+        last_exc: Exception = Exception("Unknown error during Groq API call")
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
@@ -162,7 +192,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
                     data = resp.json()
                 break
             except Exception as e:
-                last_exc = e
+                last_exc = e if isinstance(e, Exception) else Exception(str(e))
                 await asyncio.sleep(2 ** attempt)
         else:
             raise last_exc
@@ -201,9 +231,8 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    gemini_key = getattr(settings, "gemini_api_key", None)
-    api_key = gemini_key if gemini_key else settings.ai_service_api_key
+    # Use rotating API keys for rate limit mitigation
+    api_key = get_gemini_api_key()
     if api_key:
         params["key"] = api_key
         logger.info(f"Using API key starting with: {api_key[:8]}... for ATS")
@@ -217,7 +246,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
             "maxOutputTokens": max_output_tokens,
         }
     }
-    last_exc = None
+    last_exc: Exception = Exception("Unknown error during Gemini API call")
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -229,7 +258,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
                 data = resp.json()
             break
         except Exception as e:
-            last_exc = e
+            last_exc = e if isinstance(e, Exception) else Exception(str(e))
             logger.warning(f"Gemini API attempt {attempt+1} failed: {e}")
             await asyncio.sleep(2 ** attempt)
     else:
@@ -315,7 +344,7 @@ Return JSON only, no markdown, no explanation."""
         headers = {"Content-Type": "application/json", "x-api-key": settings.groq_api_key}
         body = {"model": model or "groq-1", "input": prompt}
         # simple retries
-        last_exc = None
+        last_exc: Exception = Exception("Unknown error during Groq API call for questions")
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
@@ -324,7 +353,7 @@ Return JSON only, no markdown, no explanation."""
                     data = resp.json()
                 break
             except Exception as e:
-                last_exc = e
+                last_exc = e if isinstance(e, Exception) else Exception(str(e))
                 await asyncio.sleep(2 ** attempt)
         else:
             raise last_exc
@@ -360,9 +389,8 @@ Return JSON only, no markdown, no explanation."""
     endpoint = f"{base}/models/{model_to_use}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    gemini_key = getattr(settings, "gemini_api_key", None)
-    api_key = gemini_key if gemini_key else settings.ai_service_api_key
+    # Use rotating API keys for rate limit mitigation
+    api_key = get_gemini_api_key()
     if api_key:
         params["key"] = api_key
         logger.info(f"Using API key starting with: {api_key[:8]}... for questions")
@@ -377,23 +405,25 @@ Return JSON only, no markdown, no explanation."""
         }
     }
 
-    last_exc = None
+    last_exc: Exception = Exception("Unknown error during question generation")
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(endpoint, json=body, headers=headers, params=params)
                 if resp.status_code == 429:
                     logger.warning(f"Rate limited on {model_to_use}, attempt {attempt+1}")
+                    last_exc = Exception(f"Rate limited on {model_to_use} after {attempt+1} attempts")
                     await asyncio.sleep(5 * (attempt + 1))  # Longer delays: 5s, 10s, 15s
                     continue
                 if resp.status_code >= 400:
                     error_body = resp.text
                     logger.error(f"Gemini API error {resp.status_code} for questions: {error_body}")
+                    last_exc = Exception(f"Gemini API error {resp.status_code}: {error_body}")
                 resp.raise_for_status()
                 data = resp.json()
             break
         except Exception as e:
-            last_exc = e
+            last_exc = e if isinstance(e, Exception) else Exception(str(e))
             logger.warning(f"Gemini API attempt {attempt+1} failed for questions with {model_to_use}: {e}")
             await asyncio.sleep(3 * (attempt + 1))
     else:
@@ -499,9 +529,8 @@ Return ONLY valid JSON."""
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    # Use gemini_api_key first, fall back to ai_service_api_key for backward compatibility
-    gemini_key = getattr(settings, "gemini_api_key", None)
-    api_key = gemini_key if gemini_key else settings.ai_service_api_key
+    # Use rotating API keys for rate limit mitigation
+    api_key = get_gemini_api_key()
     if api_key:
         params["key"] = api_key
         logger.info(f"Using API key starting with: {api_key[:8]}... for verdict")
@@ -516,7 +545,7 @@ Return ONLY valid JSON."""
         }
     }
     
-    last_exc = None
+    last_exc: Exception = Exception("Unknown error during enhanced ATS report generation")
     for attempt in range(5):  # Increased retries
         try:
             async with httpx.AsyncClient(timeout=90) as client:
@@ -526,6 +555,7 @@ Return ONLY valid JSON."""
                 if resp.status_code == 429:
                     wait_time = min(30, 5 * (attempt + 1))  # Wait longer for rate limits
                     logger.warning(f"Rate limited (429). Waiting {wait_time}s before retry {attempt+1}")
+                    last_exc = Exception(f"Rate limited (429) after {attempt+1} attempts")
                     await asyncio.sleep(wait_time)
                     continue
                     
@@ -542,7 +572,7 @@ Return ONLY valid JSON."""
                 logger.warning(f"Gemini API attempt {attempt+1} failed for ATS enhanced: {e}")
                 await asyncio.sleep(2 ** attempt)
         except Exception as e:
-            last_exc = e
+            last_exc = e if isinstance(e, Exception) else Exception(str(e))
             logger.warning(f"Gemini API attempt {attempt+1} failed for ATS enhanced: {e}")
             await asyncio.sleep(2 ** attempt)
     else:
@@ -778,8 +808,10 @@ Return ONLY valid JSON, no markdown, no explanation."""
     endpoint = f"{base}/models/{model}:generateContent"
     headers = {"Content-Type": "application/json"}
     params = {}
-    if settings.ai_service_api_key:
-        params["key"] = settings.ai_service_api_key
+    # Use rotating API keys for rate limit mitigation
+    api_key = get_gemini_api_key()
+    if api_key:
+        params["key"] = api_key
 
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -789,7 +821,7 @@ Return ONLY valid JSON, no markdown, no explanation."""
         }
     }
     
-    last_exc = None
+    last_exc: Exception = Exception("Unknown error during verdict generation")
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=90) as client:
@@ -798,7 +830,7 @@ Return ONLY valid JSON, no markdown, no explanation."""
                 data = resp.json()
             break
         except Exception as e:
-            last_exc = e
+            last_exc = e if isinstance(e, Exception) else Exception(str(e))
             logger.warning(f"Gemini API attempt {attempt+1} failed for verdict: {e}")
             await asyncio.sleep(2 ** attempt)
     else:

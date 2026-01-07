@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     ai_service_api_key: str = ""  # For internal API key (AI service)
     # Google Gemini API Key (REQUIRED for ATS checker and question generation)
     gemini_api_key: str = ""  # Set GEMINI_API_KEY in environment
+    # Multiple Gemini API keys for rate limit rotation (comma-separated)
+    # Example: GEMINI_API_KEYS="key1,key2,key3"
+    gemini_api_keys: str = ""  # Set GEMINI_API_KEYS for key rotation
     # AI Interview Coach Service (for actual interviews)
     # In Docker: use container name, outside Docker: use localhost:3001
     ai_interview_service_url: str = "http://ai-interviewer-coach:3000"
