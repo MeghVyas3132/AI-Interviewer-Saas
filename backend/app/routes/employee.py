@@ -502,6 +502,11 @@ async def schedule_interview(
         import secrets
         from datetime import datetime
         from zoneinfo import ZoneInfo
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Schedule interview request for candidate {candidate_id}")
+        logger.info(f"Request data: scheduled_time={request.scheduled_time}, round={request.round}, timezone={request.timezone}")
 
         # Verify candidate is assigned to this employee
         query = select(Candidate).filter(
@@ -531,10 +536,14 @@ async def schedule_interview(
         existing_interview = existing_result.scalars().first()
 
         if existing_interview:
+            scheduled_time_str = existing_interview.scheduled_time.isoformat() if existing_interview.scheduled_time else "unknown time"
+            logger.warning(f"Candidate {candidate_id} already has scheduled interview {existing_interview.id} at {scheduled_time_str}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Candidate already has a scheduled interview for {existing_interview.scheduled_time.isoformat()}. Cancel or complete that interview first."
+                detail=f"Candidate already has a scheduled interview for {scheduled_time_str}. Cancel or complete that interview first."
             )
+        
+        logger.info(f"No existing scheduled interview found for candidate {candidate_id}")
 
         # Parse scheduled time - the browser sends local time without timezone info
         # We need to interpret it in the user's timezone

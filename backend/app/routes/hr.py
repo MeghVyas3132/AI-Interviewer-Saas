@@ -339,6 +339,24 @@ async def assign_candidate_to_employee(
                 detail="Candidate not found"
             )
 
+        # Check if candidate is already assigned
+        if candidate.assigned_to is not None:
+            # Get current assignee name for better error message
+            current_assignee_query = select(User).filter(User.id == candidate.assigned_to)
+            result = await db.execute(current_assignee_query)
+            current_assignee = result.scalars().first()
+            assignee_name = current_assignee.name if current_assignee else "another employee"
+            
+            if candidate.assigned_to == employee_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Candidate is already assigned to this employee"
+                )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Candidate is already assigned to {assignee_name}. Please unassign first."
+            )
+
         # Verify employee exists and belongs to company
         employee_query = select(User).filter(
             and_(
@@ -377,12 +395,19 @@ async def assign_candidate_to_employee(
         candidate.assigned_to = employee_id
         candidate.status = CandidateStatus.ASSIGNED
         await db.commit()
+        await db.refresh(candidate)
+
+        # Invalidate candidate cache so HR dashboard shows updated assignment
+        from app.utils.cache import invalidate_cache
+        await invalidate_cache(f"candidates:list:{company_id}*")
+        await invalidate_cache(f"cache:candidates:*:{company_id}*")
 
         return {
             "message": f"Candidate assigned to {employee.name} successfully",
             "candidate_id": str(candidate_id),
             "employee_id": str(employee_id),
-            "employee_name": employee.name
+            "employee_name": employee.name,
+            "candidate_status": candidate.status.value
         }
     except HTTPException:
         raise
@@ -434,6 +459,11 @@ async def unassign_candidate(
         candidate.assigned_to = None
         candidate.status = CandidateStatus.UPLOADED
         await db.commit()
+
+        # Invalidate candidate cache so HR dashboard shows updated assignment
+        from app.utils.cache import invalidate_cache
+        await invalidate_cache(f"candidates:list:{company_id}*")
+        await invalidate_cache(f"cache:candidates:*:{company_id}*")
 
         return {
             "message": "Candidate assignment removed successfully",
@@ -534,12 +564,25 @@ async def assign_candidates_bulk(
                 detail="One or more candidates not found"
             )
 
+        # Check for already assigned candidates
+        already_assigned = [c for c in candidates if c.assigned_to is not None]
+        if already_assigned:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{len(already_assigned)} candidate(s) are already assigned. Please unassign them first."
+            )
+
         # Assign all candidates and update their status
         for candidate in candidates:
             candidate.assigned_to = employee_id
             candidate.status = CandidateStatus.ASSIGNED
         
         await db.commit()
+
+        # Invalidate candidate cache so HR dashboard shows updated assignments
+        from app.utils.cache import invalidate_cache
+        await invalidate_cache(f"candidates:list:{company_id}*")
+        await invalidate_cache(f"cache:candidates:*:{company_id}*")
 
         return {
             "message": f"{len(candidates)} candidates assigned to {employee.name} successfully",
