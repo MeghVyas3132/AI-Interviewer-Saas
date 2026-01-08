@@ -568,9 +568,10 @@ async def schedule_interview(
                 detail="Invalid datetime format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
             )
 
-        # Validate round
+        # Validate round - convert to uppercase to support lowercase input from frontend
+        round_value = request.round.upper() if request.round else "SCREENING"
         try:
-            interview_round = InterviewRound(request.round)
+            interview_round = InterviewRound(round_value)
         except ValueError:
             valid_rounds = [r.value for r in InterviewRound]
             raise HTTPException(
