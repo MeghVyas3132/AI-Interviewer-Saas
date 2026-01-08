@@ -120,9 +120,10 @@ class Settings(BaseSettings):
     # In Docker: use container name, outside Docker: use localhost:3001
     ai_interview_service_url: str = "http://ai-interviewer-coach:3000"
     sync_api_key: str = "ai-interviewer-sync-key-2024"
-    # Groq (optional)
-    groq_api_key: str = ""
-    groq_api_url: str = "https://api.groq.ai"
+    # Groq API (preferred over Gemini - faster and more reliable)
+    groq_api_key: str = ""  # Single Groq API key
+    groq_api_keys: str = ""  # Multiple Groq API keys (comma-separated) for rotation
+    groq_api_url: str = "https://api.groq.com/openai/v1"  # Groq OpenAI-compatible endpoint
 
     @field_validator("secret_key")
     @classmethod
