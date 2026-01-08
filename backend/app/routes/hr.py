@@ -373,12 +373,9 @@ async def assign_candidate_to_employee(
                 detail=f"Employee already has maximum 10 candidates assigned"
             )
 
-        # Assign candidate and update status using service method
+        # Assign candidate and update status
         candidate.assigned_to = employee_id
-        from app.services.candidate_service import CandidateService
-        await CandidateService.update_candidate_status(
-            db, candidate.id, CandidateStatus.ASSIGNED
-        )
+        candidate.status = CandidateStatus.ASSIGNED
         await db.commit()
 
         return {
@@ -433,12 +430,9 @@ async def unassign_candidate(
                 detail="Candidate is not assigned to any employee"
             )
 
-        # Unassign candidate and revert status to uploaded using service method
+        # Unassign candidate and revert status to uploaded
         candidate.assigned_to = None
-        from app.services.candidate_service import CandidateService
-        await CandidateService.update_candidate_status(
-            db, candidate.id, CandidateStatus.UPLOADED
-        )
+        candidate.status = CandidateStatus.UPLOADED
         await db.commit()
 
         return {
@@ -540,13 +534,10 @@ async def assign_candidates_bulk(
                 detail="One or more candidates not found"
             )
 
-        # Assign all candidates and update their status using service method
-        from app.services.candidate_service import CandidateService
+        # Assign all candidates and update their status
         for candidate in candidates:
             candidate.assigned_to = employee_id
-            await CandidateService.update_candidate_status(
-                db, candidate.id, CandidateStatus.ASSIGNED
-            )
+            candidate.status = CandidateStatus.ASSIGNED
         
         await db.commit()
 
