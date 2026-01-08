@@ -49,12 +49,12 @@ export class EmailFetcher {
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.imap.once('ready', () => {
-        console.log('✅ Connected to IMAP server');
+        console.log('Connected to IMAP server');
         resolve();
       });
 
       this.imap.once('error', (err: Error) => {
-        console.error('❌ IMAP connection error:', err);
+        console.error('IMAP connection error:', err);
         reject(err);
       });
 

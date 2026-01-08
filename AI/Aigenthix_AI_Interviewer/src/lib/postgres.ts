@@ -302,7 +302,7 @@ export async function initializeDatabase() {
       if (subcategoryCheck.rows.length > 0) {
         try {
           await pool.query(`CREATE INDEX IF NOT EXISTS idx_subcategories_exam_id ON subcategories(exam_id)`);
-          console.log('✅ Created index idx_subcategories_exam_id');
+          console.log('Created index idx_subcategories_exam_id');
         } catch (indexError: any) {
           // Even if check passed, index creation might fail (e.g., column doesn't actually exist)
           console.warn('⚠️ Could not create index idx_subcategories_exam_id (column may not exist):', indexError.message);

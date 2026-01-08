@@ -152,7 +152,7 @@ export function ModeSelection({ onModeSelect }: ModeSelectionProps) {
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
                 <p className="text-sm text-green-800 font-medium">
-                  ✅ You can switch tabs or minimize freely
+                  You can switch tabs or minimize freely
                 </p>
               </div>
             </CardContent>

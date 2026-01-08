@@ -1595,7 +1595,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       const result = await Promise.race([interviewPromise, timeoutPromise]) as any;
       
       // Debug: Check if referenceQuestionIds are in the result
-      console.log('🔍 Interview agent result received');
+      console.log('Interview agent result received');
       console.log('  Has referenceQuestionIds?', 'referenceQuestionIds' in result);
       if (result.referenceQuestionIds) {
         console.log('  Reference Question IDs:', result.referenceQuestionIds);
@@ -1725,7 +1725,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         feedback: feedbackWithScores
       }];
       console.log('💾 Storing interview data with reference IDs:', newInterviewData[newInterviewData.length - 1].referenceQuestionIds);
-      console.log('📊 Interview data state update:', {
+      console.log('Interview data state update:', {
         previousCount: interviewData.length,
         newCount: newInterviewData.length,
         newItem: {
@@ -2100,14 +2100,34 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         }
 
         // Set minimum questions based on exam type
-        const minQuestions = getMinQuestionsForExam(jobRole, company, sessionData?.subcategory_name);
+        // For email interviews with session tokens, use sessionData directly as state hasn't updated yet
+        let derivedJobRole = '';
+        let derivedCompany = '';
+        
+        if (sessionToken && sessionData) {
+          // Email interview: use sessionData values
+          derivedJobRole = sessionData?.exam_name?.toLowerCase() || 'interview';
+          derivedCompany = sessionData?.subcategory_name || '';
+        } else if (storedQuestionsData) {
+          // Regular interview: use stored questions data
+          derivedJobRole = storedQuestionsData.jobRole;
+          derivedCompany = storedQuestionsData.company;
+        }
+        
+        const minQuestions = getMinQuestionsForExam(derivedJobRole, derivedCompany, sessionData?.subcategory_name);
+        console.log(`Setting minQuestionsRequired: ${minQuestions} for jobRole: ${derivedJobRole}, company: ${derivedCompany}, subcategory: ${sessionData?.subcategory_name}`);
         setMinQuestionsRequired(minQuestions);
         
-        // Load exam configuration if available
+        // For email interviews without exam config, set configuredQuestionLimit based on interview type
+        // This ensures HR interviews always have 10 questions even when exam-config API is disabled
         const examConfig = getExamConfig();
         if (examConfig && examConfig.numQuestions > 0) {
             console.log(`Exam configuration loaded: ${examConfig.numQuestions} questions for ${examConfig.examName} - ${examConfig.subcategoryName}`);
             setConfiguredQuestionLimit(examConfig.numQuestions);
+        } else if (sessionToken && minQuestions > 0) {
+            // For email interviews, use minQuestions as the configured limit
+            console.log(`No exam config, using minQuestionsRequired as limit: ${minQuestions}`);
+            setConfiguredQuestionLimit(minQuestions);
         } else {
             console.log('No exam configuration found or no limit set');
             setConfiguredQuestionLimit(0); // No limit
@@ -3416,7 +3436,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                 <div className="text-xs text-muted-foreground text-center mt-2">
                     {conversationState === 'speaking' 
                         ? "⏸️ Please wait for AI to finish speaking before submitting"
-                        : "💡 Press Enter to submit your answer"
+                        : "Press Enter to submit your answer"
                     }
                 </div>
             </div>

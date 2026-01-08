@@ -256,7 +256,7 @@ export default function ReportsPage() {
       if (result.success && result.data) {
         setLiveData(result.data);
         setError(null);
-        console.log('✅ Candidate summary refreshed:', {
+        console.log('Candidate summary refreshed:', {
           totalCandidates: result.data.summary?.total_candidates || 0,
           candidatesCount: result.data.candidates?.length || 0
         });

@@ -677,7 +677,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                 
                 <div className="space-y-3">
                   <div>
-                    <h5 className="font-medium mb-2 text-green-600">✅ Do's</h5>
+                    <h5 className="font-medium mb-2 text-green-600">Do's</h5>
                     <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
                       <li>Speak clearly and look into the camera to maintain natural eye contact.</li>
                       <li>Take a moment to think before answering quality over speed.</li>
@@ -689,7 +689,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                   </div>
                   
                   <div>
-                    <h5 className="font-medium mb-2 text-red-600">❌ Don'ts</h5>
+                    <h5 className="font-medium mb-2 text-red-600">Don'ts</h5>
                     <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
                       <li>Do not switch tabs or open other applications during the interview.</li>
                       <li>Avoid background noise or interruptions silence your phone and notifications.</li>

@@ -679,7 +679,7 @@ export async function testPDFParsing(file: File): Promise<void> {
     
     // Check if it's a valid PDF
     if (header.startsWith('%PDF')) {
-      console.log('✅ Valid PDF header detected');
+      console.log('Valid PDF header detected');
       
       // Try to get PDF version
       const versionMatch = header.match(/%PDF-(\d+\.\d+)/);
@@ -687,7 +687,7 @@ export async function testPDFParsing(file: File): Promise<void> {
         console.log('PDF version:', versionMatch[1]);
       }
     } else {
-      console.log('❌ Invalid PDF header');
+      console.log('Invalid PDF header');
     }
     
     console.log('=== End Test ===');

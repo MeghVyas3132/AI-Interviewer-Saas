@@ -543,16 +543,16 @@ const prompt = ai.definePrompt({
 - **Create natural bridges:** "Speaking of that...", "That reminds me...", "Building on what you said..."
 
 **EXAMPLES OF WHAT TO AVOID:**
-- ❌ "Could you describe a time when you used data analysis to solve a complex business problem? Please be specific about the tools and techniques you used, and what the outcome was. Make sure to relate it to your resume."
-- ❌ "Tell me about your leadership experience. Be specific about the challenges you faced and how you overcame them."
+- "Could you describe a time when you used data analysis to solve a complex business problem? Please be specific about the tools and techniques you used, and what the outcome was. Make sure to relate it to your resume."
+- "Tell me about your leadership experience. Be specific about the challenges you faced and how you overcame them."
 
 **EXAMPLES OF GOOD NATURAL QUESTIONS:**
-- ✅ "Could you describe a time when you used data analysis to solve a complex business problem?"
-- ✅ "Tell me about your leadership experience and the challenges you faced."
-- ✅ "Can you explain how normalization works in database design?" (Academic - Concept-based)
-- ✅ "How would you optimize a marketing campaign for low-budget startups?" (Academic - Application-based)
-- ✅ "What is the difference between supervised and unsupervised learning?" (Academic - Concept-based)
-- ✅ "How would you design a data pipeline for real-time analytics?" (Academic - Problem-solving)
+- "Could you describe a time when you used data analysis to solve a complex business problem?"
+- "Tell me about your leadership experience and the challenges you faced."
+- "Can you explain how normalization works in database design?" (Academic - Concept-based)
+- "How would you optimize a marketing campaign for low-budget startups?" (Academic - Application-based)
+- "What is the difference between supervised and unsupervised learning?" (Academic - Concept-based)
+- "How would you design a data pipeline for real-time analytics?" (Academic - Problem-solving)
 
 **ACADEMIC / DOMAIN QUESTION GUIDELINES:**
 When asking academic or domain-specific questions:
@@ -701,7 +701,7 @@ Here is a video frame of you as you answered:
 //    4e. Always be encouraging and supportive, never harsh or dismissive.
 // 5. Always generate new questions based on the candidate's chosen focus (aptitude, HR, subject, etc.) and their previous answers.
 // 6. Only end the interview early for repeated poor performance after 3 real questions.
-// 7. Otherwise, conclude naturally after 6-8 questions, or if the candidate requests to end.
+// 7. ALWAYS respect the minQuestionsRequired parameter. For HR interviews, this MUST be 10 questions minimum. Conclude only after meeting the minimum requirement.
 //
 // Make these rules explicit in your flow and decision-making.
 

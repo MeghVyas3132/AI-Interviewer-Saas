@@ -161,10 +161,10 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
 
           console.log('Raw message string:', event.data.substring(0, 200));
           const data = JSON.parse(event.data);
-          console.log('✅ Parsed AssemblyAI message:', data);
+          console.log('Parsed AssemblyAI message:', data);
           handleMessage(data);
         } catch (messageError) {
-          console.error('❌ Failed to parse AssemblyAI message:', messageError, 'Data:', event.data);
+          console.error('Failed to parse AssemblyAI message:', messageError, 'Data:', event.data);
         }
       };
 
@@ -172,7 +172,7 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
           
           // Handle v3 message types according to API docs
           if (data.type === 'Begin') {
-            console.log('✅ Session began:', data.id, 'Expires at:', data.expires_at);
+            console.log('Session began:', data.id, 'Expires at:', data.expires_at);
             // Clear timeout
             if (beginTimeoutRef.current) {
               clearTimeout(beginTimeoutRef.current);

@@ -86,30 +86,44 @@ interface Props {
   jobId?: string;
   onCandidateClick?: (candidate: Candidate) => void;
   editable?: boolean; // HR can edit, Employee can only view
+  candidates?: Candidate[]; // External candidates (for employee view)
+  isLoading?: boolean; // External loading state
 }
 
-function KanbanCandidatePipeline({ jobId, onCandidateClick, editable = true }: Props) {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+function KanbanCandidatePipeline({ jobId, onCandidateClick, editable = true, candidates: externalCandidates, isLoading: externalLoading }: Props) {
+  const [internalCandidates, setInternalCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Use external candidates if provided, otherwise fetch from API
+  const candidates = externalCandidates || internalCandidates;
+  const setCandidates = externalCandidates ? () => {} : setInternalCandidates;
+  const isExternalMode = !!externalCandidates;
+
   const fetchCandidates = useCallback(async () => {
+    if (isExternalMode) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const params = jobId ? '?job_id=' + jobId : '';
       const response: any = await apiClient.get('/candidates' + params);
-      setCandidates(response.candidates || response.data?.candidates || response || []);
+      setInternalCandidates(response.candidates || response.data?.candidates || response || []);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load candidates');
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, isExternalMode]);
 
   useEffect(() => {
     fetchCandidates();
   }, [fetchCandidates]);
+
+  // Handle external loading state
+  const isLoading = externalLoading !== undefined ? externalLoading : loading;
 
   // Map legacy status to new pipeline stage
   const mapStatusToStage = (status: string): string => {
@@ -145,7 +159,7 @@ function KanbanCandidatePipeline({ jobId, onCandidateClick, editable = true }: P
     return 'bg-red-100 text-red-700';
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -154,7 +168,7 @@ function KanbanCandidatePipeline({ jobId, onCandidateClick, editable = true }: P
     );
   }
 
-  if (error) {
+  if (error && !isExternalMode) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
         <p className="text-red-600">{error}</p>
@@ -246,7 +260,7 @@ function KanbanCandidatePipeline({ jobId, onCandidateClick, editable = true }: P
                                 )}
                                 {candidate.assigned_to && (
                                   <p className="text-xs text-gray-400 mt-1">
-                                    👤 Assigned
+                                    Assigned
                                   </p>
                                 )}
                               </div>

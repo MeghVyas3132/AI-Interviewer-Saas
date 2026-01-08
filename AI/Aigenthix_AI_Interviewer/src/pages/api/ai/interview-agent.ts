@@ -60,6 +60,29 @@ export default async function handler(
       isCurrentAffairs: item.isCurrentAffairs || false,
     }));
 
+    // Calculate minimum questions based on interview type
+    // HR interviews require 10 questions, others use the provided value or defaults
+    const getMinQuestionsForInterview = (role: string, comp: string, providedMin?: number): number => {
+      const normalizedRole = (role || '').toLowerCase();
+      const normalizedCompany = (comp || '').toLowerCase();
+      
+      // HR interviews require 10 questions (1 resume-based + 1 technical + 8 general HR)
+      if (normalizedRole === 'hr' || 
+          normalizedRole === 'interview' || 
+          normalizedCompany === 'hr' ||
+          normalizedRole.includes('hr')) {
+        return 10;
+      }
+      if (normalizedRole.includes('neet')) return 8;
+      if (normalizedRole.includes('jee')) return 9;
+      if (normalizedRole.includes('cat') || normalizedRole.includes('mba')) return 7;
+      
+      // Use provided minimum or default to 8
+      return providedMin || 8;
+    };
+    
+    const calculatedMinQuestions = getMinQuestionsForInterview(jobTitle, company, minimumQuestionsRequired);
+    
     // Prepare input for interview agent
     const input: InterviewAgentInput = {
       currentTranscript: answer,
@@ -75,7 +98,7 @@ export default async function handler(
       isCurrentQuestionReal: isCurrentQuestionReal ?? true,
       currentQuestionAttempts: questionAttempts || 0,
       currentQuestionHints: [],
-      minQuestionsRequired: minimumQuestionsRequired || 5,
+      minQuestionsRequired: calculatedMinQuestions,
       hasResumeData: hasResumeData ?? (!!resumeText && resumeText.trim().length > 0),
       isEmailInterview: isEmailInterview ?? true,
     };

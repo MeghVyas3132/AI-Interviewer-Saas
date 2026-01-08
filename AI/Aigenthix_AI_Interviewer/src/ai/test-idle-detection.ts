@@ -59,7 +59,7 @@ function testIdleDetection() {
   console.log('✓ No memory leaks from event listeners');
   console.log('---\n');
 
-  console.log('✅ All idle detection tests passed!');
+  console.log('All idle detection tests passed!');
   console.log('\nSummary:');
   console.log('- Idle detection hook created successfully');
   console.log('- 180-second timeout configured for interview sessions');

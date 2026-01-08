@@ -55,14 +55,14 @@ export const connectMongo = async (): Promise<boolean> => {
     // Disable mongoose buffering at the global level (not connection level)
     mongoose.set('bufferCommands', false);
     mongoose.set('bufferMaxEntries', 0);
-    console.log('✅ MongoDB connected successfully');
+    console.log('MongoDB connected successfully');
     console.log('MongoDB Pool Configuration:', {
       maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL_SIZE || '50', 10),
       minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '5', 10),
     });
     return true;
   } catch (error: any) {
-    console.error('❌ MongoDB connection error:', error);
+    console.error('MongoDB connection error:', error);
     
     // Provide helpful error messages
     if (error.code === 18 || error.codeName === 'AuthenticationFailed') {

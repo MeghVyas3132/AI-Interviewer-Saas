@@ -64,7 +64,7 @@ async function testCurrentAffairsQuestions() {
   console.log('✓ Questions avoid controversial topics');
   console.log('---\n');
 
-  console.log('✅ All current affairs tests completed!');
+  console.log('All current affairs tests completed!');
   console.log('\nSummary:');
   console.log('- Current affairs question generator created successfully');
   console.log('- Questions generated based on recent major events');

@@ -33,12 +33,12 @@ const commands: Command[] = [
           const googleManager = getApiKeyManager();
           const googleStatus = googleManager.getKeyStatus();
           
-          console.log('\n📊 Google AI API Keys');
+          console.log('\nGoogle AI API Keys');
           console.log('-'.repeat(30));
           
           googleStatus.forEach((keyStatus, index) => {
             console.log(`\nKey ${index + 1}: ${keyStatus.key}`);
-            console.log(`  Status: ${keyStatus.isActive ? '✅ Active' : '❌ Inactive'}`);
+            console.log(`  Status: ${keyStatus.isActive ? 'Active' : 'Inactive'}`);
             console.log(`  Usage Count: ${keyStatus.usageCount}`);
             console.log(`  Error Count: ${keyStatus.errorCount}`);
             console.log(`  Last Used: ${keyStatus.lastUsed.toISOString()}`);
@@ -49,15 +49,15 @@ const commands: Command[] = [
               if (cooldownTime > now) {
                 console.log(`  Cooldown Until: ${cooldownTime.toISOString()}`);
               } else {
-                console.log(`  Cooldown: ✅ Expired`);
+                console.log(`  Cooldown: Expired`);
               }
             }
           });
           
           const activeGoogleKeys = googleStatus.filter(s => s.isActive && !s.cooldownUntil);
-          console.log(`\n📊 Google AI Summary: ${activeGoogleKeys.length}/${googleStatus.length} keys available`);
+          console.log(`\nGoogle AI Summary: ${activeGoogleKeys.length}/${googleStatus.length} keys available`);
         } catch (error) {
-          console.log('\n❌ Google AI API keys not configured or error:', error);
+          console.log('\nGoogle AI API keys not configured or error:', error);
         }
         
         // OpenAI Keys
@@ -65,12 +65,12 @@ const commands: Command[] = [
           const openaiManager = getOpenAIApiKeyManager();
           const openaiStatus = openaiManager.getKeyStatus();
           
-          console.log('\n🤖 OpenAI API Keys');
+          console.log('\nOpenAI API Keys');
           console.log('-'.repeat(30));
           
           openaiStatus.forEach((keyStatus, index) => {
             console.log(`\nKey ${index + 1}: ${keyStatus.key}`);
-            console.log(`  Status: ${keyStatus.isActive ? '✅ Active' : '❌ Inactive'}`);
+            console.log(`  Status: ${keyStatus.isActive ? 'Active' : 'Inactive'}`);
             console.log(`  Usage Count: ${keyStatus.usageCount}`);
             console.log(`  Error Count: ${keyStatus.errorCount}`);
             console.log(`  Last Used: ${keyStatus.lastUsed.toISOString()}`);
@@ -81,19 +81,19 @@ const commands: Command[] = [
               if (cooldownTime > now) {
                 console.log(`  Cooldown Until: ${cooldownTime.toISOString()}`);
               } else {
-                console.log(`  Cooldown: ✅ Expired`);
+                console.log(`  Cooldown: Expired`);
               }
             }
           });
           
           const activeOpenAIKeys = openaiStatus.filter(s => s.isActive && !s.cooldownUntil);
-          console.log(`\n📊 OpenAI Summary: ${activeOpenAIKeys.length}/${openaiStatus.length} keys available`);
+          console.log(`\nOpenAI Summary: ${activeOpenAIKeys.length}/${openaiStatus.length} keys available`);
         } catch (error) {
-          console.log('\n❌ OpenAI API keys not configured or error:', error);
+          console.log('\nOpenAI API keys not configured or error:', error);
         }
         
       } catch (error) {
-        console.error('❌ Error getting key status:', error);
+        console.error('Error getting key status:', error);
       }
     }
   },
@@ -111,7 +111,7 @@ const commands: Command[] = [
           const googleManager = getApiKeyManager();
           const googleStatus = googleManager.getKeyStatus();
           
-          console.log('\n📊 Testing Google AI API Keys');
+          console.log('\nTesting Google AI API Keys');
           console.log('-'.repeat(35));
           
           for (let i = 0; i < googleStatus.length; i++) {
@@ -139,20 +139,20 @@ const commands: Command[] = [
               });
               
               if (response.ok) {
-                console.log('  ✅ Key is working correctly');
+                console.log('  Key is working correctly');
                 googleManager.markKeySuccess(fullKey);
               } else {
                 const error = await response.text();
-                console.log(`  ❌ Key failed: ${response.status} - ${error}`);
+                console.log(`  Key failed: ${response.status} - ${error}`);
                 googleManager.markKeyFailed(fullKey, new Error(`HTTP ${response.status}: ${error}`));
               }
             } catch (error) {
-              console.log(`  ❌ Key failed: ${error}`);
+              console.log(`  Key failed: ${error}`);
               googleManager.markKeyFailed(fullKey, error as Error);
             }
           }
         } catch (error) {
-          console.log('\n❌ Google AI API keys not configured or error:', error);
+          console.log('\nGoogle AI API keys not configured or error:', error);
         }
         
         // Test OpenAI Keys
@@ -160,7 +160,7 @@ const commands: Command[] = [
           const openaiManager = getOpenAIApiKeyManager();
           const openaiStatus = openaiManager.getKeyStatus();
           
-          console.log('\n🤖 Testing OpenAI API Keys');
+          console.log('\nTesting OpenAI API Keys');
           console.log('-'.repeat(35));
           
           for (let i = 0; i < openaiStatus.length; i++) {
@@ -182,24 +182,24 @@ const commands: Command[] = [
               });
               
               if (response.ok) {
-                console.log('  ✅ Key is working correctly');
+                console.log('  Key is working correctly');
                 openaiManager.markKeySuccess(fullKey);
               } else {
                 const error = await response.text();
-                console.log(`  ❌ Key failed: ${response.status} - ${error}`);
+                console.log(`  Key failed: ${response.status} - ${error}`);
                 openaiManager.markKeyFailed(fullKey, new Error(`HTTP ${response.status}: ${error}`));
               }
             } catch (error) {
-              console.log(`  ❌ Key failed: ${error}`);
+              console.log(`  Key failed: ${error}`);
               openaiManager.markKeyFailed(fullKey, error as Error);
             }
           }
         } catch (error) {
-          console.log('\n❌ OpenAI API keys not configured or error:', error);
+          console.log('\nOpenAI API keys not configured or error:', error);
         }
         
       } catch (error) {
-        console.error('❌ Error testing keys:', error);
+        console.error('Error testing keys:', error);
       }
     }
   },
@@ -213,21 +213,21 @@ const commands: Command[] = [
         try {
           const googleManager = getApiKeyManager();
           googleManager.resetAllKeys();
-          console.log('✅ All Google AI API keys have been reset');
+          console.log('All Google AI API keys have been reset');
         } catch (error) {
-          console.log('❌ Google AI API keys not configured or error:', error);
+          console.log('Google AI API keys not configured or error:', error);
         }
         
         // Reset OpenAI keys
         try {
           const openaiManager = getOpenAIApiKeyManager();
           openaiManager.resetAllKeys();
-          console.log('✅ All OpenAI API keys have been reset');
+          console.log('All OpenAI API keys have been reset');
         } catch (error) {
-          console.log('❌ OpenAI API keys not configured or error:', error);
+          console.log('OpenAI API keys not configured or error:', error);
         }
       } catch (error) {
-        console.error('❌ Error resetting keys:', error);
+        console.error('Error resetting keys:', error);
       }
     }
   },
@@ -243,12 +243,12 @@ const commands: Command[] = [
           const nextGoogleKey = googleManager.getNextApiKey();
           
           if (nextGoogleKey) {
-            console.log(`\n🔄 Next Google AI API Key: ${nextGoogleKey.substring(0, 8)}...`);
+            console.log(`\nNext Google AI API Key: ${nextGoogleKey.substring(0, 8)}...`);
           } else {
-            console.log('\n❌ No available Google AI API keys');
+            console.log('\nNo available Google AI API keys');
           }
         } catch (error) {
-          console.log('\n❌ Google AI API keys not configured or error:', error);
+          console.log('\nGoogle AI API keys not configured or error:', error);
         }
         
         // OpenAI next key
@@ -257,15 +257,15 @@ const commands: Command[] = [
           const nextOpenAIKey = openaiManager.getNextApiKey();
           
           if (nextOpenAIKey) {
-            console.log(`\n🔄 Next OpenAI API Key: ${nextOpenAIKey.substring(0, 8)}...`);
+            console.log(`\nNext OpenAI API Key: ${nextOpenAIKey.substring(0, 8)}...`);
           } else {
-            console.log('\n❌ No available OpenAI API keys');
+            console.log('\nNo available OpenAI API keys');
           }
         } catch (error) {
-          console.log('\n❌ OpenAI API keys not configured or error:', error);
+          console.log('\nOpenAI API keys not configured or error:', error);
         }
       } catch (error) {
-        console.error('❌ Error getting next key:', error);
+        console.error('Error getting next key:', error);
       }
     }
   }
@@ -288,7 +288,7 @@ async function main() {
   
   const command = commands.find(cmd => cmd.name === commandName);
   if (!command) {
-    console.error(`❌ Unknown command: ${commandName}`);
+    console.error(`Unknown command: ${commandName}`);
     console.log('\nAvailable commands:');
     commands.forEach(cmd => {
       console.log(`  ${cmd.name.padEnd(10)} - ${cmd.description}`);
@@ -302,7 +302,7 @@ async function main() {
     initializeOpenAIApiKeyManager();
     await command.action();
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('Error:', error);
     process.exit(1);
   }
 }

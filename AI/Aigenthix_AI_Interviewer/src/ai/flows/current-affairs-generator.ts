@@ -58,7 +58,7 @@ const prompt = ai.definePrompt({
   },
   prompt: `🗞️ You are an AI interviewer asking candidates questions about recent national and international current affairs.
 
-**🎯 PRIMARY GOAL: Generate unique, diverse, and non-repetitive current affairs questions for a professional AI interview system.**
+**PRIMARY GOAL: Generate unique, diverse, and non-repetitive current affairs questions for a professional AI interview system.**
 
 These questions will be part of a professional interview, so they must be:
 ✓ Fresh and relevant (based on events from the last 7-10 days)
@@ -132,12 +132,12 @@ Base your question on REAL events from the last 7-10 days:
 
 **DO ask for opinions, analysis, or implications:**
 
-✅ "How do you think the recent RBI decision on interest rates will affect startups in India?"
-✅ "What's your view on the role of AI in elections, given the recent policy announcements?"
-✅ "How could India's recent space achievements shape its global image?"
-✅ "In your opinion, how might the new climate agreement impact developing economies?"
-✅ "What do you think are the implications of the recent tech regulation changes for consumers?"
-✅ "How do you see the recent diplomatic developments affecting regional stability?"
+"How do you think the recent RBI decision on interest rates will affect startups in India?"
+"What's your view on the role of AI in elections, given the recent policy announcements?"
+"How could India's recent space achievements shape its global image?"
+"In your opinion, how might the new climate agreement impact developing economies?"
+"What do you think are the implications of the recent tech regulation changes for consumers?"
+"How do you see the recent diplomatic developments affecting regional stability?"
 
 **QUESTION STYLE GUIDELINES:**
 - Use conversational language: "How do you think...", "What's your view on...", "In your opinion..."
@@ -157,7 +157,7 @@ Base your question on REAL events from the last 7-10 days:
 
 ⸻
 
-**📋 YOUR OUTPUT MUST INCLUDE:**
+**YOUR OUTPUT MUST INCLUDE:**
 1. **question** - A unique, human-like current affairs question asking for opinion/analysis
 2. **context** - Brief 1-2 sentence context about the recent event (last 7-10 days)
 3. **category** - One of the categories listed above
@@ -165,7 +165,7 @@ Base your question on REAL events from the last 7-10 days:
 
 ⸻
 
-**✅ QUALITY CHECKLIST - Your question MUST be:**
+**QUALITY CHECKLIST - Your question MUST be:**
 ☑ Based on a real, recent event (last 7-10 days)
 ☑ Completely different from any previously asked topic
 ☑ From a diverse category (preferably not recently used)

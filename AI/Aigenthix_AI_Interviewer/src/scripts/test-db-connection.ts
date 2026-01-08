@@ -22,13 +22,13 @@ async function testConnection() {
     });
     const client1 = await pool1.connect();
     const result1 = await client1.query('SELECT NOW()');
-    console.log('✅ Connection successful WITHOUT SSL');
+    console.log('Connection successful WITHOUT SSL');
     console.log(`   Database time: ${result1.rows[0].now}`);
     client1.release();
     await pool1.end();
     process.exit(0);
   } catch (error) {
-    console.log('❌ Connection failed WITHOUT SSL:', (error as Error).message);
+    console.log('Connection failed WITHOUT SSL:', (error as Error).message);
   }
 
   // Test 2: With SSL (rejectUnauthorized: false)
@@ -43,13 +43,13 @@ async function testConnection() {
     });
     const client2 = await pool2.connect();
     const result2 = await client2.query('SELECT NOW()');
-    console.log('✅ Connection successful WITH SSL');
+    console.log('Connection successful WITH SSL');
     console.log(`   Database time: ${result2.rows[0].now}`);
     client2.release();
     await pool2.end();
     process.exit(0);
   } catch (error) {
-    console.log('❌ Connection failed WITH SSL:', (error as Error).message);
+    console.log('Connection failed WITH SSL:', (error as Error).message);
   }
 
   // Test 3: With SSL (require: true)
@@ -65,16 +65,16 @@ async function testConnection() {
     });
     const client3 = await pool3.connect();
     const result3 = await client3.query('SELECT NOW()');
-    console.log('✅ Connection successful WITH SSL (require: true)');
+    console.log('Connection successful WITH SSL (require: true)');
     console.log(`   Database time: ${result3.rows[0].now}`);
     client3.release();
     await pool3.end();
     process.exit(0);
   } catch (error) {
-    console.log('❌ Connection failed WITH SSL (require: true):', (error as Error).message);
+    console.log('Connection failed WITH SSL (require: true):', (error as Error).message);
   }
 
-  console.log('\n❌ All connection attempts failed. Please check:');
+  console.log('\nAll connection attempts failed. Please check:');
   console.log('   1. Database server is running and accessible');
   console.log('   2. Firewall allows connections from this IP');
   console.log('   3. Connection string is correct');

@@ -146,11 +146,11 @@ If you detect placeholder text or error messages:
 - **SYSTEMATIC APPROACH**: Follow the scoring components exactly for reproducible results
 
 ## FINAL CHECKLIST:
-- ✅ Applied systematic ATS scoring formula
-- ✅ Provided specific, actionable feedback
-- ✅ Referenced actual resume content
-- ✅ Used consistent scoring criteria
-- ✅ Ensured reproducible results
+- Applied systematic ATS scoring formula
+- Provided specific, actionable feedback
+- Referenced actual resume content
+- Used consistent scoring criteria
+- Ensured reproducible results
 
 Provide your analysis in the required structured format, ensuring every field is filled with specific, relevant information based on the actual resume content.`,
 });

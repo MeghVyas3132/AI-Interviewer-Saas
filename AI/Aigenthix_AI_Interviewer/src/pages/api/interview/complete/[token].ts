@@ -99,7 +99,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         const interviewDataArray = interviewData || resultsJson?.interviewData || [];
         
-        console.log(`📝 Saving completed interview data for token ${token}:`, {
+        console.log(`Saving completed interview data for token ${token}:`, {
           interviewDataCount: interviewDataArray?.length || 0,
           hasQuestions: interviewDataArray?.some((qa: any) => qa.question) || false,
           hasAnswers: interviewDataArray?.some((qa: any) => qa.answer) || false,
@@ -153,7 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { upsert: true, new: true }
         );
         
-        console.log('✅ Interview data saved to MongoDB for token:', token, {
+        console.log('Interview data saved to MongoDB for token:', token, {
           interviewDataCount: interviewDataArray.length,
           questionsAndAnswersCount: savedDoc?.questionsAndAnswers?.length || 0,
           status: savedDoc?.status
@@ -241,19 +241,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               { $set: transcriptData },
               { new: true }
             );
-            console.log('✅ Transcript updated in MongoDB for interview_id:', session.id, {
+            console.log('Transcript updated in MongoDB for interview_id:', session.id, {
               questions_count: qaItems.length
             });
           } else {
             // Create new transcript
             const transcript = new Transcript(transcriptData);
             await transcript.save();
-            console.log('✅ Transcript saved to MongoDB for interview_id:', session.id, {
+            console.log('Transcript saved to MongoDB for interview_id:', session.id, {
               questions_count: qaItems.length
             });
           }
         } catch (transcriptError) {
-          console.error('❌ Error saving Transcript to MongoDB:', transcriptError);
+          console.error('Error saving Transcript to MongoDB:', transcriptError);
           // Continue even if Transcript save fails
         }
 
@@ -293,7 +293,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           // If scores are 0, calculate from interviewDataArray
           if (overallScore === 0 && interviewDataArray && interviewDataArray.length > 0) {
-            console.log('📊 Scores are 0, calculating from interviewDataArray...');
+            console.log('Scores are 0, calculating from interviewDataArray...');
             
             const qaItemsWithScores = interviewDataArray.filter((q: any) => q.feedback || q.scoring);
             
@@ -393,7 +393,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 if (communicationScore <= 10) communicationScore = communicationScore * 10;
                 if (behavioralScore <= 10) behavioralScore = behavioralScore * 10;
                 
-                console.log('✅ Calculated scores from interviewData:', {
+                console.log('Calculated scores from interviewData:', {
                   overallScore,
                   technicalScore,
                   communicationScore,
@@ -463,7 +463,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             { upsert: true, new: true }
           );
 
-          console.log('✅ Candidate summary saved to MongoDB for token:', token, {
+          console.log('Candidate summary saved to MongoDB for token:', token, {
             candidateName,
             email: session.email,
             overallScore,
@@ -471,24 +471,73 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             interview_id: String(session.id),
           });
 
+          // === NOTIFY BACKEND TO CREATE AI REPORT ===
+          // The backend needs the interview results to create an AIReport for the HR/Employee dashboard
+          const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
+          if (backendUrl) {
+            try {
+              // Format transcript for backend
+              const formattedTranscript = interviewDataArray.map((qa: any) => [
+                { role: 'ai', content: qa.question || '' },
+                { role: 'user', content: qa.answer || '' }
+              ]).flat();
+              
+              const backendPayload = {
+                transcript: formattedTranscript,
+                resume_text: candidateSummaryData.results_json?.finalReport?.resumeText || '',
+                resume_filename: '',
+                duration_seconds: parseInt(durationStr.split(':')[0]) * 60 + parseInt(durationStr.split(':')[1] || '0'),
+                // Include calculated scores so backend doesn't need to regenerate
+                pre_calculated_scores: {
+                  overall_score: overallScore,
+                  technical_score: technicalScore,
+                  communication_score: communicationScore,
+                  behavioral_score: behavioralScore,
+                  verdict: candidateStatus === 'shortlisted' ? 'PASS' : (candidateStatus === 'rejected' ? 'FAIL' : 'REVIEW'),
+                  summary: `Interview completed with ${interviewDataArray.length} questions answered.`,
+                  strengths: [],
+                  weaknesses: [],
+                }
+              };
+              
+              const response = await fetch(`${backendUrl}/hr/interviews/ai-complete/${token}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(backendPayload)
+              });
+              
+              if (response.ok) {
+                console.log('Backend notified successfully, AIReport will be created');
+              } else {
+                const errorText = await response.text();
+                console.warn('⚠️ Backend notification failed:', response.status, errorText);
+              }
+            } catch (backendError) {
+              console.warn('⚠️ Failed to notify backend:', backendError);
+              // Continue anyway - MongoDB data is still saved
+            }
+          } else {
+            console.warn('⚠️ BACKEND_URL not set, skipping backend notification');
+          }
+
           // Trigger report generation immediately after saving CandidateSummary
           // This ensures the report includes the newly completed interview data
           // Run in background to not block the response
           setImmediate(() => {
             aiReportGenerator.generateReport()
               .then(() => {
-                console.log('✅ Report generated successfully for completed interview');
+                console.log('Report generated successfully for completed interview');
               })
               .catch((e) => {
                 console.warn('Background report generation failed:', e);
               });
           });
         } catch (summaryError) {
-          console.error('❌ Error saving CandidateSummary to MongoDB:', summaryError);
+          console.error('Error saving CandidateSummary to MongoDB:', summaryError);
           // Continue even if CandidateSummary save fails
         }
       } catch (mongoError) {
-        console.error('❌ Error saving to MongoDB:', mongoError);
+        console.error('Error saving to MongoDB:', mongoError);
         // Continue even if MongoDB save fails
       }
     }

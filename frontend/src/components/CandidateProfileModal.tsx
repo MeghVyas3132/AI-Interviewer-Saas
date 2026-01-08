@@ -355,7 +355,7 @@ export default function CandidateProfileModal({
                           {interview.status?.toUpperCase() === 'COMPLETED' && interview.overall_score == null && (
                             <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                               <p className="text-sm text-yellow-800">
-                                📊 AI analysis is being processed. Scores will appear shortly.
+                                AI analysis is being processed. Scores will appear shortly.
                               </p>
                             </div>
                           )}

@@ -98,12 +98,12 @@ export function validateFile(file: File): FileValidationResult {
 export function getFileTypeIcon(fileType: string): string {
   switch (fileType) {
     case 'pdf':
-      return '📄';
+      return 'PDF';
     case 'doc':
     case 'docx':
-      return '📝';
+      return 'DOC';
     default:
-      return '📁';
+      return 'FILE';
   }
 }
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiClient } from '@/lib/api'
 import { Card } from '@/components/Card'
-import { CandidatePipeline } from '@/components/CandidatePipeline'
+import { KanbanCandidatePipeline } from '@/components/KanbanCandidatePipeline'
 import CandidateProfileModal from '@/components/CandidateProfileModal'
 import { AIConfigManager } from '@/components/ai-admin'
 
@@ -777,7 +777,21 @@ export default function EmployeeDashboardPage() {
         {/* Pipeline Tab */}
         {activeTab === 'pipeline' && (
           <div className="overflow-hidden">
-            <CandidatePipeline candidates={candidates} />
+            <KanbanCandidatePipeline 
+              candidates={candidates.map(c => ({
+                id: c.id,
+                first_name: c.first_name,
+                last_name: c.last_name,
+                email: c.email,
+                status: c.status,
+                position: c.position,
+                assigned_to: undefined,
+                ats_score: undefined,
+                interview_score: undefined
+              }))} 
+              editable={false}
+              isLoading={loading}
+            />
           </div>
         )}
 

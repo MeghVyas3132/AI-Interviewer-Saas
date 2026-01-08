@@ -230,7 +230,7 @@ export function SummaryDisplay() {
     
     // Debug: Log reference question IDs
     if (data && data.length > 0) {
-      console.log('📊 Summary data loaded with reference IDs:');
+      console.log('Summary data loaded with reference IDs:');
       data.forEach((item, index) => {
         if (item.referenceQuestionIds && item.referenceQuestionIds.length > 0) {
           console.log(`  Q${index + 1}: ${item.question.substring(0, 50)}... -> IDs: [${item.referenceQuestionIds.join(', ')}]`);
@@ -614,7 +614,7 @@ export function SummaryDisplay() {
                 </div>
 
                 <div class="feedback-item">
-                  <div class="feedback-icon">💡</div>
+                  <div class="feedback-icon">*</div>
                   <div class="feedback-content">
                     <h5>Clarity</h5>
                     <p>${item.feedback.clarityFeedback}</p>
@@ -622,7 +622,7 @@ export function SummaryDisplay() {
                 </div>
 
                 <div class="feedback-item">
-                  <div class="feedback-icon">📊</div>
+                  <div class="feedback-icon">*</div>
                   <div class="feedback-content">
                     <h5>Tone</h5>
                     <p>${item.feedback.toneFeedback}</p>
@@ -884,7 +884,7 @@ export function SummaryDisplay() {
           
           return sortedIds.length > 0 ? (
             <div className="mb-4 p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
-              <h3 className="text-sm font-bold mb-2 text-yellow-900">🔍 Reference Question IDs:</h3>
+              <h3 className="text-sm font-bold mb-2 text-yellow-900">Reference Question IDs:</h3>
               <div className="text-sm font-mono text-yellow-800">
                 [{sortedIds.join(', ')}]
               </div>

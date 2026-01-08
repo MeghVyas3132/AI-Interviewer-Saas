@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const MONGODB_URL = "mongodb://admin:bBgd1nWdaWrvO14zLsMHx1RL6zgDbjU4@36.50.3.165:27017/times_ai_interviewer";
 
 async function testConnection() {
-  console.log('🔍 Testing MongoDB connection...');
+  console.log('Testing MongoDB connection...');
   console.log('Connection URL:', MONGODB_URL.replace(/:[^:@]+@/, ':****@')); // Hide password
 
   try {
@@ -14,12 +14,12 @@ async function testConnection() {
       connectTimeoutMS: 10000,
     });
 
-    console.log('✅ MongoDB connection successful!');
+    console.log('MongoDB connection successful!');
     
     // Test database operations
     const db = mongoose.connection.db;
     const collections = await db.listCollections().toArray();
-    console.log('📊 Available collections:', collections.map(c => c.name));
+    console.log('Available collections:', collections.map(c => c.name));
     
     // Test writing a document
     const testCollection = db.collection('test_connection');
@@ -27,23 +27,23 @@ async function testConnection() {
       test: true,
       timestamp: new Date(),
     });
-    console.log('✅ Write operation successful!');
+    console.log('Write operation successful!');
     
     // Test reading
     const result = await testCollection.findOne({ test: true });
-    console.log('✅ Read operation successful!', result);
+    console.log('Read operation successful!', result);
     
     // Cleanup
     await testCollection.deleteOne({ test: true });
-    console.log('✅ Cleanup successful!');
+    console.log('Cleanup successful!');
     
     // Close connection
     await mongoose.connection.close();
-    console.log('✅ Connection closed successfully');
+    console.log('Connection closed successfully');
     
     process.exit(0);
   } catch (error: any) {
-    console.error('❌ MongoDB connection failed!');
+    console.error('MongoDB connection failed!');
     console.error('Error details:', {
       name: error.name,
       message: error.message,

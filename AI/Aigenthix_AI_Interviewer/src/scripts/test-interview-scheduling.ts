@@ -36,11 +36,11 @@ function log(message: string, color: keyof typeof colors = 'reset') {
 }
 
 function logSuccess(message: string) {
-  log(`✅ ${message}`, 'green');
+  log(`${message}`, 'green');
 }
 
 function logError(message: string) {
-  log(`❌ ${message}`, 'red');
+  log(`${message}`, 'red');
 }
 
 function logInfo(message: string) {
@@ -59,7 +59,7 @@ function generateToken(): string {
 }
 
 async function testDatabaseConnection() {
-  log('\n📊 Testing Database Connection...', 'cyan');
+  log('\nTesting Database Connection...', 'cyan');
   try {
     logInfo(`Database URL: ${process.env.DATABASE_URL ? 'Set' : 'Not set'}`);
     
@@ -88,7 +88,7 @@ async function testDatabaseConnection() {
 }
 
 async function testTableCreation() {
-  log('\n📋 Testing Table Creation...', 'cyan');
+  log('\nTesting Table Creation...', 'cyan');
   try {
     // Don't call initializeDatabase here since it's auto-called on import
     // Just verify tables exist
@@ -121,7 +121,7 @@ async function testTableCreation() {
 }
 
 async function testCandidateOperations() {
-  log('\n👤 Testing Candidate Operations...', 'cyan');
+  log('\nTesting Candidate Operations...', 'cyan');
   try {
     // Create a test candidate
     logInfo('Creating test candidate...');
@@ -159,7 +159,7 @@ async function testCandidateOperations() {
 }
 
 async function testInterviewSessionOperations(candidateId: number) {
-  log('\n📅 Testing Interview Session Operations...', 'cyan');
+  log('\nTesting Interview Session Operations...', 'cyan');
   try {
     // Generate token
     const token = generateToken();
@@ -214,7 +214,7 @@ async function testInterviewSessionOperations(candidateId: number) {
 }
 
 async function testEmailService() {
-  log('\n📧 Testing Email Service...', 'cyan');
+  log('\nTesting Email Service...', 'cyan');
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:9002';
     const testToken = generateToken();
@@ -266,7 +266,7 @@ async function testAPIEndpoints() {
 }
 
 async function runAllTests() {
-  log('\n🚀 Starting Comprehensive Test Suite...', 'cyan');
+  log('\nStarting Comprehensive Test Suite...', 'cyan');
   log('=' .repeat(60), 'cyan');
 
   const results = {
@@ -307,7 +307,7 @@ async function runAllTests() {
 
   // Summary
   log('\n' + '='.repeat(60), 'cyan');
-  log('📊 Test Summary', 'cyan');
+  log('Test Summary', 'cyan');
   log('='.repeat(60), 'cyan');
   
   Object.entries(results).forEach(([test, passed]) => {

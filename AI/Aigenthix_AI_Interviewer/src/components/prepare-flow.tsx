@@ -828,7 +828,7 @@ export function PrepareFlow() {
                                            </FormControl>
                                            <FormMessage />
                                            <p className="text-xs text-slate-600 mt-2">
-                                               💡 Selecting your target college helps us generate more relevant interview questions
+                                               Selecting your target college helps us generate more relevant interview questions
                                            </p>
                                        </FormItem>
                                    )}

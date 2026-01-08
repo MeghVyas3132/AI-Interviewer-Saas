@@ -44,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Ensure we capture all interview data including feedback and scoring
     const fullInterviewData = interviewData || session.results_json?.interviewData || [];
     
-    console.log(`📝 Saving abandoned interview data for token ${token}:`, {
+    console.log(`Saving abandoned interview data for token ${token}:`, {
       interviewDataCount: fullInterviewData?.length || 0,
       hasQuestions: fullInterviewData?.some((qa: any) => qa.question) || false,
       hasAnswers: fullInterviewData?.some((qa: any) => qa.answer) || false,
@@ -140,7 +140,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { upsert: true, new: true }
         );
         
-        console.log('✅ Partial interview data saved to MongoDB for token:', token, {
+        console.log('Partial interview data saved to MongoDB for token:', token, {
           interviewDataCount: interviewDataArray.length,
           questionsAndAnswersCount: savedDoc?.questionsAndAnswers?.length || 0,
           status: savedDoc?.status
@@ -231,7 +231,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 { $set: transcriptData },
                 { new: true }
               );
-              console.log('✅ Transcript updated in MongoDB for abandoned interview_id:', session.id, {
+              console.log('Transcript updated in MongoDB for abandoned interview_id:', session.id, {
                 questions_count: qaItems.length,
                 status: 'abandoned'
               });
@@ -239,7 +239,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               // Create new transcript
               const transcript = new Transcript(transcriptData);
               await transcript.save();
-              console.log('✅ Transcript saved to MongoDB for abandoned interview_id:', session.id, {
+              console.log('Transcript saved to MongoDB for abandoned interview_id:', session.id, {
                 questions_count: qaItems.length,
                 status: 'abandoned'
               });
@@ -248,7 +248,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.log('⚠️ No Q&A items to create transcript for abandoned interview_id:', session.id);
           }
         } catch (transcriptError) {
-          console.error('❌ Error saving Transcript to MongoDB for abandoned interview:', transcriptError);
+          console.error('Error saving Transcript to MongoDB for abandoned interview:', transcriptError);
           // Continue even if Transcript save fails
         }
 
@@ -366,14 +366,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             { upsert: true, new: true }
           );
 
-          console.log('✅ Candidate summary saved to MongoDB for abandoned interview token:', token, {
+          console.log('Candidate summary saved to MongoDB for abandoned interview token:', token, {
             candidateName,
             email: session.email,
             overallScore,
             status: 'abandoned',
           });
         } catch (summaryError) {
-          console.error('❌ Error saving CandidateSummary to MongoDB:', summaryError);
+          console.error('Error saving CandidateSummary to MongoDB:', summaryError);
           // Continue even if CandidateSummary save fails
         }
         
@@ -382,14 +382,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         setTimeout(() => {
           aiReportGenerator.generateReport()
             .then(() => {
-              console.log('✅ Report generated successfully for abandoned interview');
+              console.log('Report generated successfully for abandoned interview');
             })
             .catch((e) => {
               console.warn('Background report generation for abandoned interview failed:', e);
             });
         }, 2000); // Wait 2 seconds for MongoDB to fully persist
       } catch (mongoError) {
-        console.error('❌ Error saving abandoned interview to MongoDB:', mongoError);
+        console.error('Error saving abandoned interview to MongoDB:', mongoError);
         // Continue even if MongoDB save fails
       }
     }

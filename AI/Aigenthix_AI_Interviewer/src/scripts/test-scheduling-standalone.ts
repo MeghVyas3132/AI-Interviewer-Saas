@@ -23,8 +23,8 @@ function log(message: string, color: keyof typeof colors = 'reset') {
   console.log(`${colors[color]}${message}${colors.reset}`);
 }
 
-function logSuccess(message: string) { log(`✅ ${message}`, 'green'); }
-function logError(message: string) { log(`❌ ${message}`, 'red'); }
+function logSuccess(message: string) { log(`${message}`, 'green'); }
+function logError(message: string) { log(`${message}`, 'red'); }
 function logInfo(message: string) { log(`ℹ️  ${message}`, 'blue'); }
 function logWarning(message: string) { log(`⚠️  ${message}`, 'yellow'); }
 
@@ -41,7 +41,7 @@ const testPool = new Pool({
 });
 
 async function testDatabaseOperations() {
-  log('\n📊 Testing Database Operations...', 'cyan');
+  log('\nTesting Database Operations...', 'cyan');
   
   let client;
   try {
@@ -166,7 +166,7 @@ async function testDatabaseOperations() {
 }
 
 async function testEmailService() {
-  log('\n📧 Testing Email Service...', 'cyan');
+  log('\nTesting Email Service...', 'cyan');
   
   try {
     const { emailService } = await import('../lib/email-service');
@@ -187,7 +187,7 @@ async function testEmailService() {
     });
 
     if (emailSent) {
-      logSuccess('✅ Email sent successfully!');
+      logSuccess('Email sent successfully!');
       logInfo(`Interview link: ${interviewLink}`);
     } else {
       logWarning('⚠️  Email service returned false');
@@ -203,14 +203,14 @@ async function testEmailService() {
 }
 
 async function runTests() {
-  log('\n🚀 Starting Standalone Test Suite...', 'cyan');
+  log('\nStarting Standalone Test Suite...', 'cyan');
   log('='.repeat(60), 'cyan');
   
   const dbTest = await testDatabaseOperations();
   const emailTest = await testEmailService();
   
   log('\n' + '='.repeat(60), 'cyan');
-  log('📊 Test Summary', 'cyan');
+  log('Test Summary', 'cyan');
   log('='.repeat(60), 'cyan');
   
   if (dbTest) {

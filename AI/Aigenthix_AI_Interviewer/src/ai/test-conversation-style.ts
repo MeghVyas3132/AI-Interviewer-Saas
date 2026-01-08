@@ -72,7 +72,7 @@ function testImprovedConversationStyle() {
   console.log('✓ Adaptive question selection based on answer quality');
   console.log('---\n');
 
-  console.log('✅ All conversation style improvements implemented!');
+  console.log('All conversation style improvements implemented!');
   console.log('\nSummary of Enhancements:');
   console.log('- Enhanced question variety across multiple dimensions');
   console.log('- Implemented adaptive questioning based on user responses');

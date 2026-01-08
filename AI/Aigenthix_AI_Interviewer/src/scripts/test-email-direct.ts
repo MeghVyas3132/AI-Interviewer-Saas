@@ -13,7 +13,7 @@ console.log(`MAIL_FROM_ADDRESS: ${process.env.MAIL_FROM_ADDRESS || 'NOT SET'}`);
 console.log(`MAIL_FROM_NAME: ${process.env.MAIL_FROM_NAME || 'NOT SET'}`);
 
 if (!process.env.MAIL_PASSWORD) {
-  console.error('❌ MAIL_PASSWORD is not set in environment');
+  console.error('MAIL_PASSWORD is not set in environment');
   process.exit(1);
 }
 
@@ -47,7 +47,7 @@ async function testEmail() {
     const mailFromName = process.env.MAIL_FROM_NAME || 'Communicationt4e';
     const fromAddress = `${mailFromName} <${mailFromAddress}>`;
 
-    console.log('\n📧 Sending test email...');
+    console.log('\nSending test email...');
     console.log(`To: test@example.com`);
     console.log(`From: ${fromAddress}`);
     console.log(`Link: ${interviewLink}`);
@@ -65,13 +65,13 @@ async function testEmail() {
       text: `Hello Test Candidate! This is a test email. Interview link: ${interviewLink}`
     });
 
-    console.log('\n✅ Email sent successfully!');
+    console.log('\nEmail sent successfully!');
     console.log(`Message ID: ${result.messageId}`);
     console.log(`Response: ${result.response}`);
     console.log('\n⚠️  Note: Email was sent to test@example.com (change this for real testing)');
     
   } catch (error: any) {
-    console.error('\n❌ Email sending failed:');
+    console.error('\nEmail sending failed:');
     console.error(`Error: ${error.message}`);
     if (error.response) {
       console.error('Response:', JSON.stringify(error.response, null, 2));

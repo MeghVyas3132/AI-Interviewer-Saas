@@ -137,9 +137,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { upsert: true, new: true }
         );
         
-        console.log('✅ Interview session initialized in MongoDB for token:', session.token);
+        console.log('Interview session initialized in MongoDB for token:', session.token);
       } catch (mongoError) {
-        console.error('❌ Error creating MongoDB session:', mongoError);
+        console.error('Error creating MongoDB session:', mongoError);
         // Continue even if MongoDB save fails
       }
     }

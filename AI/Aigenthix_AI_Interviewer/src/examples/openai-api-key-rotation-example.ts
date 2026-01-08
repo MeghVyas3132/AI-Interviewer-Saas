@@ -17,10 +17,10 @@ async function exampleOpenAIApiCall() {
     // Initialize the OpenAI API key manager
     initializeOpenAIApiKeyManager();
 
-    console.log('🤖 Testing OpenAI API Key Rotation...\n');
+    console.log('Testing OpenAI API Key Rotation...\n');
 
     // Example 1: Text-to-Speech API call
-    console.log('📢 Testing Text-to-Speech API...');
+    console.log('Testing Text-to-Speech API...');
     const ttsResult = await withOpenAIApiKeyRotation(async (apiKey: string) => {
       const response = await fetch('https://api.openai.com/v1/audio/speech', {
         method: 'POST',
@@ -43,11 +43,11 @@ async function exampleOpenAIApiCall() {
       return response;
     });
 
-    console.log('✅ TTS API call successful!');
+    console.log('TTS API call successful!');
     console.log(`   Response status: ${ttsResult.status}`);
 
     // Example 2: Models API call
-    console.log('\n📋 Testing Models API...');
+    console.log('\nTesting Models API...');
     const modelsResult = await withOpenAIApiKeyRotation(async (apiKey: string) => {
       const response = await fetch('https://api.openai.com/v1/models', {
         method: 'GET',
@@ -66,13 +66,13 @@ async function exampleOpenAIApiCall() {
     });
 
     const modelsData = await modelsResult.json();
-    console.log('✅ Models API call successful!');
+    console.log('Models API call successful!');
     console.log(`   Available models: ${modelsData.data.length}`);
 
-    console.log('\n🎉 All OpenAI API calls completed successfully with key rotation!');
+    console.log('\nAll OpenAI API calls completed successfully with key rotation!');
 
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('Error:', error);
     process.exit(1);
   }
 }

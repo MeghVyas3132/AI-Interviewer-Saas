@@ -19,6 +19,7 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus, InterviewRound
 from app.models.user import User, UserRole
+from app.models.interview_session import InterviewSession
 
 logger = logging.getLogger(__name__)
 
@@ -207,28 +208,126 @@ async def get_candidate_detailed_profile_hr(
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
-        # Get AI reports for these interviews
+        # Get AI reports for these interviews (also check by candidate_id for reports without interview link)
         interview_ids = [i.id for i in interviews]
         reports = []
         
         if interview_ids:
             reports_query = select(AIReport).filter(
                 and_(
-                    AIReport.interview_id.in_(interview_ids),
+                    or_(
+                        AIReport.interview_id.in_(interview_ids),
+                        and_(
+                            AIReport.candidate_id == candidate.id,
+                            AIReport.interview_id.is_(None)
+                        )
+                    ),
+                    AIReport.report_type == "interview_verdict"
+                )
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+        else:
+            # No interviews exist, but check for reports by candidate_id
+            reports_query = select(AIReport).filter(
+                and_(
+                    AIReport.candidate_id == candidate.id,
                     AIReport.report_type == "interview_verdict"
                 )
             )
             reports_result = await db.execute(reports_query)
             reports = reports_result.scalars().all()
 
-        # Map reports to interviews
-        reports_by_interview = {r.interview_id: r for r in reports}
+        # Map reports to interviews (and track reports without interview_id)
+        reports_by_interview = {r.interview_id: r for r in reports if r.interview_id is not None}
+        reports_without_interview = [r for r in reports if r.interview_id is None]
 
         # Build detailed interview data with Q&A breakdown
+        import json as json_module
+        
         interview_details = []
         for interview in interviews:
             report = reports_by_interview.get(interview.id)
+            # If no report linked to interview, try to use an unlinked report for this candidate
+            if not report and reports_without_interview:
+                report = reports_without_interview.pop(0)  # Use first available unlinked report
             provider_response = report.provider_response if report else {}
+            transcript = provider_response.get("transcript", [])
+            
+            # If no report exists, try to get data from interview's ai_verdict field
+            interview_verdict_data = {}
+            if not report and hasattr(interview, 'ai_verdict') and interview.ai_verdict:
+                try:
+                    if isinstance(interview.ai_verdict, str):
+                        interview_verdict_data = json_module.loads(interview.ai_verdict)
+                    elif isinstance(interview.ai_verdict, dict):
+                        interview_verdict_data = interview.ai_verdict
+                except:
+                    pass
+            
+            # Merge provider_response with interview_verdict_data (report takes precedence)
+            if interview_verdict_data and not provider_response:
+                provider_response = interview_verdict_data
+            
+            # Extract Q&A pairs from transcript
+            qa_pairs = []
+            current_question = None
+            for msg in transcript:
+                if msg.get("role") == "ai":
+                    current_question = msg.get("content", "")
+                elif msg.get("role") == "user" and current_question:
+                    qa_pairs.append({
+                        "question": current_question,
+                        "answer": msg.get("content", ""),
+                        "timestamp": msg.get("timestamp", "")
+                    })
+                    current_question = None
+            
+            # Calculate verdict from various sources
+            verdict = provider_response.get("verdict") if provider_response else None
+            if not verdict and hasattr(interview, 'ai_recommendation') and interview.ai_recommendation:
+                verdict = interview.ai_recommendation
+            if not verdict and report and report.score is not None:
+                if report.score >= 70:
+                    verdict = "PASS"
+                elif report.score >= 50:
+                    verdict = "REVIEW"
+                else:
+                    verdict = "FAIL"
+            
+            # Get overall score from multiple sources
+            overall_score = report.score if report else provider_response.get("overall_score")
+            if not overall_score and interview_verdict_data:
+                overall_score = interview_verdict_data.get("overall_score")
+            
+            interview_details.append({
+                "interview_id": str(interview.id),
+                "round": interview.round.value if interview.round else "unknown",
+                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "status": interview.status.value if interview.status else None,
+                "verdict": verdict,
+                "overall_score": overall_score,
+                "behavior_score": provider_response.get("behavior_score"),
+                "confidence_score": provider_response.get("confidence_score"),
+                "answer_score": provider_response.get("answer_score"),
+                "strengths": provider_response.get("strengths", []),
+                "weaknesses": provider_response.get("weaknesses", []),
+                "detailed_feedback": provider_response.get("detailed_feedback", ""),
+                "key_answers": provider_response.get("key_answers", []),
+                "summary": report.summary if report else provider_response.get("summary"),
+                "duration_seconds": provider_response.get("duration_seconds"),
+                "total_questions": provider_response.get("total_questions"),
+                "total_answers": provider_response.get("total_answers"),
+                "qa_pairs": qa_pairs,
+                "resume_text": provider_response.get("resume_text", ""),
+                "resume_filename": provider_response.get("resume_filename", ""),
+                "ats_score": getattr(interview, 'ats_score', None) or candidate.ats_score,
+                "employee_verdict": getattr(interview, 'employee_verdict', None),
+            })
+
+        # Add any remaining reports that weren't linked to interviews
+        for remaining_report in reports_without_interview:
+            provider_response = remaining_report.provider_response if remaining_report else {}
             transcript = provider_response.get("transcript", [])
             
             # Extract Q&A pairs from transcript
@@ -245,39 +344,38 @@ async def get_candidate_detailed_profile_hr(
                     })
                     current_question = None
             
-            # Calculate verdict from score if not present
-            verdict = provider_response.get("verdict") if report else None
-            if not verdict and report and report.score is not None:
-                if report.score >= 70:
+            verdict = provider_response.get("verdict")
+            if not verdict and remaining_report.score is not None:
+                if remaining_report.score >= 70:
                     verdict = "PASS"
-                elif report.score >= 50:
+                elif remaining_report.score >= 50:
                     verdict = "REVIEW"
                 else:
                     verdict = "FAIL"
             
             interview_details.append({
-                "interview_id": str(interview.id),
-                "round": interview.round.value if interview.round else "unknown",
-                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
-                "status": interview.status.value if interview.status else None,
+                "interview_id": str(remaining_report.id),  # Use report ID as fallback
+                "round": "ai_interview",
+                "scheduled_time": remaining_report.created_at.isoformat() if remaining_report.created_at else None,
+                "status": "completed",
                 "verdict": verdict,
-                "overall_score": report.score if report else None,
-                "behavior_score": provider_response.get("behavior_score") if report else None,
-                "confidence_score": provider_response.get("confidence_score") if report else None,
-                "answer_score": provider_response.get("answer_score") if report else None,
-                "strengths": provider_response.get("strengths", []) if report else [],
-                "weaknesses": provider_response.get("weaknesses", []) if report else [],
-                "detailed_feedback": provider_response.get("detailed_feedback", "") if report else "",
-                "key_answers": provider_response.get("key_answers", []) if report else [],
-                "summary": report.summary if report else None,
+                "overall_score": remaining_report.score,
+                "behavior_score": provider_response.get("behavior_score"),
+                "confidence_score": provider_response.get("confidence_score"),
+                "answer_score": provider_response.get("answer_score"),
+                "strengths": provider_response.get("strengths", []),
+                "weaknesses": provider_response.get("weaknesses", []),
+                "detailed_feedback": provider_response.get("detailed_feedback", ""),
+                "key_answers": provider_response.get("key_answers", []),
+                "summary": remaining_report.summary,
                 "duration_seconds": provider_response.get("duration_seconds"),
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
                 "qa_pairs": qa_pairs,
                 "resume_text": provider_response.get("resume_text", ""),
                 "resume_filename": provider_response.get("resume_filename", ""),
-                "ats_score": getattr(interview, 'ats_score', None) or candidate.ats_score,
-                "employee_verdict": getattr(interview, 'employee_verdict', None),
+                "ats_score": candidate.ats_score,
+                "employee_verdict": None,
             })
 
         return {
@@ -1038,6 +1136,198 @@ async def save_interview_resume(
             "status": "warning",
             "message": "Resume could not be saved, but interview can continue",
             "interview_id": interview_id
+        }
+
+
+@router.post("/interviews/ai-complete/{token}")
+async def ai_interview_complete_by_token(
+    token: str,
+    transcript_data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Complete an AI interview and create an AIReport.
+    Called by the AI service when an interview finishes.
+    Uses token to find the interview session.
+    """
+    from uuid import UUID
+    from app.models.company import Company
+    from app.models.ai_report import AIReport
+    from app.models.interview_session import InterviewSession
+    import json
+    
+    try:
+        # Find interview session by token
+        session_query = select(InterviewSession).filter(InterviewSession.token == token)
+        result = await db.execute(session_query)
+        session = result.scalars().first()
+        
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview session not found"
+            )
+        
+        # Get candidate and interview from session
+        candidate_query = select(Candidate).filter(Candidate.ai_candidate_id == session.candidate_id)
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            # Try to find by id match
+            candidate_query = select(Candidate).filter(Candidate.id == session.candidate_id)
+            result = await db.execute(candidate_query)
+            candidate = result.scalars().first()
+        
+        # Extract data from request
+        transcript = transcript_data.get("transcript", [])
+        duration = transcript_data.get("duration_seconds", 0)
+        resume_text = transcript_data.get("resume_text", "")
+        resume_filename = transcript_data.get("resume_filename", "")
+        pre_calculated = transcript_data.get("pre_calculated_scores", {})
+        
+        # Use pre-calculated scores if available (from AI service)
+        if pre_calculated:
+            overall_score = pre_calculated.get("overall_score", 50)
+            behavior_score = pre_calculated.get("behavioral_score", pre_calculated.get("behavior_score", 50))
+            confidence_score = pre_calculated.get("communication_score", pre_calculated.get("confidence_score", 50))
+            answer_score = pre_calculated.get("technical_score", pre_calculated.get("answer_score", 50))
+            verdict = pre_calculated.get("verdict", "REVIEW")
+            verdict_summary = pre_calculated.get("summary", f"Interview completed with score {overall_score}%.")
+            
+            ai_verdict = {
+                "recommendation": verdict,
+                "behavior_score": behavior_score,
+                "confidence_score": confidence_score,
+                "answer_score": answer_score,
+                "overall_score": overall_score,
+                "summary": verdict_summary,
+                "strengths": pre_calculated.get("strengths", []),
+                "weaknesses": pre_calculated.get("weaknesses", []),
+                "detailed_feedback": "Scores calculated by AI interview system."
+            }
+            logger.info(f"Using pre-calculated scores for token {token}: overall={overall_score}")
+        else:
+            # Generate scores using AI (fallback)
+            logger.info(f"No pre-calculated scores, generating verdict for token {token}")
+            try:
+                from app.services.ai_service import generate_interview_verdict
+                
+                ai_verdict = await generate_interview_verdict(
+                    transcript=transcript,
+                    resume_text=resume_text,
+                    position=candidate.position if candidate else ""
+                )
+                
+                verdict = ai_verdict.get("recommendation", "NEUTRAL")
+                if verdict == "HIRE":
+                    verdict = "PASS"
+                elif verdict == "REJECT":
+                    verdict = "FAIL"
+                else:
+                    verdict = "REVIEW"
+                    
+                verdict_summary = ai_verdict.get("summary", "")
+                overall_score = ai_verdict.get("overall_score", 50)
+                behavior_score = ai_verdict.get("behavior_score", 50)
+                confidence_score = ai_verdict.get("confidence_score", 50)
+                answer_score = ai_verdict.get("answer_score", 50)
+                
+            except Exception as e:
+                logger.warning(f"AI verdict generation failed for {token}: {e}")
+                overall_score = 50
+                behavior_score = 50
+                confidence_score = 50
+                answer_score = 50
+                verdict = "REVIEW"
+                verdict_summary = "Manual review required - AI analysis unavailable."
+                ai_verdict = {
+                    "recommendation": verdict,
+                    "overall_score": overall_score,
+                    "summary": verdict_summary,
+                }
+        
+        # Get company ID from candidate
+        company_id = candidate.company_id if candidate else None
+        
+        # Find or create interview record
+        interview = None
+        if candidate:
+            interview_query = select(Interview).filter(
+                and_(
+                    Interview.candidate_id == candidate.id,
+                    Interview.status.in_([InterviewStatus.SCHEDULED, InterviewStatus.IN_PROGRESS, InterviewStatus.COMPLETED])
+                )
+            ).order_by(Interview.scheduled_time.desc())
+            result = await db.execute(interview_query)
+            interview = result.scalars().first()
+        
+        # Create AI Report 
+        user_messages = [msg for msg in transcript if msg.get('role') == 'user']
+        ai_messages = [msg for msg in transcript if msg.get('role') == 'ai']
+        total_questions = len([m for m in ai_messages if '?' in m.get('content', '')])
+        total_answers = len(user_messages)
+        
+        ai_report = AIReport(
+            company_id=company_id,
+            candidate_id=candidate.id if candidate else None,
+            interview_id=interview.id if interview else None,
+            report_type="interview_verdict",
+            score=overall_score,
+            summary=verdict_summary,
+            provider_response={
+                "verdict": verdict,
+                "overall_score": overall_score,
+                "behavior_score": behavior_score,
+                "confidence_score": confidence_score,
+                "answer_score": answer_score,
+                "strengths": ai_verdict.get("strengths", []),
+                "weaknesses": ai_verdict.get("weaknesses", []),
+                "detailed_feedback": ai_verdict.get("detailed_feedback", ""),
+                "total_questions": total_questions,
+                "total_answers": total_answers,
+                "duration_seconds": duration,
+                "transcript": transcript,
+                "resume_text": resume_text,
+                "resume_filename": resume_filename,
+                "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() if candidate else "",
+                "candidate_email": candidate.email if candidate else "",
+                "position": candidate.position if candidate else "",
+                "token": token,
+            }
+        )
+        db.add(ai_report)
+        
+        # Update interview status if found
+        if interview:
+            interview.status = InterviewStatus.COMPLETED
+            if hasattr(interview, 'ai_verdict'):
+                interview.ai_verdict = json.dumps(ai_verdict)
+            if hasattr(interview, 'ai_recommendation'):
+                interview.ai_recommendation = verdict
+        
+        await db.commit()
+        
+        logger.info(f"AIReport created for token {token}: score={overall_score}, verdict={verdict}")
+        
+        return {
+            "status": "success",
+            "message": "AI interview completed and report created",
+            "token": token,
+            "score": overall_score,
+            "verdict": verdict
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Error completing AI interview for token {token}: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "token": token
         }
 
 

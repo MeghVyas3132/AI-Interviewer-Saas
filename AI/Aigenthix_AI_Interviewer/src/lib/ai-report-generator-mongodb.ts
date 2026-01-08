@@ -90,7 +90,7 @@ export class AIReportGeneratorMongoDB {
       // Log sample session to debug field extraction
       if (filteredSessions.length > 0) {
         const sample = filteredSessions[0];
-        console.log(`📋 Sample session data:`, {
+        console.log(`Sample session data:`, {
           id: sample.id,
           candidate_id: sample.candidate_id,
           first_name: sample.first_name,
@@ -105,7 +105,7 @@ export class AIReportGeneratorMongoDB {
         });
       }
       
-      console.log(`📊 PostgreSQL query: Found ${allSessions.length} total completed/abandoned sessions, ${filteredSessions.length} have data or were started`);
+      console.log(`PostgreSQL query: Found ${allSessions.length} total completed/abandoned sessions, ${filteredSessions.length} have data or were started`);
       
       return filteredSessions;
     } catch (error) {
@@ -120,7 +120,7 @@ export class AIReportGeneratorMongoDB {
    */
   private async backfillCandidateSummaries(): Promise<void> {
     try {
-      console.log('🔄 Starting backfill of CandidateSummary collection...');
+      console.log('Starting backfill of CandidateSummary collection...');
       
       // Fetch interviews from both PostgreSQL and MongoDB
       const [postgresSessions, mongoSessions] = await Promise.all([
@@ -144,7 +144,7 @@ export class AIReportGeneratorMongoDB {
       });
       
       const sessions = Array.from(sessionMap.values());
-      console.log(`📊 Found ${sessions.length} sessions to backfill`);
+      console.log(`Found ${sessions.length} sessions to backfill`);
       
       // Extract candidate data and save to CandidateSummary
       let savedCount = 0;
@@ -220,7 +220,7 @@ export class AIReportGeneratorMongoDB {
                 );
                 savedCount++;
               } catch (fallbackError) {
-                console.error(`❌ Fallback update also failed for session ${session.token}:`, fallbackError);
+                console.error(`Fallback update also failed for session ${session.token}:`, fallbackError);
                 throw updateError; // Throw original error
               }
             } else {
@@ -228,13 +228,13 @@ export class AIReportGeneratorMongoDB {
             }
           }
         } catch (error) {
-          console.error(`❌ Error backfilling candidate summary for session ${session.token}:`, error);
+          console.error(`Error backfilling candidate summary for session ${session.token}:`, error);
         }
       }
       
-      console.log(`✅ Backfilled ${savedCount} candidate summaries to MongoDB`);
+      console.log(`Backfilled ${savedCount} candidate summaries to MongoDB`);
     } catch (error) {
-      console.error('❌ Error during backfill:', error);
+      console.error('Error during backfill:', error);
       throw error;
     }
   }
@@ -274,11 +274,11 @@ export class AIReportGeneratorMongoDB {
         return shouldInclude;
       });
       
-      console.log(`📊 MongoDB query: Found ${sessions.length} sessions with status completed/abandoned, ${sessionsWithData.length} will be processed`);
+      console.log(`MongoDB query: Found ${sessions.length} sessions with status completed/abandoned, ${sessionsWithData.length} will be processed`);
       
       // Log details about each session
       sessionsWithData.forEach((s: any) => {
-        console.log(`📋 MongoDB session ${s.token}:`, {
+        console.log(`MongoDB session ${s.token}:`, {
           status: s.status,
           hasInterviewData: !!(s.interviewData?.length),
           hasQuestionsAndAnswers: !!(s.questionsAndAnswers?.length),
@@ -295,7 +295,7 @@ export class AIReportGeneratorMongoDB {
                             session.questionsAndAnswers || 
                             [];
         
-        console.log(`📋 Processing MongoDB session ${session.token}:`, {
+        console.log(`Processing MongoDB session ${session.token}:`, {
           status: session.status,
           interviewDataCount: interviewData.length,
           questionsAndAnswersCount: session.questionsAndAnswers?.length || 0,
@@ -334,7 +334,7 @@ export class AIReportGeneratorMongoDB {
     const isPartial = status === 'abandoned' || results_json?.isPartial;
     const interviewData = results_json?.interviewData || results_json?.finalReport?.questions || [];
     
-    console.log(`🔍 Extracting candidate data for session:`, {
+    console.log(`Extracting candidate data for session:`, {
       token: session.token,
       status,
       isPartial,
@@ -365,7 +365,7 @@ export class AIReportGeneratorMongoDB {
     // For token-based interviews, always process if there's any interview data OR session was started
     // No minimum question requirement - even 1 question should generate analysis
     if (hasInterviewData) {
-      console.log(`✅ Processing ${isPartial ? 'partial' : 'completed'} session ${session.token} with ${interviewData.length} question(s)`);
+      console.log(`Processing ${isPartial ? 'partial' : 'completed'} session ${session.token} with ${interviewData.length} question(s)`);
     } else if (wasStarted) {
       console.log(`⚠️ Processing ${isPartial ? 'partial' : 'completed'} session ${session.token} - was started but no interview data yet`);
     }
@@ -384,7 +384,7 @@ export class AIReportGeneratorMongoDB {
       candidateName = emailName.charAt(0).toUpperCase() + emailName.slice(1);
     }
     
-    console.log(`👤 Candidate name extraction:`, {
+    console.log(`Candidate name extraction:`, {
       first_name,
       last_name,
       email,
@@ -538,7 +538,7 @@ export class AIReportGeneratorMongoDB {
               }
             }
             
-            console.log(`📊 Calculated HR interview scores from ${allScores.length} question(s): Overall=${overallScore}, Technical=${technicalScore}, Communication=${communicationScore}, Behavioral=${behavioralScore}`);
+            console.log(`Calculated HR interview scores from ${allScores.length} question(s): Overall=${overallScore}, Technical=${technicalScore}, Communication=${communicationScore}, Behavioral=${behavioralScore}`);
           } else if (firstScore.ideasScore !== undefined || firstScore.accuracyScore !== undefined) {
             // Standard Interview Scoring System
             // Works correctly even with just 1 score (allScores.length = 1)
@@ -563,7 +563,7 @@ export class AIReportGeneratorMongoDB {
             const avgOverall = allScores.reduce((sum: number, s: any) => sum + Number(s.overallScore || 0), 0) / allScores.length;
             overallScore = avgOverall > 0 ? Math.round(avgOverall) : Math.round((technicalScore + communicationScore + behavioralScore) / 3);
             
-            console.log(`📊 Calculated scores from ${allScores.length} question(s): Overall=${overallScore}, Technical=${technicalScore}, Communication=${communicationScore}, Behavioral=${behavioralScore}`);
+            console.log(`Calculated scores from ${allScores.length} question(s): Overall=${overallScore}, Technical=${technicalScore}, Communication=${communicationScore}, Behavioral=${behavioralScore}`);
           } else {
             // Old format: direct technical, communication, behavioral fields
             technicalScore = Math.round(allScores.reduce((sum: number, s: any) => sum + (Number(s.technical) || 0), 0) / allScores.length);
@@ -636,7 +636,7 @@ export class AIReportGeneratorMongoDB {
       jobRole = `${exam_name}${subcategory_name ? ` - ${subcategory_name}` : ''}`;
     }
     
-    console.log(`💼 Role extraction:`, {
+    console.log(`Role extraction:`, {
       job_title,
       exam_name,
       subcategory_name,
@@ -697,7 +697,7 @@ export class AIReportGeneratorMongoDB {
     }
     
     // Log status determination for debugging
-    console.log(`📊 Status determination for session ${session.token}:`, {
+    console.log(`Status determination for session ${session.token}:`, {
       status,
       isIncomplete,
       realQuestionsAnswered,
@@ -781,7 +781,7 @@ export class AIReportGeneratorMongoDB {
    * This ensures consistency with the Interview Transcripts section
    */
   private async generateCandidateSummariesFromTranscriptSource(): Promise<CandidateSummary[]> {
-    console.log('🔄 Generating candidate summaries from transcript source (PostgreSQL + MongoDB)...');
+    console.log('Generating candidate summaries from transcript source (PostgreSQL + MongoDB)...');
     
     const allCandidates: CandidateSummary[] = [];
     
@@ -794,7 +794,7 @@ export class AIReportGeneratorMongoDB {
           .sort({ completed_at: -1, createdAt: -1 })
           .lean();
         
-        console.log(`📊 Fetched ${mongoTranscripts.length} transcripts from MongoDB`);
+        console.log(`Fetched ${mongoTranscripts.length} transcripts from MongoDB`);
         
         for (const transcript of mongoTranscripts) {
           // Extract scores from Q&A items
@@ -975,7 +975,7 @@ export class AIReportGeneratorMongoDB {
         }
       }
     } catch (mongoError) {
-      console.error('❌ Error fetching from MongoDB Transcripts:', mongoError);
+      console.error('Error fetching from MongoDB Transcripts:', mongoError);
     }
     
     // 2. Fetch from PostgreSQL (same query as transcripts API)
@@ -1004,7 +1004,7 @@ export class AIReportGeneratorMongoDB {
       `, []);
       
       const completedSessions = sessionsResult.rows;
-      console.log(`📊 Fetched ${completedSessions.length} completed sessions from PostgreSQL`);
+      console.log(`Fetched ${completedSessions.length} completed sessions from PostgreSQL`);
       
         for (const session of completedSessions) {
         // Skip if we already have this interview_id from MongoDB
@@ -1258,7 +1258,7 @@ export class AIReportGeneratorMongoDB {
         });
       }
     } catch (postgresError) {
-      console.error('❌ Error fetching from PostgreSQL:', postgresError);
+      console.error('Error fetching from PostgreSQL:', postgresError);
     }
     
     // Deduplicate by interview_id (prefer MongoDB data)
@@ -1271,27 +1271,27 @@ export class AIReportGeneratorMongoDB {
     }
     
     const finalCandidates = Array.from(candidateMap.values());
-    console.log(`✅ Generated ${finalCandidates.length} candidate summaries from transcript source`);
+    console.log(`Generated ${finalCandidates.length} candidate summaries from transcript source`);
     
     return finalCandidates;
   }
 
   async generateReport(): Promise<AIReportOutput> {
-    console.log('🤖 Starting AI report generation using transcript source...');
+    console.log('Starting AI report generation using transcript source...');
 
     // Use the same data source as Interview Transcripts for consistency
     let candidates: CandidateSummary[] = [];
     try {
       candidates = await this.generateCandidateSummariesFromTranscriptSource();
       
-      console.log(`📊 Generated ${candidates.length} candidates from transcript source`);
-      console.log(`📋 Candidate details:`, {
+      console.log(`Generated ${candidates.length} candidates from transcript source`);
+      console.log(`Candidate details:`, {
         count: candidates.length,
         names: candidates.map(c => c.name).slice(0, 10),
         roles: candidates.map(c => c.role).slice(0, 10)
       });
     } catch (error) {
-      console.error('❌ Error fetching candidate summaries from MongoDB or collection is empty:', error);
+      console.error('Error fetching candidate summaries from MongoDB or collection is empty:', error);
       // Fallback to PostgreSQL/MongoDB sessions when CandidateSummary is empty or doesn't exist
       console.log('⚠️ Falling back to PostgreSQL/MongoDB session method...');
       
@@ -1317,7 +1317,7 @@ export class AIReportGeneratorMongoDB {
       });
       
       const sessions = Array.from(sessionMap.values());
-      console.log(`📊 Fetched ${sessions.length} interview records (${postgresSessions.length} from PostgreSQL, ${mongoSessions.length} from MongoDB)`);
+      console.log(`Fetched ${sessions.length} interview records (${postgresSessions.length} from PostgreSQL, ${mongoSessions.length} from MongoDB)`);
 
       // Transform to candidate summaries
       candidates = sessions
@@ -1325,7 +1325,7 @@ export class AIReportGeneratorMongoDB {
           try {
             return this.extractCandidateData(session);
           } catch (error) {
-            console.error(`❌ Error extracting candidate data for session ${session.token}:`, error);
+            console.error(`Error extracting candidate data for session ${session.token}:`, error);
             return null;
           }
         })
@@ -1337,7 +1337,7 @@ export class AIReportGeneratorMongoDB {
         })
         .map(c => ({ ...c, name: c.name || 'Unknown', role: c.role || 'Position' }));
 
-      console.log(`✅ Generated ${candidates.length} candidate summaries from ${sessions.length} sessions`);
+      console.log(`Generated ${candidates.length} candidate summaries from ${sessions.length} sessions`);
     }
 
     // Ensure we have candidates before proceeding
@@ -1351,7 +1351,7 @@ export class AIReportGeneratorMongoDB {
         .lean();
       
       if (retrySummaries.length > 0) {
-        console.log(`✅ Found ${retrySummaries.length} candidates after backfill, reprocessing...`);
+        console.log(`Found ${retrySummaries.length} candidates after backfill, reprocessing...`);
         // Reprocess with backfilled data
         candidates = retrySummaries.map((summary: any) => {
           const convertToPercentage = (score: number): number => {
@@ -1384,7 +1384,7 @@ export class AIReportGeneratorMongoDB {
       }
     }
 
-    console.log(`📊 Final candidate count before metrics: ${candidates.length}`);
+    console.log(`Final candidate count before metrics: ${candidates.length}`);
     
     // Calculate metrics (will return zeros if no candidates)
     const summary = this.calculateMetrics(candidates);
@@ -1392,7 +1392,7 @@ export class AIReportGeneratorMongoDB {
     // Sort candidates by overall score (descending)
     const sortedCandidates = candidates.sort((a, b) => b.overall_score - a.overall_score);
     
-    console.log(`📊 Report summary:`, {
+    console.log(`Report summary:`, {
       totalCandidates: summary.total_candidates,
       sortedCandidatesCount: sortedCandidates.length,
       firstFewNames: sortedCandidates.slice(0, 5).map(c => c.name)
@@ -1435,7 +1435,7 @@ export class AIReportGeneratorMongoDB {
         summary: reportDoc.metrics
       });
     } catch (error) {
-      console.error('❌ Error saving report to MongoDB:', error);
+      console.error('Error saving report to MongoDB:', error);
       // Don't throw - allow function to complete even if MongoDB save fails
     }
 
@@ -1467,9 +1467,9 @@ export class AIReportGeneratorMongoDB {
       
       // If force refresh is requested, skip cache and generate new report
       if (forceRefresh) {
-        console.log('🔄 Force refresh requested, generating new report...');
+        console.log('Force refresh requested, generating new report...');
         const newReport = await this.generateReport();
-        console.log('✅ Generated new report:', {
+        console.log('Generated new report:', {
           totalCandidates: newReport.summary?.total_candidates || 0,
           candidatesCount: newReport.candidates?.length || 0
         });
@@ -1486,7 +1486,7 @@ export class AIReportGeneratorMongoDB {
         // This indicates new interviews have completed
         const actualCandidateCount = await CandidateSummaryModel.countDocuments({});
         
-        console.log('📊 Checking cached report:', {
+        console.log('Checking cached report:', {
           cachedCandidatesCount,
           cachedTotalCandidates,
           actualCandidateCount,
@@ -1507,7 +1507,7 @@ export class AIReportGeneratorMongoDB {
             const newReport = await this.generateReport();
             // Only use new report if it has candidates, otherwise return cached
             if (newReport.candidates.length > 0 || newReport.summary.total_candidates > 0) {
-              console.log('✅ Regenerated report with candidates:', {
+              console.log('Regenerated report with candidates:', {
                 totalCandidates: newReport.summary?.total_candidates || 0,
                 candidatesCount: newReport.candidates?.length || 0
               });
@@ -1516,10 +1516,10 @@ export class AIReportGeneratorMongoDB {
               console.log('⚠️ Regenerated report also has 0 candidates, returning cached');
             }
           } catch (regenerateError) {
-            console.error('❌ Error regenerating report, returning cached:', regenerateError);
+            console.error('Error regenerating report, returning cached:', regenerateError);
           }
         } else {
-          console.log('📊 Returning cached report from MongoDB:', {
+          console.log('Returning cached report from MongoDB:', {
             totalCandidates: cachedTotalCandidates,
             candidatesCount: cachedCandidatesCount
           });
@@ -1540,15 +1540,15 @@ export class AIReportGeneratorMongoDB {
       }
       
       // No report exists yet, generate one
-      console.log('📝 No cached report found, generating new report...');
+      console.log('No cached report found, generating new report...');
       const newReport = await this.generateReport();
-      console.log('✅ Generated new report:', {
+      console.log('Generated new report:', {
         totalCandidates: newReport.summary?.total_candidates || 0,
         candidatesCount: newReport.candidates?.length || 0
       });
       return newReport;
     } catch (error: any) {
-      console.error('❌ Error fetching latest report:', error);
+      console.error('Error fetching latest report:', error);
       // Return empty report structure instead of null to prevent frontend crashes
       return {
         summary: {

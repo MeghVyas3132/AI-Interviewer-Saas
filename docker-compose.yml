@@ -53,6 +53,12 @@ services:
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
       AI_SERVICE_MODEL: ${AI_SERVICE_MODEL}
+      # Groq API for ATS analysis
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_KEYS: ${GROQ_API_KEYS:-}
+      # Gemini API for fallback
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       # AI Interview Coach Service integration
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
       SYNC_API_KEY: ai-interviewer-sync-key-2024
@@ -101,6 +107,9 @@ services:
       PORT: 3000
       # Google Gemini API Key - required for AI interview agent
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-your_gemini_api_key_here}
+      # Backend URL for AI service to notify on interview completion
+      BACKEND_URL: http://backend:8000/api/v1
+      NEXT_PUBLIC_BACKEND_URL: http://backend:8000/api/v1
     # Port 3001 removed - AI service is accessed internally via frontend proxy
     # ports:
     #   - "3001:3000"

@@ -51,10 +51,10 @@ export class TranscriptAnalyzer {
       try {
         await this.analyzeTranscript(transcript._id.toString());
         analyzed++;
-        console.log(`✅ Analyzed transcript ${transcript._id}`);
+        console.log(`Analyzed transcript ${transcript._id}`);
       } catch (error) {
         const errorMsg = `Error analyzing transcript ${transcript._id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        console.error('❌', errorMsg);
+        console.error('[ERROR]', errorMsg);
         errors.push(errorMsg);
       }
     }
