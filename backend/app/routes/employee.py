@@ -535,15 +535,14 @@ async def schedule_interview(
         existing_result = await db.execute(existing_interview_query)
         existing_interview = existing_result.scalars().first()
 
-        if existing_interview:
-            scheduled_time_str = existing_interview.scheduled_time.isoformat() if existing_interview.scheduled_time else "unknown time"
-            logger.warning(f"Candidate {candidate_id} already has scheduled interview {existing_interview.id} at {scheduled_time_str}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Candidate already has a scheduled interview for {scheduled_time_str}. Cancel or complete that interview first."
-            )
+        # Flag to track if we're rescheduling
+        is_reschedule = existing_interview is not None
         
-        logger.info(f"No existing scheduled interview found for candidate {candidate_id}")
+        if existing_interview:
+            old_time_str = existing_interview.scheduled_time.isoformat() if existing_interview.scheduled_time else "unknown time"
+            logger.info(f"Rescheduling existing interview {existing_interview.id} from {old_time_str} for candidate {candidate_id}")
+        else:
+            logger.info(f"No existing scheduled interview found for candidate {candidate_id}, creating new one")
 
         # Parse scheduled time - the browser sends local time without timezone info
         # We need to interpret it in the user's timezone
@@ -579,24 +578,38 @@ async def schedule_interview(
                 detail=f"Invalid round. Must be one of: {valid_rounds}"
             )
 
-        # Generate AI interview token
+        # Generate AI interview token (new one for security)
         token = secrets.token_urlsafe(32)
 
-        # Create interview with AI token
-        interview = Interview(
-            company_id=current_user.company_id,
-            candidate_id=candidate_id,
-            interviewer_id=current_user.id,
-            created_by=current_user.id,
-            round=interview_round,
-            scheduled_time=scheduled_time,
-            timezone=request.timezone,
-            status=InterviewStatus.SCHEDULED,
-            notes=request.notes,
-            ai_interview_token=token,
-        )
-
-        db.add(interview)
+        if is_reschedule and existing_interview:
+            # Update existing interview instead of creating new one
+            existing_interview.scheduled_time = scheduled_time
+            existing_interview.timezone = request.timezone
+            existing_interview.round = interview_round
+            existing_interview.notes = request.notes
+            existing_interview.ai_interview_token = token  # Generate new token for security
+            existing_interview.interviewer_id = current_user.id
+            
+            interview = existing_interview
+            message = "Interview rescheduled successfully"
+            logger.info(f"Rescheduled interview {interview.id} to {scheduled_time}")
+        else:
+            # Create new interview with AI token
+            interview = Interview(
+                company_id=current_user.company_id,
+                candidate_id=candidate_id,
+                interviewer_id=current_user.id,
+                created_by=current_user.id,
+                round=interview_round,
+                scheduled_time=scheduled_time,
+                timezone=request.timezone,
+                status=InterviewStatus.SCHEDULED,
+                notes=request.notes,
+                ai_interview_token=token,
+            )
+            db.add(interview)
+            message = "Interview scheduled successfully"
+            logger.info(f"Created new interview for candidate {candidate_id}")
         
         # Update candidate status to interview_scheduled
         # Use .value to ensure lowercase value is sent to database
@@ -610,7 +623,7 @@ async def schedule_interview(
         await db.refresh(interview)
 
         return {
-            "message": "Interview scheduled successfully",
+            "message": message,
             "interview": {
                 "id": str(interview.id),
                 "candidate_id": str(candidate_id),
@@ -618,7 +631,8 @@ async def schedule_interview(
                 "scheduled_time": scheduled_time.isoformat(),
                 "status": "scheduled",
                 "ai_interview_token": token,
-                "interview_url": f"http://localhost:3000/interview/{token}"
+                "interview_url": f"http://localhost:3000/interview/{token}",
+                "is_reschedule": is_reschedule
             }
         }
     except HTTPException:
