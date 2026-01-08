@@ -351,26 +351,35 @@ export default function CandidateProfileModal({
                             </div>
                           </div>
                           
-                          {/* Scores */}
-                          {interview.overall_score !== undefined && (
+                          {/* Show message if interview is completed but no scores */}
+                          {interview.status?.toUpperCase() === 'COMPLETED' && interview.overall_score == null && (
+                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                              <p className="text-sm text-yellow-800">
+                                📊 AI analysis is being processed. Scores will appear shortly.
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* Scores - only show if overall_score has a value */}
+                          {interview.overall_score != null && interview.overall_score !== undefined && (
                             <div className="mt-3 grid grid-cols-4 gap-2">
                               <div className="bg-white p-2 rounded-lg text-center">
                                 <span className="text-xs text-gray-500 block">Overall</span>
                                 <span className="font-bold text-lg text-gray-900">{interview.overall_score}%</span>
                               </div>
-                              {interview.behavior_score !== undefined && (
+                              {interview.behavior_score != null && (
                                 <div className="bg-white p-2 rounded-lg text-center">
                                   <span className="text-xs text-gray-500 block">Behavior</span>
                                   <span className="font-bold text-lg text-blue-600">{interview.behavior_score}%</span>
                                 </div>
                               )}
-                              {interview.confidence_score !== undefined && (
+                              {interview.confidence_score != null && (
                                 <div className="bg-white p-2 rounded-lg text-center">
                                   <span className="text-xs text-gray-500 block">Confidence</span>
                                   <span className="font-bold text-lg text-purple-600">{interview.confidence_score}%</span>
                                 </div>
                               )}
-                              {interview.answer_score !== undefined && (
+                              {interview.answer_score != null && (
                                 <div className="bg-white p-2 rounded-lg text-center">
                                   <span className="text-xs text-gray-500 block">Answers</span>
                                   <span className="font-bold text-lg text-green-600">{interview.answer_score}%</span>
@@ -405,18 +414,20 @@ export default function CandidateProfileModal({
                             </div>
                           )}
 
-                          {/* Stats */}
-                          <div className="mt-2 flex gap-4 text-sm text-gray-500">
-                            {interview.duration_seconds && (
-                              <span>Duration: {formatDuration(interview.duration_seconds)}</span>
-                            )}
-                            {interview.total_questions !== undefined && (
-                              <span>Questions: {interview.total_questions}</span>
-                            )}
-                            {interview.total_answers !== undefined && (
-                              <span>Answers: {interview.total_answers}</span>
-                            )}
-                          </div>
+                          {/* Stats - only show if we have values */}
+                          {(interview.duration_seconds != null || interview.total_questions != null || interview.total_answers != null) && (
+                            <div className="mt-2 flex gap-4 text-sm text-gray-500">
+                              {interview.duration_seconds != null && (
+                                <span>Duration: {formatDuration(interview.duration_seconds)}</span>
+                              )}
+                              {interview.total_questions != null && (
+                                <span>Questions: {interview.total_questions}</span>
+                              )}
+                              {interview.total_answers != null && (
+                                <span>Answers: {interview.total_answers}</span>
+                              )}
+                            </div>
+                          )}
 
                           {/* Summary */}
                           {interview.summary && (
@@ -431,8 +442,8 @@ export default function CandidateProfileModal({
                             </div>
                           )}
 
-                          {/* ATS Score */}
-                          {interview.ats_score !== undefined && (
+                          {/* ATS Score - only show if we have a value */}
+                          {interview.ats_score != null && (
                             <div className="mt-2">
                               <span className="text-sm text-gray-500">ATS Score: </span>
                               <span className="font-semibold text-primary-600">{interview.ats_score}%</span>
