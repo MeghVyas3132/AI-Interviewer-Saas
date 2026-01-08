@@ -194,7 +194,7 @@ export default function CandidatePortalPage() {
         <div className="bg-white rounded-2xl p-8 mb-8 shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back, {user?.name?.split(' ')[0]}!</h1>
-            <p className="text-gray-500">You have {interviews.filter(i => i.status === 'scheduled').length} upcoming interviews.</p>
+            <p className="text-gray-500">You have {interviews.filter(i => i.status?.toLowerCase() === 'scheduled').length} upcoming interviews.</p>
             <div className="flex gap-3 mt-4">
               <a
                 href="/candidate-portal/ats"
@@ -215,7 +215,7 @@ export default function CandidatePortalPage() {
           </div>
           <div className="mt-4 md:mt-0">
             {(() => {
-              const scheduledInterviews = interviews.filter(i => i.status === 'scheduled');
+              const scheduledInterviews = interviews.filter(i => i.status?.toLowerCase() === 'scheduled');
               const hasScheduledInterview = scheduledInterviews.length > 0;
               const nextInterview = scheduledInterviews[0];
               const isInterviewReady = hasScheduledInterview && nextInterview && 
@@ -252,13 +252,13 @@ export default function CandidatePortalPage() {
             <h2 className="text-lg font-semibold text-gray-900">Your Schedule</h2>
           </div>
           <div className="divide-y divide-gray-100">
-            {interviews.filter(i => i.status === 'scheduled').length === 0 ? (
+            {interviews.filter(i => i.status?.toLowerCase() === 'scheduled').length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-gray-500">No interviews scheduled at the moment.</p>
               </div>
             ) : (
               interviews
-                .filter(i => i.status === 'scheduled')
+                .filter(i => i.status?.toLowerCase() === 'scheduled')
                 .map((interview) => {
                   const isReady = isInterviewTimeReady(interview.scheduled_time)
                   const timeUntil = getTimeUntilInterview(interview.scheduled_time)
