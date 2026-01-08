@@ -43,15 +43,27 @@ async def get_my_info(
     Get candidate's own information including company, role applied for, and mentor.
     """
     try:
-        # Get candidate record by email
+        # Normalize email for case-insensitive matching
+        from sqlalchemy import func
+        user_email = current_user.email.lower().strip() if current_user.email else ""
+        
+        # Get candidate record by email (case-insensitive)
         candidate_query = select(Candidate).filter(
             and_(
-                Candidate.email == current_user.email,
+                func.lower(Candidate.email) == user_email,
                 Candidate.company_id == current_user.company_id
             )
         )
         result = await db.execute(candidate_query)
         candidate = result.scalars().first()
+        
+        # Fallback: try just by email if company-specific lookup fails
+        if not candidate:
+            candidate_query = select(Candidate).filter(
+                func.lower(Candidate.email) == user_email
+            )
+            result = await db.execute(candidate_query)
+            candidate = result.scalars().first()
 
         if not candidate:
             raise HTTPException(
@@ -115,28 +127,40 @@ async def get_my_interviews(
     """
     Get all interviews scheduled for the candidate.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        # Normalize email for case-insensitive matching
+        user_email = current_user.email.lower().strip() if current_user.email else ""
+        logger.info(f"Looking up interviews for candidate email: {user_email}, company_id: {current_user.company_id}")
+        
         # Get candidate record by email - search across all companies the candidate may have applied to
-        # First try exact company match
+        # First try exact company match (case-insensitive email)
+        from sqlalchemy import func
         candidate_query = select(Candidate).filter(
             and_(
-                Candidate.email == current_user.email,
+                func.lower(Candidate.email) == user_email,
                 Candidate.company_id == current_user.company_id
             )
         )
         result = await db.execute(candidate_query)
         candidate = result.scalars().first()
+        
+        logger.info(f"Company-specific candidate lookup result: {candidate.id if candidate else 'None'}")
 
         # If not found, try just by email (candidate may have applied to multiple companies)
         if not candidate:
             candidate_query = select(Candidate).filter(
-                Candidate.email == current_user.email
+                func.lower(Candidate.email) == user_email
             )
             result = await db.execute(candidate_query)
             candidate = result.scalars().first()
+            logger.info(f"Email-only candidate lookup result: {candidate.id if candidate else 'None'}")
 
         if not candidate:
             # No candidate record yet - return empty interviews (not an error)
+            logger.warning(f"No candidate record found for email: {user_email}")
             return {
                 "interviews": [],
                 "mentor": None,
@@ -151,6 +175,8 @@ async def get_my_interviews(
         ).order_by(Interview.scheduled_time.asc())
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
+        
+        logger.info(f"Found {len(interviews)} interviews for candidate {candidate.id}")
 
         # Get mentor info if assigned
         mentor_info = None
