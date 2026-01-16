@@ -176,82 +176,94 @@ class EmailService:
 # CELERY TASKS FOR ASYNC EMAIL SENDING
 # ============================================================================
 
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import sessionmaker as orm_sessionmaker
+
+
+def get_fresh_async_session():
+    """Create a fresh database engine and session for Celery tasks to avoid connection pool issues."""
+    engine = create_async_engine(
+        settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
+        echo=False,
+        pool_pre_ping=True,
+    )
+    async_session = orm_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    return async_session, engine
+
 
 @celery_app.task(
     name="tasks.send_email",
     bind=True,
     max_retries=3,
     default_retry_delay=60,
-    autoretry_for=(Exception,),
 )
-async def send_email_task(self, email_id: str):
+def send_email_task(self, email_id: str):
     """
     Celery task to send email from queue
     Retries up to 3 times with exponential backoff
     """
-    try:
-        logger.info(f"Starting email send for ID: {email_id}")
-        
-        # Get database session
-        async with get_db_session() as session:
-            # Fetch email from queue
-            result = await session.execute(
-                select(EmailQueue).where(EmailQueue.id == UUID(email_id))
-            )
-            email_queue = result.scalar_one_or_none()
-            
-            if not email_queue:
-                logger.error(f"Email not found in queue: {email_id}")
-                return
-            
-            # Update status to SENDING
-            email_queue.status = EmailStatus.SENDING
-            await session.commit()
-            
-            # Send email via provider
+    async def _run():
+        async_session, engine = get_fresh_async_session()
+        async with async_session() as session:
             try:
-                provider_id = await EmailService._send_via_provider(email_queue)
+                logger.info(f"Starting email send for ID: {email_id}")
                 
-                # Update with success
-                email_queue.status = EmailStatus.SENT
-                email_queue.email_provider_id = provider_id
-                email_queue.retry_count = 0
-                from datetime import datetime
-                email_queue.sent_at = datetime.utcnow()
+                # Fetch email from queue
+                result = await session.execute(
+                    select(EmailQueue).where(EmailQueue.id == UUID(email_id))
+                )
+                email_queue = result.scalar_one_or_none()
+                
+                if not email_queue:
+                    logger.error(f"Email not found in queue: {email_id}")
+                    return
+                
+                # Update status to SENDING
+                email_queue.status = EmailStatus.SENDING
                 await session.commit()
                 
-                logger.info(f"Email sent successfully: {email_id} (Provider ID: {provider_id})")
-                
-            except Exception as send_error:
-                logger.error(f"Error sending email: {str(send_error)}", exc_info=True)
-                
-                # Handle retry logic
-                email_queue.retry_count += 1
-                email_queue.error_message = str(send_error)
-                
-                if email_queue.retry_count < email_queue.max_retries:
-                    email_queue.status = EmailStatus.QUEUED
+                # Send email via provider
+                try:
+                    provider_id = await EmailProviderService._send_via_provider(email_queue)
+                    
+                    # Update with success
+                    email_queue.status = EmailStatus.SENT
+                    email_queue.email_provider_id = provider_id
+                    email_queue.retry_count = 0
+                    from datetime import datetime
+                    email_queue.sent_at = datetime.utcnow()
                     await session.commit()
                     
-                    # Retry with exponential backoff
-                    retry_delay = 60 * (2 ** (email_queue.retry_count - 1))
-                    logger.warning(
-                        f"Retrying email {email_id} in {retry_delay}s "
-                        f"(Attempt {email_queue.retry_count}/{email_queue.max_retries})"
-                    )
-                    raise self.retry(countdown=retry_delay)
-                else:
-                    # Mark as failed after max retries
-                    email_queue.status = EmailStatus.FAILED
-                    await session.commit()
-                    logger.error(f"Email failed after {email_queue.max_retries} retries: {email_id}")
+                    logger.info(f"Email sent successfully: {email_id} (Provider ID: {provider_id})")
                     
-    except self.retry.retry_later():
-        # Celery retry
-        pass
+                except Exception as send_error:
+                    logger.error(f"Error sending email: {str(send_error)}", exc_info=True)
+                    
+                    # Handle retry logic
+                    email_queue.retry_count += 1
+                    email_queue.error_message = str(send_error)
+                    
+                    if email_queue.retry_count < email_queue.max_retries:
+                        email_queue.status = EmailStatus.QUEUED
+                        await session.commit()
+                        raise send_error
+                    else:
+                        # Mark as failed after max retries
+                        email_queue.status = EmailStatus.FAILED
+                        await session.commit()
+                        logger.error(f"Email failed after {email_queue.max_retries} retries: {email_id}")
+            finally:
+                await session.close()
+        await engine.dispose()
+    
+    try:
+        asyncio.run(_run())
     except Exception as e:
         logger.error(f"Unexpected error in send_email_task: {str(e)}", exc_info=True)
-        raise
+        # Retry with exponential backoff
+        retry_delay = 60 * (2 ** self.request.retries)
+        raise self.retry(exc=e, countdown=retry_delay)
 
 
 @celery_app.task(
@@ -259,7 +271,7 @@ async def send_email_task(self, email_id: str):
     bind=True,
     max_retries=3,
 )
-async def send_bulk_emails_task(self, email_ids: List[str]):
+def send_bulk_emails_task(self, email_ids: List[str]):
     """
     Celery task to send multiple emails
     Distributes across multiple send_email tasks

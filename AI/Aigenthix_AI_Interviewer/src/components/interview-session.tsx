@@ -9,6 +9,7 @@ import { generateIceBreakerQuestion } from "@/ai/flows/ice-breaker-generator";
 import { useToast } from "@/hooks/use-toast";
 import { useIdleDetection } from "@/hooks/use-idle-detection";
 import { useAssemblyAIRealtime } from "@/hooks/use-assemblyai-realtime";
+import { useNativeSpeechRecognition } from "@/hooks/use-native-speech";
 
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
@@ -230,6 +231,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const bottomRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
+  // AssemblyAI Realtime Speech Recognition (primary - uses WebSocket proxy)
   const {
     start: startAssemblyRealtime,
     stop: stopAssemblyRealtime,
@@ -240,10 +242,46 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     segments: assemblySegments,
   } = useAssemblyAIRealtime();
 
+  // Native Browser Speech Recognition (fallback - no external service needed)
+  const {
+    start: startNativeSpeech,
+    stop: stopNativeSpeech,
+    resetTranscripts: resetNativeTranscripts,
+    status: nativeStatus,
+    error: nativeError,
+    partialTranscript: nativePartialTranscript,
+    segments: nativeSegments,
+    isSupported: isNativeSpeechSupported,
+  } = useNativeSpeechRecognition();
+
+  // Track which speech recognition mode we're using
+  const [useFallbackSpeech, setUseFallbackSpeech] = useState(false);
+  const assemblyFailedRef = useRef(false);
+
+  // Unified speech status - prefer AssemblyAI, fallback to native
+  const speechStatus = useFallbackSpeech ? nativeStatus : assemblyStatus;
+  const speechError = useFallbackSpeech ? nativeError : assemblyError;
+  const speechPartialTranscript = useFallbackSpeech ? nativePartialTranscript : assemblyPartialTranscript;
+  const speechSegments = useFallbackSpeech ? nativeSegments : assemblySegments;
+
   const assemblyFinalTranscript = useMemo(
-    () => assemblySegments.map(segment => segment.text).join(' ').trim(),
-    [assemblySegments],
+    () => speechSegments.map((segment: { text: string }) => segment.text).join(' ').trim(),
+    [speechSegments],
   );
+
+  // Detect AssemblyAI failure and switch to fallback
+  useEffect(() => {
+    if (assemblyStatus === 'error' && !assemblyFailedRef.current && isNativeSpeechSupported) {
+      console.log('[Speech] AssemblyAI failed, switching to native browser speech recognition');
+      assemblyFailedRef.current = true;
+      setUseFallbackSpeech(true);
+      toast({
+        title: "Switching to browser speech",
+        description: "Using browser's built-in speech recognition",
+        variant: "default",
+      });
+    }
+  }, [assemblyStatus, isNativeSpeechSupported, toast]);
 
   
   useEffect(() => {
@@ -606,40 +644,64 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
     if (shouldListen) {
       if (!wasListening) {
-        if (DEBUG_SPEECH) console.log('Starting AssemblyAI listening session');
-        resetAssemblyTranscripts();
+        if (DEBUG_SPEECH) console.log('[Speech] Starting listening session, fallback mode:', useFallbackSpeech);
+        if (useFallbackSpeech) {
+          resetNativeTranscripts();
+        } else {
+          resetAssemblyTranscripts();
+        }
         lastTranscriptFromNative.current = '';
       }
       shouldBeListening.current = true;
-      void startAssemblyRealtime();
+      
+      // Start appropriate speech recognition
+      if (useFallbackSpeech) {
+        void startNativeSpeech();
+      } else {
+        void startAssemblyRealtime();
+      }
       setSpeechRecognitionIssue(false);
     } else {
       if (wasListening) {
-        if (DEBUG_SPEECH) console.log('Stopping AssemblyAI listening session');
-        resetAssemblyTranscripts();
+        if (DEBUG_SPEECH) console.log('[Speech] Stopping listening session');
+        if (useFallbackSpeech) {
+          resetNativeTranscripts();
+        } else {
+          resetAssemblyTranscripts();
+        }
         lastTranscriptFromNative.current = '';
       }
       shouldBeListening.current = false;
-      stopAssemblyRealtime();
+      
+      // Stop appropriate speech recognition
+      if (useFallbackSpeech) {
+        stopNativeSpeech();
+      } else {
+        stopAssemblyRealtime();
+      }
     }
   }, [
     conversationState,
     isMuted,
     interviewMode,
     isPaused,
+    useFallbackSpeech,
     startAssemblyRealtime,
     stopAssemblyRealtime,
     resetAssemblyTranscripts,
+    startNativeSpeech,
+    stopNativeSpeech,
+    resetNativeTranscripts,
   ]);
 
-  // AssemblyAI status tracking for issue indicator
+  // Speech status tracking for issue indicator
   useEffect(() => {
-    if (assemblyStatus === 'error') {
+    if (speechStatus === 'error') {
       setSpeechRecognitionIssue(true);
-    } else if (assemblyStatus === 'listening') {
+    } else if (speechStatus === 'listening') {
       setSpeechRecognitionIssue(false);
     }
-  }, [assemblyStatus]);
+  }, [speechStatus]);
 
   useEffect(() => {
     if (assemblyError) {
@@ -1306,22 +1368,31 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     isTTSPlaying.current = false;
   };
 
-  // Function to temporarily pause AssemblyAI streaming during TTS
+  // Function to temporarily pause speech recognition streaming during TTS
   const muteMicrophoneForTTS = () => {
     if (interviewMode !== 'voice') return;
     shouldBeListening.current = false;
     lastTranscriptFromNative.current = '';
-    stopAssemblyRealtime();
+    if (useFallbackSpeech) {
+      stopNativeSpeech();
+    } else {
+      stopAssemblyRealtime();
+    }
   };
 
-  // Function to resume AssemblyAI streaming after TTS
+  // Function to resume speech recognition streaming after TTS
   const unmuteMicrophoneAfterTTS = () => {
     if (interviewMode !== 'voice') return;
     shouldBeListening.current = true;
     if (conversationStateRef.current === 'listening' && !isMuted && !isPaused) {
-      resetAssemblyTranscripts();
+      if (useFallbackSpeech) {
+        resetNativeTranscripts();
+        void startNativeSpeech();
+      } else {
+        resetAssemblyTranscripts();
+        void startAssemblyRealtime();
+      }
       lastTranscriptFromNative.current = '';
-      void startAssemblyRealtime();
     }
   };
 
@@ -1330,7 +1401,11 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     setTranscript("");
     transcriptRef.current = "";
     lastTranscriptFromNative.current = "";
-    resetAssemblyTranscripts();
+    if (useFallbackSpeech) {
+      resetNativeTranscripts();
+    } else {
+      resetAssemblyTranscripts();
+    }
     // Reset response type tracking counters
     speechUpdateCount.current = 0;
     manualEditCount.current = 0;
@@ -2724,6 +2799,22 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             utterance.rate = 1;
             utterance.pitch = 1;
             utterance.volume = 1;
+            
+            // Select a female voice for consistent experience
+            const voices = speechSynthesis.getVoices();
+            const femaleVoice = voices.find(v => 
+              v.name.toLowerCase().includes('female') ||
+              v.name.toLowerCase().includes('samantha') ||
+              v.name.toLowerCase().includes('victoria') ||
+              v.name.toLowerCase().includes('karen') ||
+              v.name.toLowerCase().includes('moira') ||
+              v.name.toLowerCase().includes('tessa') ||
+              (v.name.includes('Google') && v.name.includes('Female'))
+            ) || voices.find(v => v.lang.startsWith('en'));
+            
+            if (femaleVoice) {
+              utterance.voice = femaleVoice;
+            }
             
             // Play using Web Speech API
             speechSynthesis.speak(utterance);

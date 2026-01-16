@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         body: JSON.stringify({
           model: 'tts-1',
           input: text,
-          voice: 'alloy',
+          voice: 'nova', // Female voice for consistent experience
           ...(language ? { language } : {}),
         }),
       });

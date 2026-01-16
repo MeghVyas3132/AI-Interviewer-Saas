@@ -173,6 +173,11 @@ export default function EmployeeDashboardPage() {
 
   // Assign job role to candidate
   const handleAssignJobRole = async (candidateId: string, jobId: string) => {
+    // Don't make API call if empty value selected
+    if (!jobId || jobId.trim() === '') {
+      return
+    }
+    
     try {
       setError('')
       await apiClient.put(`/employee/my-candidates/${candidateId}/assign-job`, { job_id: jobId })
@@ -191,13 +196,33 @@ export default function EmployeeDashboardPage() {
   const handleUpdateStatus = async (candidateId: string, newStatus: string) => {
     try {
       setError('')
-      await apiClient.put(`/employee/my-candidates/${candidateId}/status`, { status: newStatus })
+      const response = await apiClient.put<{
+        message: string
+        candidate_id: string
+        status: string
+        scheduled_deletion?: boolean
+        deletion_in_minutes?: number
+      }>(`/employee/my-candidates/${candidateId}/status`, { status: newStatus })
 
       setCandidates(candidates.map(c =>
         c.id === candidateId ? { ...c, status: newStatus } : c
       ))
-      setSuccess('Status updated successfully')
-      setTimeout(() => setSuccess(''), 3000)
+      
+      // Show special warning for rejected/failed candidates
+      if (newStatus === 'failed') {
+        const deletionScheduled = response.scheduled_deletion
+        if (deletionScheduled) {
+          setSuccess('Candidate marked as FAILED. They will be automatically deleted in 10 minutes.')
+          // Show longer for rejection warning
+          setTimeout(() => setSuccess(''), 8000)
+        } else {
+          setSuccess('Candidate marked as FAILED.')
+          setTimeout(() => setSuccess(''), 3000)
+        }
+      } else {
+        setSuccess('Status updated successfully')
+        setTimeout(() => setSuccess(''), 3000)
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update status')
     }
@@ -207,6 +232,12 @@ export default function EmployeeDashboardPage() {
   const handleScheduleInterview = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedCandidate) return
+
+    // Check if candidate has a job role assigned - required for AI interview
+    if (!selectedCandidate.job_role_id) {
+      setError('Please assign a job role to this candidate before scheduling an interview. The AI interviewer needs a job role to ask relevant questions.')
+      return
+    }
 
     // Check if candidate already has a scheduled interview
     if (selectedCandidate.scheduled_at) {
@@ -591,12 +622,13 @@ export default function EmployeeDashboardPage() {
                             onChange={(e) => handleUpdateStatus(candidate.id, e.target.value)}
                             className="text-sm font-medium text-gray-900 bg-transparent border-0 p-0 pr-6 focus:ring-0 cursor-pointer hover:text-primary-600"
                           >
-                            <option value="applied">Applied</option>
-                            <option value="screening">Screening</option>
-                            <option value="interview">Interview</option>
-                            <option value="offered">Offered</option>
-                            <option value="hired">Hired</option>
-                            <option value="rejected">Rejected</option>
+                            <option value="uploaded">Uploaded</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="interview_scheduled">Interview Scheduled</option>
+                            <option value="interview_completed">Interview Completed</option>
+                            <option value="passed">Passed</option>
+                            <option value="failed">Failed</option>
+                            <option value="review">Under Review</option>
                           </select>
                         </div>
                         <div>
@@ -894,6 +926,29 @@ export default function EmployeeDashboardPage() {
                   <p className="text-sm text-gray-500">{selectedCandidate.email}</p>
                 </div>
               </div>
+              {/* Job Role Status */}
+              <div className="mt-3">
+                {selectedCandidate.job_role_id ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-gray-500">Job Role:</span>
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">
+                      {jobs.find(j => j.id === selectedCandidate.job_role_id)?.title || 'Assigned'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mt-2">
+                    <div className="flex items-start gap-2">
+                      <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div>
+                        <p className="text-amber-800 font-medium text-sm">No Job Role Assigned</p>
+                        <p className="text-amber-700 text-xs mt-0.5">Please assign a job role from the Candidates tab before scheduling.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Form */}
@@ -979,7 +1034,7 @@ export default function EmployeeDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={scheduling || !scheduleForm.scheduled_time}
+                  disabled={scheduling || !scheduleForm.scheduled_time || !selectedCandidate.job_role_id}
                   className="flex-1 px-4 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-medium hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
                 >
                   {scheduling ? (

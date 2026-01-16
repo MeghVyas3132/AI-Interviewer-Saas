@@ -261,7 +261,7 @@ async def get_candidate_detailed_profile(
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
                 "qa_pairs": qa_pairs,
-                "resume_text": provider_response.get("resume_text", ""),
+                "resume_text": provider_response.get("resume_text", "") or getattr(candidate, 'resume_text', "") or "",
                 "resume_filename": provider_response.get("resume_filename", ""),
                 "ats_score": getattr(interview, 'ats_score', None),
                 "employee_verdict": getattr(interview, 'employee_verdict', None),
@@ -392,10 +392,31 @@ async def update_candidate_status(
         candidate.status = new_status
         await db.commit()
 
+        # If candidate is rejected/failed, schedule deletion after 10 minutes
+        scheduled_deletion = False
+        rejection_statuses = [CandidateStatus.REJECTED, CandidateStatus.FAILED, CandidateStatus.AUTO_REJECTED]
+        if new_status in rejection_statuses:
+            try:
+                from app.core.celery_config import celery_app
+                # Schedule deletion task to run after 10 minutes (600 seconds)
+                celery_app.send_task(
+                    "tasks.delete_rejected_candidate",
+                    args=[str(candidate_id)],
+                    countdown=600  # 10 minutes
+                )
+                scheduled_deletion = True
+            except Exception as task_error:
+                import traceback
+                traceback.print_exc()
+                # Don't fail the status update if task scheduling fails
+                pass
+
         return {
             "message": f"Candidate status updated to {new_status.value}",
             "candidate_id": str(candidate_id),
-            "status": new_status.value
+            "status": new_status.value,
+            "scheduled_deletion": scheduled_deletion,
+            "deletion_in_minutes": 10 if scheduled_deletion else None
         }
     except HTTPException:
         raise
@@ -424,6 +445,13 @@ async def assign_job_role(
     The job_id refers to a JobTemplate which contains the AI-generated interview questions.
     """
     try:
+        # Validate job_id is not empty
+        if not request.job_id or request.job_id.strip() == '':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please select a valid job role"
+            )
+
         # Verify candidate is assigned to this employee
         query = select(Candidate).filter(
             and_(
@@ -523,6 +551,13 @@ async def schedule_interview(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Candidate not found or not assigned to you"
+            )
+
+        # Require job role for AI interview to work properly
+        if not candidate.job_template_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please assign a job role to this candidate before scheduling an interview. The AI interviewer requires a job role to ask relevant questions."
             )
 
         # Check for existing scheduled interview for this candidate

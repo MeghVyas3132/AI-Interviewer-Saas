@@ -24,7 +24,11 @@ celery_app = Celery(
 
 # Ensure task modules are imported so worker registers tasks defined in app.tasks
 # Set explicit imports so the worker imports the module on startup
-celery_app.conf.imports = tuple(list(getattr(celery_app.conf, "imports", ())) + ["app.tasks.ai_tasks"])
+celery_app.conf.imports = tuple(list(getattr(celery_app.conf, "imports", ())) + [
+    "app.tasks.ai_tasks",
+    "app.tasks.candidate_tasks",  # Contains delete_rejected_candidate task
+    "app.services.email_async_service",  # Contains tasks.send_email task
+])
 
 # Also import the tasks module directly to ensure decorators run and register tasks in this process
 try:
@@ -32,6 +36,18 @@ try:
     logger.info("Imported app.tasks.ai_tasks for Celery task registration")
 except Exception:
     logger.exception("Failed to import app.tasks.ai_tasks for Celery task registration")
+
+try:
+    import app.tasks.candidate_tasks  # noqa: F401 (import for side-effects)
+    logger.info("Imported app.tasks.candidate_tasks for Celery task registration")
+except Exception:
+    logger.exception("Failed to import app.tasks.candidate_tasks for Celery task registration")
+
+try:
+    import app.services.email_async_service  # noqa: F401 (import for side-effects)
+    logger.info("Imported app.services.email_async_service for Celery task registration")
+except Exception:
+    logger.exception("Failed to import app.services.email_async_service for Celery task registration")
 else:
     # Ensure any task objects defined in the module are registered with this Celery app.
     try:

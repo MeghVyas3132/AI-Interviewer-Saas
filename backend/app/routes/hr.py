@@ -319,7 +319,7 @@ async def get_candidate_detailed_profile_hr(
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
                 "qa_pairs": qa_pairs,
-                "resume_text": provider_response.get("resume_text", ""),
+                "resume_text": provider_response.get("resume_text", "") or getattr(candidate, 'resume_text', "") or "",
                 "resume_filename": provider_response.get("resume_filename", ""),
                 "ats_score": getattr(interview, 'ats_score', None) or candidate.ats_score,
                 "employee_verdict": getattr(interview, 'employee_verdict', None),
@@ -372,7 +372,7 @@ async def get_candidate_detailed_profile_hr(
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
                 "qa_pairs": qa_pairs,
-                "resume_text": provider_response.get("resume_text", ""),
+                "resume_text": provider_response.get("resume_text", "") or getattr(candidate, 'resume_text', "") or "",
                 "resume_filename": provider_response.get("resume_filename", ""),
                 "ats_score": candidate.ats_score,
                 "employee_verdict": None,
@@ -1156,6 +1156,22 @@ async def ai_interview_complete_by_token(
     from app.models.interview_session import InterviewSession
     import json
     
+    # Helper function to sanitize strings - removes null characters that PostgreSQL cannot store
+    def sanitize_for_postgres(obj):
+        """Recursively clean data of null characters that break PostgreSQL text fields"""
+        if obj is None:
+            return None
+        if isinstance(obj, str):
+            return obj.replace('\u0000', '').replace('\x00', '')
+        elif isinstance(obj, dict):
+            return {k: sanitize_for_postgres(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [sanitize_for_postgres(item) for item in obj]
+        return obj
+    
+    # Sanitize all incoming data before processing
+    transcript_data = sanitize_for_postgres(transcript_data)
+    
     try:
         # Find interview session by token
         session_query = select(InterviewSession).filter(InterviewSession.token == token)
@@ -1306,9 +1322,31 @@ async def ai_interview_complete_by_token(
             if hasattr(interview, 'ai_recommendation'):
                 interview.ai_recommendation = verdict
         
+        # Update candidate status based on AI verdict
+        scheduled_deletion = False
+        if candidate:
+            if verdict == "PASS":
+                candidate.status = CandidateStatus.PASSED
+            elif verdict == "FAIL":
+                candidate.status = CandidateStatus.FAILED
+                # Schedule deletion for failed/auto-rejected candidates
+                try:
+                    from app.core.celery_config import celery_app
+                    celery_app.send_task(
+                        "tasks.delete_rejected_candidate",
+                        args=[str(candidate.id)],
+                        countdown=600  # 10 minutes
+                    )
+                    scheduled_deletion = True
+                    logger.info(f"Scheduled deletion for auto-rejected candidate {candidate.id}")
+                except Exception as task_error:
+                    logger.warning(f"Failed to schedule deletion for candidate {candidate.id}: {task_error}")
+            else:  # REVIEW or NEUTRAL
+                candidate.status = CandidateStatus.REVIEW
+        
         await db.commit()
         
-        logger.info(f"AIReport created for token {token}: score={overall_score}, verdict={verdict}")
+        logger.info(f"AIReport created for token {token}: score={overall_score}, verdict={verdict}, scheduled_deletion={scheduled_deletion}")
         
         return {
             "status": "success",
@@ -1345,6 +1383,23 @@ async def save_interview_transcript(
     from app.models.company import Company
     from app.models.ai_report import AIReport
     import json
+    
+    # Helper function to sanitize strings - removes null characters that PostgreSQL cannot store
+    def sanitize_for_postgres(obj):
+        """Recursively clean data of null characters that break PostgreSQL text fields"""
+        if obj is None:
+            return None
+        if isinstance(obj, str):
+            # Remove null bytes and null unicode characters
+            return obj.replace('\u0000', '').replace('\x00', '')
+        elif isinstance(obj, dict):
+            return {k: sanitize_for_postgres(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [sanitize_for_postgres(item) for item in obj]
+        return obj
+    
+    # Sanitize all incoming data before processing
+    transcript_data = sanitize_for_postgres(transcript_data)
     
     try:
         interview_uuid = UUID(interview_id)

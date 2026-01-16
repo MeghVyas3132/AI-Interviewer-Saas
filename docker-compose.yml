@@ -152,6 +152,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+      # Groq API for question generation
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_KEYS: ${GROQ_API_KEYS:-}
     command: ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info"]
     networks:
       - app-network
