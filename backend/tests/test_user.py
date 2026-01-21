@@ -69,8 +69,8 @@ async def test_update_user(test_db, sample_company_data, sample_user_data):
     user = await UserService.create_user(test_db, company.id, user_create)
 
     # Update user
-    update_data = UserUpdate(name="Updated Name", role=UserRole.TEAM_LEAD)
+    update_data = UserUpdate(name="Updated Name", role=UserRole.HR)
     updated_user = await UserService.update_user(test_db, user.id, update_data)
 
     assert updated_user.name == "Updated Name"
-    assert updated_user.role == UserRole.TEAM_LEAD
+    assert updated_user.role == UserRole.HR

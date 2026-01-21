@@ -330,6 +330,22 @@ async def submit_employee_verdict(
         
         # Update employee verdict
         interview.employee_verdict = request.verdict
+        
+        # Update candidate status based on verdict
+        if interview.candidate_id:
+            from sqlalchemy import text
+            if request.verdict.upper() in ["APPROVE", "PASS", "ACCEPTED"]:
+                new_status = "passed"
+            elif request.verdict.upper() in ["REJECT", "FAIL", "REJECTED"]:
+                new_status = "failed"
+            else:
+                new_status = "review"  # NEUTRAL or other verdicts go to review
+            
+            await db.execute(
+                text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+                {"status": new_status, "id": str(interview.candidate_id)}
+            )
+        
         await db.commit()
         
         return {

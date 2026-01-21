@@ -2,32 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  // CORS configuration
-  const origin = request.headers.get('origin');
-  const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001'];
-  const isAllowedOrigin = origin && allowedOrigins.includes(origin);
-
-  // Handle preflight OPTIONS requests
-  if (request.method === 'OPTIONS') {
-    const preflightHeaders = {
-      ...(isAllowedOrigin && { 'Access-Control-Allow-Origin': origin }),
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Max-Age': '86400',
-    };
-    return new NextResponse(null, { status: 204, headers: preflightHeaders });
-  }
-
   const response = NextResponse.next();
-
-  // Add CORS headers to all responses
-  if (isAllowedOrigin) {
-    response.headers.set('Access-Control-Allow-Origin', origin);
-  }
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  response.headers.set('Access-Control-Allow-Credentials', 'true');
 
   // Security Headers - OWASP Best Practices
   // Content Security Policy
@@ -61,16 +36,13 @@ export function middleware(request: NextRequest) {
     "worker-src 'self' https://cdnjs.cloudflare.com blob:",
     "base-uri 'self'",
     "form-action 'self'",
-    // Allow embedding from the main frontend and from the AI service itself.
-    // This lets http://localhost:3000 (and the AI app at 3001) iframe the AI UI.
-    "frame-ancestors 'self' http://localhost:3000 http://localhost:3001",
+    "frame-ancestors 'none'",
     "upgrade-insecure-requests",
   ];
   response.headers.set('Content-Security-Policy', cspDirectives.join('; '));
 
   // Anti-clickjacking
-  // Rely primarily on CSP's frame-ancestors; allow same-origin iframes.
-  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  response.headers.set('X-Frame-Options', 'DENY');
 
   // Prevent MIME type sniffing
   response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -95,7 +67,7 @@ export function middleware(request: NextRequest) {
   // Prevent caching of sensitive data
   const sensitivePaths = ['/admin', '/api/admin', '/api/interview', '/reports'];
   const isSensitivePath = sensitivePaths.some(path => request.nextUrl.pathname.startsWith(path));
-
+  
   if (isSensitivePath) {
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     response.headers.set('Pragma', 'no-cache');
@@ -103,13 +75,13 @@ export function middleware(request: NextRequest) {
   }
 
   // Check if the request is for admin routes
-  if (request.nextUrl.pathname.startsWith('/admin') &&
-    !request.nextUrl.pathname.startsWith('/admin/login') &&
-    !request.nextUrl.pathname.startsWith('/api/admin/auth')) {
-
+  if (request.nextUrl.pathname.startsWith('/admin') && 
+      !request.nextUrl.pathname.startsWith('/admin/login') &&
+      !request.nextUrl.pathname.startsWith('/api/admin/auth')) {
+    
     // Check for admin session cookie
     const sessionCookie = request.cookies.get('admin_session');
-
+    
     if (!sessionCookie) {
       // Redirect to login if no session
       return NextResponse.redirect(new URL('/admin/login', request.url));
@@ -128,6 +100,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder files
      */
-    '/:path*',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

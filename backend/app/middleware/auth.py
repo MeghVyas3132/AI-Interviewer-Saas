@@ -191,7 +191,7 @@ async def require_admin(
     return current_user
 
 
-async def require_team_lead(
+async def require_hr_or_employee(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """
@@ -215,7 +215,7 @@ async def require_employee(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """
-    Require Employee, Team Lead, or HR role.
+    Require Employee or HR role.
 
     Args:
         current_user: Current authenticated user

@@ -60,7 +60,7 @@ export default function InterviewLandingPage() {
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/hr/interviews/by-token/${token}`);
+        const response = await fetch(`${API_BASE_URL}/interviews/by-token/${token}`);
         if (!response.ok) {
           if (response.status === 404) {
             setError('Interview session not found. Please check your link.');

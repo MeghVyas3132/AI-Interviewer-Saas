@@ -220,7 +220,7 @@ export default function CandidatePortalPage() {
               const nextInterview = scheduledInterviews[0];
               const isInterviewReady = hasScheduledInterview && nextInterview && 
                 (nextInterview.ai_interview_token || nextInterview.meeting_link) &&
-                new Date(nextInterview.scheduled_time) <= new Date();
+                isInterviewTimeReady(nextInterview.scheduled_time);
               
               return (
                 <button
@@ -238,7 +238,7 @@ export default function CandidatePortalPage() {
                   {!hasScheduledInterview 
                     ? 'No Interview Scheduled' 
                     : !isInterviewReady 
-                      ? 'Interview Not Ready Yet'
+                      ? `Interview Not Ready Yet${nextInterview ? ` (${getTimeUntilInterview(nextInterview.scheduled_time)})` : ''}`
                       : 'Launch Next Interview'}
                 </button>
               );

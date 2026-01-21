@@ -174,7 +174,7 @@ export default function HRDashboard() {
       const { candidates = [] } = await apiClient.get<{ candidates: Candidate[] }>('/candidates')
       setCandidates(candidates)
 
-      // Fetch employees (users with role EMPLOYEE/TEAM_LEAD)
+      // Fetch employees (users with role EMPLOYEE)
       const empData = await apiClient.get<Employee[]>('/users?role=EMPLOYEE') // Assuming simplified endpoint or filtering
       // If endpoint returns UserListResponse array, adaptable.
       // Mocking fetch of employees if direct endpoint isn't perfectly mapped yet or using a known working one:

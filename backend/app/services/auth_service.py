@@ -143,7 +143,7 @@ class AuthService:
         )
 
     @staticmethod
-    def verify_and_refresh_token(refresh_token: str) -> Optional[Tuple[str, str, UUID, UUID]]:
+    def verify_and_refresh_token(refresh_token: str) -> Optional[Tuple[str, str]]:
         """
         Verify refresh token and generate new access token.
 
@@ -151,7 +151,7 @@ class AuthService:
             refresh_token: Refresh token to verify
 
         Returns:
-            Tuple of (new_access_token, refresh_token, user_id, company_id) or None if invalid
+            Tuple of (new_access_token, refresh_token) or None if invalid
         """
         payload = verify_token(refresh_token)
 
@@ -168,7 +168,7 @@ class AuthService:
             },
         )
 
-        return new_access_token, refresh_token, user_id, company_id
+        return new_access_token, refresh_token
 
     @staticmethod
     def hash_password(password: str) -> str:

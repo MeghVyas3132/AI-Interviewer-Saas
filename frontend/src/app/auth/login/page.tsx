@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, FormEvent } from 'react'
+import React, { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
@@ -10,7 +10,7 @@ type LoginTab = 'employee' | 'candidate'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, candidateLogin, isLoading, isAuthenticated, user } = useAuth()
+  const { login, isLoading } = useAuth()
   const [activeTab, setActiveTab] = useState<LoginTab>('employee')
   const [error, setError] = useState('')
   const [candidateLoading, setCandidateLoading] = useState(false)
@@ -19,24 +19,6 @@ export default function LoginPage() {
     password: '',
   })
   const [candidateEmail, setCandidateEmail] = useState('')
-  const [pageReady, setPageReady] = useState(false)
-
-  // Redirect if already authenticated - check before rendering form
-  useEffect(() => {
-    if (!isLoading) {
-      if (isAuthenticated && user) {
-        // Already logged in - redirect to appropriate dashboard
-        if (user.role === 'CANDIDATE') {
-          router.replace('/candidate-portal')
-        } else {
-          router.replace('/dashboard')
-        }
-      } else {
-        // Not authenticated - show login form
-        setPageReady(true)
-      }
-    }
-  }, [isLoading, isAuthenticated, user, router])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -66,43 +48,52 @@ export default function LoginPage() {
     setError('')
     setCandidateLoading(true)
 
+    alert('Starting candidate login for: ' + candidateEmail)
+
     try {
-      await candidateLogin(candidateEmail)
-      router.push('/candidate-portal')
+      // Use direct fetch to avoid any apiClient interceptors
+      const res = await fetch('http://localhost:8000/api/v1/candidate-portal/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: candidateEmail }),
+      })
+
+      alert('Fetch completed, status: ' + res.status)
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.detail || 'Login failed')
+      }
+
+      const response = await res.json()
+      alert('Login successful! User: ' + response.user.name)
+
+      // Store tokens
+      Cookies.set('access_token', response.access_token, { expires: 1 })
+
+      // Store user data
+      localStorage.setItem('user', JSON.stringify(response.user))
+      localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
+      localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
+
+      alert('Data stored! Redirecting to /candidate-portal...')
+
+      // Use window.location for a full page redirect
+      window.location.href = '/candidate-portal'
     } catch (err: any) {
+      alert('Error: ' + err.message)
       console.error('Candidate login error:', err)
-      setError(err.response?.data?.detail || err.message || 'Login failed. No candidate found with this email.')
+      setError(err.message || 'Login failed. No candidate found with this email.')
       setCandidateLoading(false)
     }
   }
 
-  // Show loading spinner while checking auth state
-  if (isLoading || !pageReady) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="h-screen flex overflow-hidden relative">
-      {/* Logo - Fixed top-left corner with bookmark style */}
-      <div className="fixed top-0 left-0 z-50">
-        <div className="bg-white shadow-lg rounded-br-2xl px-5 py-4 flex items-center space-x-2">
-          <img
-            src="/images/logo.png"
-            alt="AIGENTHIX"
-            className="h-10 w-auto"
-          />
-        </div>
-      </div>
-
-      {/* Left Side - Branding (50%) */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
+    <div className="min-h-screen flex">
+      {/* Left Side - Branding (60%) */}
+      <div className="hidden lg:flex lg:w-[60%] bg-gradient-to-br from-brand-500 via-brand-600 to-brand-700 relative overflow-hidden">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 bg-white rounded-full blur-3xl"></div>
@@ -111,10 +102,18 @@ export default function LoginPage() {
         </div>
 
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center w-full p-12 pt-20">
+        <div className="relative z-10 flex flex-col justify-between w-full p-12">
+          {/* Logo */}
+          <div className="flex items-center space-x-3">
+            <img
+              src="/images/logo.png"
+              alt="AIGENTHIX"
+              className="h-10 w-auto"
+            />
+          </div>
 
           {/* Center Content */}
-          <div className="flex flex-col justify-center max-w-lg">
+          <div className="flex-1 flex flex-col justify-center max-w-lg">
             <h1 className="text-4xl lg:text-5xl font-bold text-white leading-tight mb-6">
               Transform Your Hiring Process with AI
             </h1>
@@ -154,10 +153,16 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Side - Form (50%) */}
-      <div className="w-full lg:w-1/2 flex flex-col h-screen bg-white overflow-hidden">
+      {/* Right Side - Form (40%) */}
+      <div className="w-full lg:w-[40%] flex flex-col min-h-screen bg-white">
         {/* Top Navigation */}
-        <nav className="flex items-center justify-end px-8 py-6 border-b border-gray-100">
+        <nav className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
+          {/* Mobile Logo */}
+          <div className="flex items-center space-x-2 lg:hidden">
+            <img src="/images/logo.png" alt="AIGENTHIX" className="h-8 w-auto" />
+          </div>
+          <div className="hidden lg:block"></div>
+
           {/* Help Icon */}
           <button className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100 transition">
             <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -286,7 +291,7 @@ export default function LoginPage() {
             {activeTab === 'candidate' && (
               <>
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
-                  <p className="font-medium mb-1">Email-only Login</p>
+                  <p className="font-medium mb-1">📧 Email-only Login</p>
                   <p>Enter the email address that was used when a company added you as a candidate. No password required.</p>
                 </div>
 
@@ -325,6 +330,11 @@ export default function LoginPage() {
                     )}
                   </button>
                 </form>
+
+                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm">
+                  <p className="font-semibold text-gray-700 mb-2">🔐 Test Candidate:</p>
+                  <p className="text-xs text-gray-600">alex.smith@example.com</p>
+                </div>
               </>
             )}
           </div>
@@ -333,7 +343,7 @@ export default function LoginPage() {
         {/* Footer */}
         <footer className="bg-gray-50 px-8 py-6 border-t border-gray-100">
           <p className="text-center text-gray-400 text-sm">
-            Copyright 2025 Aigenthix - All Rights Reserved.
+            Copyright © 2025 Aigenthix - All Rights Reserved.
           </p>
         </footer>
       </div>

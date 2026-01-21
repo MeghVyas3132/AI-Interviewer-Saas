@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react'
 import Cookies from 'js-cookie'
 
-// Backend API URL for direct fetch calls - use environment variable
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+// Backend API URL for direct fetch calls
+const API_URL = 'http://localhost:8000/api/v1'
 
 interface BulkImportModalProps {
   isOpen: boolean
@@ -184,7 +184,7 @@ bob.wilson@example.com,Bob,Wilson,Software Developer,2`
             onClick={downloadSampleCSV}
             className="text-primary-600 hover:text-primary-800 text-xs font-medium underline"
           >
-            Download Sample CSV
+            📥 Download Sample CSV
           </button>
         </div>
 

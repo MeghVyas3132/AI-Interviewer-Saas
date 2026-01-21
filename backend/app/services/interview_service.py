@@ -246,5 +246,12 @@ class InterviewService:
         if transcript_url:
             interview.transcript_url = transcript_url
 
+        # Update candidate status to interview_completed
+        from sqlalchemy import text
+        await session.execute(
+            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+            {"status": "interview_completed", "id": str(interview.candidate_id)}
+        )
+
         await session.flush()
         return True

@@ -19,8 +19,8 @@ services:
     container_name: nextjs-app
     depends_on:
       - assemblyai-ws-proxy
-    ports:
-      - "9004:3000"
+    expose:
+      - "9002"
     volumes:
       - ./uploads:/app/uploads
     env_file:

@@ -8,8 +8,8 @@
  * - InterviewAgentOutput - The return type for the interviewAgent function.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import {ai} from '@/ai/genkit';
+import {z} from 'genkit';
 import { getAllInterviewQuestions, getRandomInterviewQuestions, getRandomQuestionsByCategory, getDiverseQuestions } from '@/lib/postgres-questions';
 import { getCATQuestionInsights, getSampleCATQuestions } from '@/lib/postgres-questions';
 import { getCachedQuestions, generateCacheKey } from '@/ai/question-cache';
@@ -17,14 +17,14 @@ import { generateCurrentAffairsQuestion } from './current-affairs-generator';
 import { getExamConfigByExamAndSubcategory } from '@/lib/postgres-data-store';
 
 const InterviewHistorySchema = z.object({
-  question: z.string(),
-  answer: z.string(),
-  attempts: z.number().optional().describe('Number of attempts for this question'),
-  hintsGiven: z.array(z.string()).optional().describe('Hints provided for this question'),
-  isCorrect: z.boolean().optional().describe('Whether the answer was correct'),
-  isCurrentAffairs: z.boolean().optional().describe('Whether this was a current affairs question'),
-  currentAffairsTopic: z.string().optional().describe('Topic of the current affairs question (if applicable)'),
-  currentAffairsCategory: z.string().optional().describe('Category of the current affairs question (if applicable)'),
+    question: z.string(),
+    answer: z.string(),
+    attempts: z.number().optional().describe('Number of attempts for this question'),
+    hintsGiven: z.array(z.string()).optional().describe('Hints provided for this question'),
+    isCorrect: z.boolean().optional().describe('Whether the answer was correct'),
+    isCurrentAffairs: z.boolean().optional().describe('Whether this was a current affairs question'),
+    currentAffairsTopic: z.string().optional().describe('Topic of the current affairs question (if applicable)'),
+    currentAffairsCategory: z.string().optional().describe('Category of the current affairs question (if applicable)'),
 });
 
 const InterviewAgentInputSchema = z.object({
@@ -58,7 +58,7 @@ const InterviewAgentOutputSchema = z.object({
   toneFeedback: z.string().describe('Feedback on the tone of the response.'),
   clarityFeedback: z.string().describe('Feedback on the clarity of the response.'),
   visualFeedback: z.string().describe('Feedback on the visual presentation, like body language and confidence, based on the video frame.'),
-
+  
   // Presentation scoring (1-5 scale)
   physicalAppearanceScore: z.number().describe('Score for Physical Appearance - dressing, hairstyle, grooming (1-5)'),
   physicalAppearanceJustification: z.string().describe('One-line justification for Physical Appearance score'),
@@ -66,7 +66,7 @@ const InterviewAgentOutputSchema = z.object({
   bodyLanguageJustification: z.string().describe('One-line justification for Body Language score'),
   confidenceScore: z.number().describe('Score for Confidence - tone, delivery, assurance (1-5)'),
   confidenceJustification: z.string().describe('One-line justification for Confidence score'),
-
+  
   // Response scoring (1-10 scale) - keeping existing fields for backward compatibility
   ideasScore: z.number().describe('Score for Ideas (1-10)'),
   ideasJustification: z.string().describe('One-line justification for Ideas score'),
@@ -80,10 +80,10 @@ const InterviewAgentOutputSchema = z.object({
   grammarJustification: z.string().describe('One-line justification for Grammar score'),
   stopWordsScore: z.number().describe('Score for Stop words (1-10)'),
   stopWordsJustification: z.string().describe('One-line justification for Stop words score'),
-
+  
   // Question categorization
   questionCategory: z.enum(['general-knowledge', 'academics', 'work-experience', 'about-self']).describe('Category of the current question'),
-
+  
   overallScore: z.number().describe('Overall score for this answer (1-10)'),
   nextQuestion: z.string().describe('The next interview question to ask. If the interview is over, this should be a concluding remark or disqualification message.'),
   isInterviewOver: z.boolean().describe('Set to true if this is the final remark and the interview should conclude.'),
@@ -99,7 +99,7 @@ const InterviewAgentOutputSchema = z.object({
   nextQuestionCurrentAffairsCategory: z.string().optional().describe('Category of the next question if it is a current affairs question'),
   // Reference question tracking
   referenceQuestionIds: z.array(z.number()).optional().describe('IDs of questions from the database used as reference for generating this question'),
-
+  
   // HR Interview Scoring (only used when jobRole is 'interview' and company is 'HR')
   languageFlowScore: z.number().optional().describe('Score for Language Flow (1-10) - only for HR interviews'),
   languageFlowJustification: z.string().optional().describe('Justification for Language Flow score'),
@@ -145,16 +145,16 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
     // Create a temporary genkit instance with the rotated API key
     const tempAI = genkit({
       plugins: [googleAI({ apiKey })],
-      model: 'googleai/gemini-2.0-flash-exp',
+      model: 'googleai/gemini-2.0-flash',
       config: {
         temperature: 0.7,
         topP: 0.9,
         maxOutputTokens: 2048,
       },
     });
-
+    
     // We'll define the prompt inline in the flow below
-
+    
     // Re-define the flow with the new instance
     const tempFlow = tempAI.defineFlow(
       {
@@ -167,11 +167,11 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         // Check if this is a CAT aspirant with college selection
         const isCATAspirant = flowInput.jobRole === 'cat' && flowInput.college;
         let catInsights = '';
-
+        
         if (isCATAspirant) {
           try {
             const insightsPromise = getCATQuestionInsights(flowInput.college!, undefined, flowInput.resumeText);
-            const timeoutPromise = new Promise<string>((_, reject) =>
+            const timeoutPromise = new Promise<string>((_, reject) => 
               setTimeout(() => reject(new Error('Timeout')), 5000)
             );
             catInsights = await Promise.race([insightsPromise, timeoutPromise]);
@@ -181,11 +181,11 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             catInsights = 'CAT interview insights not available for this session.';
           }
         }
-
+        
         const examId = flowInput.examId;
         const subcategoryId = flowInput.subcategoryId;
         console.log(`Interview Agent: Using exam configuration - Exam ID: ${examId}, Subcategory ID: ${subcategoryId}`);
-
+        
         let referenceQuestions;
         let referenceQuestionIds: number[] = [];
         let questionCategories = ['general'];
@@ -198,16 +198,16 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         } else if (flowInput.jobRole.toLowerCase().includes('cat') || flowInput.jobRole.toLowerCase().includes('mba')) {
           questionCategories = ['aptitude', 'hr', 'personality', 'business', 'leadership'];
         }
-
+        
         if (isCATAspirant) {
           try {
             const detectedBackground = flowInput.resumeText ? await (await import('@/ai/cat-question-reference')).detectAcademicBackground(flowInput.resumeText) : undefined;
             const catSampleQuestionsPromise = getSampleCATQuestions(flowInput.college!, detectedBackground, 3);
-            const catQuestionsTimeoutPromise = new Promise<any[]>((_, reject) =>
+            const catQuestionsTimeoutPromise = new Promise<any[]>((_, reject) => 
               setTimeout(() => reject(new Error('CAT questions query timeout')), 10000)
             );
             const catSampleQuestions = await Promise.race([catSampleQuestionsPromise, catQuestionsTimeoutPromise]);
-
+            
             if (catSampleQuestions.length > 0) {
               referenceQuestionIds = catSampleQuestions.map(q => q.id);
               referenceQuestions = catSampleQuestions
@@ -221,7 +221,7 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             console.error('Failed to get CAT sample questions for interview agent:', error);
             try {
               const randomQuestionsPromise = getRandomInterviewQuestions(3, examId, subcategoryId);
-              const randomTimeoutPromise = new Promise<any[]>((_, reject) =>
+              const randomTimeoutPromise = new Promise<any[]>((_, reject) => 
                 setTimeout(() => reject(new Error('Database query timeout')), 10000)
               );
               const questions = await Promise.race([randomQuestionsPromise, randomTimeoutPromise]);
@@ -238,11 +238,11 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         } else {
           try {
             const diverseQuestionsPromise = getDiverseQuestions(questionCategories, 2, examId, subcategoryId);
-            const dbTimeoutPromise = new Promise<any[]>((_, reject) =>
+            const dbTimeoutPromise = new Promise<any[]>((_, reject) => 
               setTimeout(() => reject(new Error('Database query timeout')), 10000)
             );
             const diverseQuestions = await Promise.race([diverseQuestionsPromise, dbTimeoutPromise]);
-
+            
             if (diverseQuestions.length > 0) {
               referenceQuestionIds = diverseQuestions.map(q => q.id);
               referenceQuestions = diverseQuestions
@@ -251,7 +251,7 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
               console.log(`Using ${diverseQuestions.length} focused questions from categories: ${questionCategories.join(', ')} (IDs: ${referenceQuestionIds.join(', ')})`);
             } else {
               const randomQuestionsPromise = getRandomInterviewQuestions(3, examId, subcategoryId);
-              const randomTimeoutPromise = new Promise<any[]>((_, reject) =>
+              const randomTimeoutPromise = new Promise<any[]>((_, reject) => 
                 setTimeout(() => reject(new Error('Database query timeout')), 10000)
               );
               const allRandomQuestions = await Promise.race([randomQuestionsPromise, randomTimeoutPromise]);
@@ -270,7 +270,7 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             } else {
               try {
                 const allQuestionsPromise = getAllInterviewQuestions();
-                const allQuestionsTimeoutPromise = new Promise<any[]>((_, reject) =>
+                const allQuestionsTimeoutPromise = new Promise<any[]>((_, reject) => 
                   setTimeout(() => reject(new Error('Database query timeout')), 10000)
                 );
                 const questions = await Promise.race([allQuestionsPromise, allQuestionsTimeoutPromise]);
@@ -288,17 +288,17 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             }
           }
         }
-
+        
         let currentAffairsQuestion = '';
         let currentAffairsMetadata = { topic: '', category: '', context: '' };
         const realQuestionCount = flowInput.realQuestionCount || 0;
         const shouldAskCurrentAffairs = realQuestionCount > 0 && (realQuestionCount % 3 === 0 || realQuestionCount % 4 === 0);
-
+        
         if (shouldAskCurrentAffairs) {
           try {
             const previousTopics: string[] = [];
             const previousCategories: string[] = [];
-
+            
             flowInput.conversationHistory.forEach(entry => {
               if (entry.isCurrentAffairs && entry.currentAffairsTopic) {
                 previousTopics.push(entry.currentAffairsTopic);
@@ -307,28 +307,28 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
                 previousCategories.push(entry.currentAffairsCategory);
               }
             });
-
+            
             console.log(`Generating current affairs question with tracking: ${previousTopics.length} previous topics, ${previousCategories.length} previous categories`);
-
+            
             const currentAffairsPromise = generateCurrentAffairsQuestion({
               language: flowInput.language,
               jobRole: flowInput.jobRole,
               previousTopics,
               previousCategories,
             });
-            const currentAffairsTimeoutPromise = new Promise<any>((_, reject) =>
+            const currentAffairsTimeoutPromise = new Promise<any>((_, reject) => 
               setTimeout(() => reject(new Error('Current affairs generation timeout')), 15000)
             );
-
+            
             const currentAffairsResult = await Promise.race([currentAffairsPromise, currentAffairsTimeoutPromise]);
-
+            
             currentAffairsQuestion = currentAffairsResult.question;
             currentAffairsMetadata = {
               topic: currentAffairsResult.topic,
               category: currentAffairsResult.category,
               context: currentAffairsResult.context,
             };
-
+            
             console.log(`Generated current affairs question: [${currentAffairsResult.category}] ${currentAffairsResult.topic}`);
             console.log(`Question: ${currentAffairsResult.question}`);
           } catch (error) {
@@ -336,12 +336,12 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             currentAffairsQuestion = '';
           }
         }
-
-        const hasResumeData = flowInput.hasResumeData !== undefined
-          ? flowInput.hasResumeData
+        
+        const hasResumeData = flowInput.hasResumeData !== undefined 
+          ? flowInput.hasResumeData 
           : (flowInput.resumeText && flowInput.resumeText.trim().length > 50);
         const isEmailInterview = flowInput.isEmailInterview !== undefined ? flowInput.isEmailInterview : false;
-
+        
         const promptInput = {
           ...flowInput,
           hasResumeData,
@@ -351,7 +351,7 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
           currentAffairsQuestion,
           currentAffairsMetadata,
         };
-
+        
         // Use the original prompt but executed through the rotated instance
         // The prompt will use the API key from the tempAI instance's plugin
         // Note: We need to redefine the prompt with the new instance to use rotation
@@ -359,20 +359,20 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         // Call the original prompt but it will use the original instance's API key
         // To use rotation, we need the template. For now, we'll use the original prompt
         // and rotation will happen at the retry level through withApiKeyRotation
-
+        
         // Actually, the best approach is to use the original flow but wrap it
         // Since the flow is bound, we'll execute it and let withApiKeyRotation handle retries
         // But to use a different key proactively, we need to redefine with the template
-
+        
         // For now, use the original prompt - rotation will happen through retries
         // TODO: Extract prompt template into a constant for proper rotation
         const result = await prompt(promptInput);
         const output = result.output;
-
+        
         if (output && currentAffairsQuestion) {
-          const isCurrentAffairsNext = output.nextQuestion.includes(currentAffairsQuestion) ||
-            currentAffairsQuestion.includes(output.nextQuestion.substring(0, 50));
-
+          const isCurrentAffairsNext = output.nextQuestion.includes(currentAffairsQuestion) || 
+                                        currentAffairsQuestion.includes(output.nextQuestion.substring(0, 50));
+          
           if (isCurrentAffairsNext) {
             output.isNextQuestionCurrentAffairs = true;
             output.nextQuestionCurrentAffairsTopic = currentAffairsMetadata.topic;
@@ -380,16 +380,16 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             console.log(`Current affairs metadata added to output: Topic="${currentAffairsMetadata.topic}", Category="${currentAffairsMetadata.category}"`);
           }
         }
-
+        
         if (output && referenceQuestionIds.length > 0) {
           output.referenceQuestionIds = referenceQuestionIds;
           console.log(`Reference question IDs added to output: ${referenceQuestionIds.join(', ')}`);
         }
-
+        
         return output!;
       }
     );
-
+    
     // Execute the flow with rotation
     return await tempFlow(input);
   });
@@ -397,8 +397,8 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
 
 const prompt = ai.definePrompt({
   name: 'interviewAgentPrompt',
-  input: { schema: InterviewAgentInputSchema },
-  output: { schema: InterviewAgentOutputSchema },
+  input: {schema: InterviewAgentInputSchema},
+  output: {schema: InterviewAgentOutputSchema},
   config: {
     temperature: 0.7, // Higher temperature for more natural, varied responses
     topP: 0.9,       // Focused sampling for better question quality
@@ -409,11 +409,13 @@ const prompt = ai.definePrompt({
 
 **CRITICAL: Ask only ONE focused question at a time. Do not combine multiple unrelated questions in a single response.**
 
-**PROFESSIONAL INTERVIEW FOCUS:**
-- This platform focuses exclusively on professional job interviews
-- All questions should be relevant to job roles, work experience, and career development
-- NO academic exam content (NEET, JEE, CAT, college admissions)
-- Focus on: Technical skills, Behavioral questions, Industry knowledge, Problem-solving, Leadership, Teamwork
+**EXAM TYPE DETECTION:**
+- Check the jobRole value to determine the exam type
+- If jobRole is 'neet', this is a NEET (medical) exam - only offer Physics, Chemistry, Biology questions
+- If jobRole is 'jee', this is a JEE (engineering) exam - only offer Physics, Chemistry, Mathematics questions
+- If jobRole is 'IIT Foundation', this is a IIT Foundation (foundation) exam - only offer Physics, Chemistry, Mathematics questions
+- If jobRole is 'cat' or contains 'mba', this is a CAT/MBA exam - can offer aptitude-based questions
+- For other jobRole values, use general interview question patterns
 
 **HR INTERVIEW MODE DETECTION:**
 - **CRITICAL:** This is an HR interview if ANY of the following conditions are true:
@@ -543,16 +545,16 @@ const prompt = ai.definePrompt({
 - **Create natural bridges:** "Speaking of that...", "That reminds me...", "Building on what you said..."
 
 **EXAMPLES OF WHAT TO AVOID:**
-- "Could you describe a time when you used data analysis to solve a complex business problem? Please be specific about the tools and techniques you used, and what the outcome was. Make sure to relate it to your resume."
-- "Tell me about your leadership experience. Be specific about the challenges you faced and how you overcame them."
+- ❌ "Could you describe a time when you used data analysis to solve a complex business problem? Please be specific about the tools and techniques you used, and what the outcome was. Make sure to relate it to your resume."
+- ❌ "Tell me about your leadership experience. Be specific about the challenges you faced and how you overcame them."
 
 **EXAMPLES OF GOOD NATURAL QUESTIONS:**
-- "Could you describe a time when you used data analysis to solve a complex business problem?"
-- "Tell me about your leadership experience and the challenges you faced."
-- "Can you explain how normalization works in database design?" (Academic - Concept-based)
-- "How would you optimize a marketing campaign for low-budget startups?" (Academic - Application-based)
-- "What is the difference between supervised and unsupervised learning?" (Academic - Concept-based)
-- "How would you design a data pipeline for real-time analytics?" (Academic - Problem-solving)
+- ✅ "Could you describe a time when you used data analysis to solve a complex business problem?"
+- ✅ "Tell me about your leadership experience and the challenges you faced."
+- ✅ "Can you explain how normalization works in database design?" (Academic - Concept-based)
+- ✅ "How would you optimize a marketing campaign for low-budget startups?" (Academic - Application-based)
+- ✅ "What is the difference between supervised and unsupervised learning?" (Academic - Concept-based)
+- ✅ "How would you design a data pipeline for real-time analytics?" (Academic - Problem-solving)
 
 **ACADEMIC / DOMAIN QUESTION GUIDELINES:**
 When asking academic or domain-specific questions:
@@ -562,14 +564,16 @@ When asking academic or domain-specific questions:
 - Ensure questions test both theoretical knowledge and practical application
 - Align difficulty with the candidate's education level and experience
 
-The user is preparing for a professional interview for the {{{jobRole}}} position.
-{{#if company}}They are interviewing with {{{company}}}.{{/if}}
+The user is preparing for the {{{jobRole}}} exam.
+{{#if college}}They are specifically targeting {{{college}}} for admission.{{/if}}
 
-**PROFESSIONAL INTERVIEW GUIDELINES:**
+**EXAM-SPECIFIC GUIDELINES:**
 - **HR INTERVIEW (jobRole is 'HR' OR (jobRole is 'interview' AND company is 'HR')):** **CRITICAL: This is an HR interview. ONLY ask HR-based questions throughout the entire interview. DO NOT ask technical, aptitude, or academic questions. Focus exclusively on behavioral, personality, teamwork, communication, problem-solving (HR perspective), career goals, and cultural fit questions. If resume data is available, you MUST maintain this EXACT distribution: 1 resume-based HR question (maximum), 1 technical resume question (maximum), and 8 general HR questions (minimum). This strict distribution ensures uniform evaluation parameters (80% general HR questions) while allowing minimal personalization (20% resume-based questions).**
-- **TECHNICAL INTERVIEWS:** Focus on job-role-specific technical questions, problem-solving, system design, and practical application of skills relevant to the position.
-- **BEHAVIORAL INTERVIEWS:** Focus on past experiences, situational questions, leadership examples, and cultural fit.
-- **GENERAL PROFESSIONAL INTERVIEWS:** Mix of technical, behavioral, and industry-specific questions based on the job role and candidate's background.
+- **NEET (jobRole is 'neet'):** Focus on Physics, Chemistry, and Biology questions. Do not ask aptitude-based questions. **CRITICAL: Do NOT provide hints, guidance, or assistance to NEET candidates - they must demonstrate their own knowledge without any help, just like in a real competitive exam.**
+- **JEE (jobRole is 'jee'):** Focus on Physics, Chemistry, and Mathematics questions. Do not ask aptitude-based questions.
+- **IIT Foundation (jobRole is 'IIT Foundation'):** Focus on Physics, Chemistry, and Mathematics questions. Do not ask aptitude-based questions.
+- **CAT/MBA (jobRole is 'cat' or contains 'mba'):** Can include aptitude-based, technical, HR/personality{{#if hasResumeData}}, and resume-based questions{{else}} questions (NO resume-based questions - resume data not available){{/if}}.
+- **Other exams:** Follow general interview question patterns.
 {{#if hasResumeData}}
 Their resume is as follows:
 ---
@@ -581,12 +585,24 @@ Their resume is as follows:
 
 The interview is in {{{language}}}. All your feedback and questions must be in {{{language}}}.
 
-{{#if company}}
-IMPORTANT: Since the candidate is interviewing with {{{company}}}, tailor your questions to be relevant to this company's culture, values, and the specific role requirements. Include questions about:
-- Their knowledge about {{{company}}}'s business, products, and culture
-- Why they want to work at {{{company}}} specifically
-- How their background and goals align with {{{company}}}'s values and the role
-- Specific aspects of the role and how they would contribute
+{{#if college}}
+IMPORTANT: Since the candidate is targeting {{{college}}}, tailor your questions to be relevant to this specific college's admission process, interview style, and requirements. Include questions about:
+- Their knowledge about {{{college}}}'s programs, culture, and values
+- Why they chose {{{college}}} specifically
+- How their background and goals align with {{{college}}}'s expectations
+- Specific aspects of {{{college}}}'s admission criteria and interview process
+
+CAT Interview Insights for {{{college}}}:
+{{{catInsights}}}
+
+GUIDELINES FOR CAT INTERVIEW QUESTIONS:
+- Use the insights above to understand typical question patterns for this college
+- Generate NEW questions inspired by these patterns, NOT direct copies
+- Match the difficulty level and question types typically used
+- Focus on the candidate's academic background and experience
+- Ensure questions are relevant to this specific college's interview style
+- **AVOID REPETITIVE PATTERNS** - Each question should feel fresh and different
+- **NATURAL FLOW** - Questions should build on previous answers, not repeat generic instructions
 {{/if}}
 
 **IMPORTANT: Use the following reference questions ONLY as inspiration and style guides. DO NOT ask these exact questions. Instead, create NEW, UNIQUE questions that are inspired by these patterns and styles.**
@@ -701,7 +717,7 @@ Here is a video frame of you as you answered:
 //    4e. Always be encouraging and supportive, never harsh or dismissive.
 // 5. Always generate new questions based on the candidate's chosen focus (aptitude, HR, subject, etc.) and their previous answers.
 // 6. Only end the interview early for repeated poor performance after 3 real questions.
-// 7. ALWAYS respect the minQuestionsRequired parameter. For HR interviews, this MUST be 10 questions minimum. Conclude only after meeting the minimum requirement.
+// 7. Otherwise, conclude naturally after 6-8 questions, or if the candidate requests to end.
 //
 // Make these rules explicit in your flow and decision-making.
 
@@ -1181,15 +1197,19 @@ Your tasks are:
         - Mix different types of questions (about-self, academic, behavioral, etc.) naturally
         - Do NOT ask about area preferences at any point
         {{else if hasResumeData}}
-        **REGULAR INTERVIEW (with resume):** Ask the user to choose an area of focus for their professional interview:
-            -   **For technical roles:** "What area would you like to focus on? We can practice technical questions, system design, problem-solving scenarios, behavioral questions, or simulate a full mock interview."
-            -   **For HR/Management roles:** "What area would you like to focus on? We can practice behavioral questions, leadership scenarios, conflict resolution, or simulate a full mock interview."
-            -   **For other roles:** "What area would you like to focus on? We can practice role-specific questions, behavioral questions, problem-solving scenarios, or simulate a full mock interview for {{{jobRole}}}."
+        **REGULAR INTERVIEW (with resume):** Ask the user to choose an area of focus based on their exam type:
+            -   **For NEET (jobRole is 'neet'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Biology questions, or simulate a full mock interview for NEET."
+            -   **For JEE (jobRole is 'jee'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Mathematics questions, or simulate a full mock interview for JEE."
+            -   **For IIT Foundation (jobRole is 'IIT Foundation'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Mathematics questions, or simulate a full mock interview for IIT Foundation."
+            -   **For CAT/MBA (jobRole is 'cat' or contains 'mba'):** "What area would you like to focus on? We can practice subject-specific questions, aptitude-based questions, personality/HR-type questions, or simulate a full mock interview for {{{jobRole}}}."
+            -   **For other exams:** "What area would you like to focus on? We can practice subject-specific questions, aptitude-based questions, personality/HR-type questions, or simulate a full mock interview for {{{jobRole}}}."
         {{else}}
-        **REGULAR INTERVIEW (no resume data):** Ask the user to choose an area of focus for their professional interview:
-            -   **For technical roles:** "What area would you like to focus on? We can practice technical questions, system design, problem-solving scenarios, behavioral questions, or simulate a full mock interview."
-            -   **For HR/Management roles:** "What area would you like to focus on? We can practice behavioral questions, leadership scenarios, conflict resolution, or simulate a full mock interview."
-            -   **For other roles:** "What area would you like to focus on? We can practice role-specific questions, behavioral questions, problem-solving scenarios, or simulate a full mock interview for {{{jobRole}}}."
+        **REGULAR INTERVIEW (no resume data):** Ask the user to choose an area of focus based on their exam type:
+            -   **For NEET (jobRole is 'neet'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Biology questions, or simulate a full mock interview for NEET."
+            -   **For JEE (jobRole is 'jee'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Mathematics questions, or simulate a full mock interview for JEE."
+            -   **For IIT Foundation (jobRole is 'IIT Foundation'):** "What area would you like to focus on? We can practice Physics questions, Chemistry questions, Mathematics questions, or simulate a full mock interview for IIT Foundation."
+            -   **For CAT/MBA (jobRole is 'cat' or contains 'mba'):** "What area would you like to focus on? We can practice subject-specific questions, aptitude-based questions, personality/HR-type questions, or simulate a full mock interview for {{{jobRole}}}."
+            -   **For other exams:** "What area would you like to focus on? We can practice subject-specific questions, aptitude-based questions, personality/HR-type questions, or simulate a full mock interview for {{{jobRole}}}."
         {{/if}}
     
     -   **FULL MOCK INTERVIEW MODE:** If the candidate selects "full mock interview" or similar phrases:
@@ -1219,14 +1239,14 @@ Your tasks are:
               - **HR/Behavioral questions** (20%): "Tell me about a time when...", "How do you handle conflict?", "Describe a situation where...", "What's your leadership style?"
               - **Technical questions** (20%): "Explain how... works", "What's the difference between...?", "How would you implement...?", Domain-specific knowledge
         {{else}}
-        -   **Acknowledge their choice:** "Perfect! I'll conduct a comprehensive mock interview focusing on role-specific questions, technical knowledge, problem-solving scenarios, behavioral questions, and industry knowledge relevant to your position."
-        -   **Start with a warm-up:** Begin with a simple role-specific or general question to ease them in
+        -   **Acknowledge their choice:** "Perfect! I'll conduct a comprehensive mock interview focusing on exam-specific questions, subject knowledge, aptitude tests, general knowledge, and technical questions relevant to your exam."
+        -   **Start with a warm-up:** Begin with a simple subject knowledge or general question to ease them in
         -   **Mix question types throughout:** Ensure variety by alternating between (NO resume-based questions):
-            * **Role-specific/Technical questions** (35%): Questions based on the job role and required skills (e.g., technical concepts, domain knowledge, tools and technologies)
-            * **Problem-solving questions** (25%): "If you had to choose between...", "How would you solve this problem...", "What's your approach to...", "Can you explain the logic behind...?"
-            * **Industry knowledge** (15%): "What do you think about...?", Current affairs in the industry, business trends
+            * **Subject/Academic questions** (35%): Questions based on exam subjects (e.g., Physics, Chemistry, Biology for NEET; Physics, Chemistry, Math for JEE)
+            * **Aptitude questions** (25%): "If you had to choose between...", "How would you solve this problem...", "What's your approach to...", "Can you explain the logic behind...?"
+            * **General knowledge** (15%): "What do you think about...?", Current affairs, industry trends
             * **HR/Behavioral questions** (15%): "How do you handle pressure?", "Describe your approach to...", "What's your problem-solving style?"
-            * **Domain-specific questions** (10%): "Explain how... works", "What's the difference between...?", Job-role-specific knowledge
+            * **Technical/Domain questions** (10%): "Explain how... works", "What's the difference between...?", Domain-specific knowledge
         {{/if}}
         -   **Track question types:** Keep mental count of question types asked and ensure balanced distribution
         -   **Natural transitions:** Use phrases like "Now let me ask you about...", "Moving to a different area...", "Let's explore your experience with..."
@@ -1242,14 +1262,14 @@ Your tasks are:
             8. HR/Behavioral: "What's your approach to handling stress and pressure?"
         {{else}}
         -   **Example full mock interview flow for 8 questions (NO resume questions):**
-            1. Role-specific/Technical: "Explain [role-specific concept]"
-            2. Problem-solving: "How would you approach solving a complex problem with limited resources?"
-            3. Industry knowledge: "What's your view on recent developments in [relevant industry]?"
-            4. HR/Behavioral: "How do you handle pressure in professional settings?"
-            5. Domain-specific: "Explain [domain-specific concept] to someone new to the field"
-            6. Role-specific/Technical: "[Another role-specific question]"
-            7. Problem-solving: "If you had to choose between two good options, how would you decide?"
-            8. HR/Behavioral: "What's your approach to handling stress and pressure at work?"
+            1. Subject/Academic: "Explain [exam-specific concept]"
+            2. Aptitude: "How would you approach solving a complex problem with limited resources?"
+            3. General knowledge: "What's your view on recent developments in [relevant field]?"
+            4. HR/Behavioral: "How do you handle pressure during exams?"
+            5. Technical/Domain: "Explain [domain-specific concept] to someone new to the field"
+            6. Subject/Academic: "[Another exam-specific question]"
+            7. Aptitude: "If you had to choose between two good options, how would you decide?"
+            8. HR/Behavioral: "What's your approach to handling stress and pressure?"
         {{/if}}
     
     -   **If the candidate asks a conversational question:** Answer naturally and transition back to the interview. For name questions, acknowledge you know their name from the resume.
@@ -1459,15 +1479,15 @@ const interviewAgentFlow = ai.defineFlow(
     // Check if this is a CAT aspirant with college selection
     const isCATAspirant = input.jobRole === 'cat' && input.college;
     let catInsights = '';
-
+    
     if (isCATAspirant) {
       try {
         // Get CAT-specific insights with timeout
         const insightsPromise = getCATQuestionInsights(input.college!, undefined, input.resumeText);
-        const timeoutPromise = new Promise<string>((_, reject) =>
+        const timeoutPromise = new Promise<string>((_, reject) => 
           setTimeout(() => reject(new Error('Timeout')), 5000)
         );
-
+        
         catInsights = await Promise.race([insightsPromise, timeoutPromise]);
         console.log(`Generated CAT insights for interview agent: ${input.college}`);
       } catch (error) {
@@ -1475,17 +1495,17 @@ const interviewAgentFlow = ai.defineFlow(
         catInsights = 'CAT interview insights not available for this session.';
       }
     }
-
+    
     // Use exam and subcategory information for filtering questions
     const examId = input.examId;
     const subcategoryId = input.subcategoryId;
-
+    
     console.log(`Interview Agent: Using exam configuration - Exam ID: ${examId}, Subcategory ID: ${subcategoryId}`);
-
+    
     // Get a diverse sample of reference questions for inspiration
     let referenceQuestions;
     let referenceQuestionIds: number[] = []; // Track question IDs from database
-
+    
     // Determine question categories based on job role
     let questionCategories = ['general'];
     if (input.jobRole.toLowerCase().includes('neet')) {
@@ -1497,18 +1517,18 @@ const interviewAgentFlow = ai.defineFlow(
     } else if (input.jobRole.toLowerCase().includes('cat') || input.jobRole.toLowerCase().includes('mba')) {
       questionCategories = ['aptitude', 'hr', 'personality', 'business', 'leadership'];
     }
-
+    
     if (isCATAspirant) {
       // For CAT aspirants, get diverse CAT-specific questions
       try {
         const detectedBackground = input.resumeText ? await (await import('@/ai/cat-question-reference')).detectAcademicBackground(input.resumeText) : undefined;
         // Add timeout to prevent hanging on CAT questions query
         const catSampleQuestionsPromise = getSampleCATQuestions(input.college!, detectedBackground, 3);
-        const catQuestionsTimeoutPromise = new Promise<any[]>((_, reject) =>
+        const catQuestionsTimeoutPromise = new Promise<any[]>((_, reject) => 
           setTimeout(() => reject(new Error('CAT questions query timeout')), 10000)
         );
         const catSampleQuestions = await Promise.race([catSampleQuestionsPromise, catQuestionsTimeoutPromise]);
-
+        
         if (catSampleQuestions.length > 0) {
           referenceQuestionIds = catSampleQuestions.map(q => q.id); // Capture IDs
           referenceQuestions = catSampleQuestions
@@ -1523,7 +1543,7 @@ const interviewAgentFlow = ai.defineFlow(
         // Fall back to random general questions with timeout
         try {
           const randomQuestionsPromise = getRandomInterviewQuestions(3, examId, subcategoryId);
-          const randomTimeoutPromise = new Promise<any[]>((_, reject) =>
+          const randomTimeoutPromise = new Promise<any[]>((_, reject) => 
             setTimeout(() => reject(new Error('Database query timeout')), 10000)
           );
           const questions = await Promise.race([randomQuestionsPromise, randomTimeoutPromise]);
@@ -1543,11 +1563,11 @@ const interviewAgentFlow = ai.defineFlow(
         // Get a smaller, more focused set of questions (1-3) for each response
         // Add timeout to prevent hanging on slow database queries
         const diverseQuestionsPromise = getDiverseQuestions(questionCategories, 2, examId, subcategoryId);
-        const dbTimeoutPromise = new Promise<any[]>((_, reject) =>
+        const dbTimeoutPromise = new Promise<any[]>((_, reject) => 
           setTimeout(() => reject(new Error('Database query timeout')), 10000)
         );
         const diverseQuestions = await Promise.race([diverseQuestionsPromise, dbTimeoutPromise]);
-
+        
         if (diverseQuestions.length > 0) {
           referenceQuestionIds = diverseQuestions.map(q => q.id); // Capture IDs
           referenceQuestions = diverseQuestions
@@ -1557,7 +1577,7 @@ const interviewAgentFlow = ai.defineFlow(
         } else {
           // Fall back to random questions if diverse questions fail
           const randomQuestionsPromise = getRandomInterviewQuestions(3, examId, subcategoryId);
-          const randomTimeoutPromise = new Promise<any[]>((_, reject) =>
+          const randomTimeoutPromise = new Promise<any[]>((_, reject) => 
             setTimeout(() => reject(new Error('Database query timeout')), 10000)
           );
           const allRandomQuestions = await Promise.race([randomQuestionsPromise, randomTimeoutPromise]);
@@ -1579,7 +1599,7 @@ const interviewAgentFlow = ai.defineFlow(
           // Last resort - get all questions and randomize with timeout
           try {
             const allQuestionsPromise = getAllInterviewQuestions();
-            const allQuestionsTimeoutPromise = new Promise<any[]>((_, reject) =>
+            const allQuestionsTimeoutPromise = new Promise<any[]>((_, reject) => 
               setTimeout(() => reject(new Error('Database query timeout')), 10000)
             );
             const questions = await Promise.race([allQuestionsPromise, allQuestionsTimeoutPromise]);
@@ -1598,21 +1618,21 @@ const interviewAgentFlow = ai.defineFlow(
         }
       }
     }
-
+    
     // Generate current affairs question if appropriate
     let currentAffairsQuestion = '';
     let currentAffairsMetadata = { topic: '', category: '', context: '' };
     const realQuestionCount = input.realQuestionCount || 0;
-
+    
     // Ask current affairs question every 3-4 questions (at questions 3, 6, 9, etc.)
     const shouldAskCurrentAffairs = realQuestionCount > 0 && (realQuestionCount % 3 === 0 || realQuestionCount % 4 === 0);
-
+    
     if (shouldAskCurrentAffairs) {
       try {
         // Extract previously asked current affairs topics and categories
         const previousTopics: string[] = [];
         const previousCategories: string[] = [];
-
+        
         input.conversationHistory.forEach(entry => {
           if (entry.isCurrentAffairs && entry.currentAffairsTopic) {
             previousTopics.push(entry.currentAffairsTopic);
@@ -1621,9 +1641,9 @@ const interviewAgentFlow = ai.defineFlow(
             previousCategories.push(entry.currentAffairsCategory);
           }
         });
-
+        
         console.log(`Generating current affairs question with tracking: ${previousTopics.length} previous topics, ${previousCategories.length} previous categories`);
-
+        
         // Add timeout to prevent hanging on current affairs generation
         const currentAffairsPromise = generateCurrentAffairsQuestion({
           language: input.language,
@@ -1631,19 +1651,19 @@ const interviewAgentFlow = ai.defineFlow(
           previousTopics,
           previousCategories,
         });
-        const currentAffairsTimeoutPromise = new Promise<any>((_, reject) =>
+        const currentAffairsTimeoutPromise = new Promise<any>((_, reject) => 
           setTimeout(() => reject(new Error('Current affairs generation timeout')), 15000)
         );
-
+        
         const currentAffairsResult = await Promise.race([currentAffairsPromise, currentAffairsTimeoutPromise]);
-
+        
         currentAffairsQuestion = currentAffairsResult.question;
         currentAffairsMetadata = {
           topic: currentAffairsResult.topic,
           category: currentAffairsResult.category,
           context: currentAffairsResult.context,
         };
-
+        
         console.log(`Generated current affairs question: [${currentAffairsResult.category}] ${currentAffairsResult.topic}`);
         console.log(`Question: ${currentAffairsResult.question}`);
       } catch (error) {
@@ -1651,15 +1671,15 @@ const interviewAgentFlow = ai.defineFlow(
         currentAffairsQuestion = '';
       }
     }
-
+    
     // Determine if resume data is available (resumeText should have meaningful content)
-    const hasResumeData = input.hasResumeData !== undefined
-      ? input.hasResumeData
+    const hasResumeData = input.hasResumeData !== undefined 
+      ? input.hasResumeData 
       : (input.resumeText && input.resumeText.trim().length > 50); // Consider resume meaningful if > 50 chars
-
+    
     // Determine if this is an email-based interview
     const isEmailInterview = input.isEmailInterview !== undefined ? input.isEmailInterview : false;
-
+    
     const promptInput = {
       ...input,
       hasResumeData,
@@ -1669,15 +1689,15 @@ const interviewAgentFlow = ai.defineFlow(
       currentAffairsQuestion,
       currentAffairsMetadata,
     };
-
-    const { output } = await prompt(promptInput);
-
+    
+    const {output} = await prompt(promptInput);
+    
     // If this was a current affairs question, add metadata to the output for tracking
     if (output && currentAffairsQuestion) {
       // Check if the next question contains the current affairs question
-      const isCurrentAffairsNext = output.nextQuestion.includes(currentAffairsQuestion) ||
-        currentAffairsQuestion.includes(output.nextQuestion.substring(0, 50));
-
+      const isCurrentAffairsNext = output.nextQuestion.includes(currentAffairsQuestion) || 
+                                    currentAffairsQuestion.includes(output.nextQuestion.substring(0, 50));
+      
       if (isCurrentAffairsNext) {
         output.isNextQuestionCurrentAffairs = true;
         output.nextQuestionCurrentAffairsTopic = currentAffairsMetadata.topic;
@@ -1685,13 +1705,13 @@ const interviewAgentFlow = ai.defineFlow(
         console.log(`Current affairs metadata added to output: Topic="${currentAffairsMetadata.topic}", Category="${currentAffairsMetadata.category}"`);
       }
     }
-
+    
     // Add reference question IDs to output
     if (output && referenceQuestionIds.length > 0) {
       output.referenceQuestionIds = referenceQuestionIds;
       console.log(`Reference question IDs added to output: ${referenceQuestionIds.join(', ')}`);
     }
-
+    
     return output!;
   }
 );

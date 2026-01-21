@@ -189,7 +189,6 @@ volumes:
 |------|-------------|
 | SYSTEM_ADMIN | Full platform access, manage all companies |
 | HR | Manage company users, candidates, and assignments |
-| TEAM_LEAD | Manage team interviews, view reports |
 | EMPLOYEE | Conduct assigned interviews, view own candidates |
 | CANDIDATE | Take interviews, view own status |
 

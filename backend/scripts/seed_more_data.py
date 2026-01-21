@@ -40,7 +40,7 @@ async def main() -> None:
             name="Sarah Johnson",
             email="sarah@techsolutions.com",
             password="SecurePass123!",
-            role=UserRole.TEAM_LEAD,
+            role=UserRole.HR,
             department="Engineering",
         )
         user2 = await UserService.create_user(session, company2.id, user2_data)
@@ -62,7 +62,7 @@ async def main() -> None:
         print("\nSeed data created successfully!")
         print("\nSummary:")
         print("- 2 Companies")
-        print("- 3 Users (1 HR + 1 TEAM_LEAD + 1 EMPLOYEE)")
+        print("- 3 Users (1 HR + 1 HR + 1 EMPLOYEE)")
 
 
 if __name__ == "__main__":

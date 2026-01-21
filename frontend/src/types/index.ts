@@ -1,5 +1,5 @@
 // Auth Types
-export type UserRole = 'SYSTEM_ADMIN' | 'HR' | 'EMPLOYEE' | 'CANDIDATE'
+export type UserRole = 'SYSTEM_ADMIN' | 'ADMIN' | 'HR' | 'EMPLOYEE' | 'CANDIDATE'
 
 export interface LoginRequest {
   email: string
@@ -17,8 +17,6 @@ export interface User {
   id: string
   email: string
   full_name: string
-  // compatibility alias: some UI components expect `user.name`
-  name?: string
   role: UserRole
   company_id: string
   company_name?: string
@@ -46,13 +44,10 @@ export interface RefreshTokenRequest {
 export interface Candidate {
   id: string
   email: string
-  full_name?: string // Optional to handle backend response variations
-  first_name?: string
-  last_name?: string
+  full_name: string
   phone?: string
   position?: string
-  domain?: string
-  status: 'APPLIED' | 'SCREENING' | 'INTERVIEW' | 'OFFER' | 'REJECTED' | 'HIRED' | string
+  status: 'APPLIED' | 'SCREENING' | 'INTERVIEW' | 'OFFER' | 'REJECTED' | 'HIRED'
   resume_url?: string
   created_at: string
   updated_at: string
@@ -69,16 +64,11 @@ export interface CreateCandidateRequest {
 export interface Interview {
   id: string
   candidate_id: string
-  round_type: 'SCREENING' | 'TECHNICAL' | 'FINAL' | 'HR' | string
-  round_number?: number // Optional for backward compatibility
-  status: 'scheduled' | 'in_progress' | 'completed' | 'canceled' | 'cancelled' | 'expired' | 'abandoned' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELED' | 'CANCELLED' | 'EXPIRED' | 'ABANDONED' // Support all formats
+  round_number: number
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
   scheduled_at: string
-  scheduled_time?: string // Alternative field name
-  duration_minutes?: number
-  timezone?: string
-  meeting_link?: string
-  ai_interview_token?: string
-  questions?: InterviewQuestion[]
+  duration_minutes: number
+  questions: InterviewQuestion[]
   scores?: InterviewScore
   created_at: string
 }

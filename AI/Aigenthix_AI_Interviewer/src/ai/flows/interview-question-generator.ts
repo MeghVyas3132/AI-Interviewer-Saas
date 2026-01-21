@@ -46,12 +46,22 @@ const prompt = ai.definePrompt({
 You will generate a set of interview questions tailored to the job role, company, and resume provided.
 The questions should be in the following language: {{{language}}}.
 
-{{#if company}}
-IMPORTANT: The candidate is interviewing with {{{company}}}. Generate questions that are specifically relevant to this company's culture, values, and the role requirements. Include questions about:
-- Why they want to work at this specific company
-- Their knowledge about the company's business, products, and culture
-- How they align with the company's values and expectations
-- Specific aspects of the role and how they would contribute
+{{#if college}}
+IMPORTANT: The candidate is targeting {{{college}}}. Generate questions that are specifically relevant to this college's admission process, interview style, and requirements. Include questions about:
+- Why they chose this specific college
+- Their knowledge about the college's programs and culture
+- How they align with the college's values and expectations
+- Specific aspects of the college's admission criteria
+
+CAT Interview Insights:
+{{{catInsights}}}
+
+GUIDELINES FOR CAT QUESTIONS:
+- Use the insights above to understand typical question patterns for this college
+- Generate NEW questions inspired by these patterns, NOT direct copies
+- Match the difficulty level and question types typically used
+- Focus on the candidate's academic background and experience
+- Ensure questions are relevant to the specific college's interview style
 {{/if}}
 
 **HR INTERVIEW MODE DETECTION:**
@@ -112,11 +122,12 @@ Reference Questions:
 
 Job Role: {{{jobRole}}}
 Company: {{{company}}}
+{{#if college}}Target College: {{{college}}}{{/if}}
 {{#if hasResumeData}}
 Resume:
 {{{resumeText}}}
 {{else}}
-**NO RESUME DATA AVAILABLE:** This interview is being conducted without resume data. Focus exclusively on role-specific questions, technical knowledge, and domain questions relevant to the job position. DO NOT generate resume-based questions or questions about work experience.
+**NO RESUME DATA AVAILABLE:** This interview is being conducted without resume data. Focus exclusively on exam/subcategory-specific questions, subject knowledge, and academic/domain questions. DO NOT generate resume-based questions or questions about work experience.
 {{/if}}
 
 **FINAL REMINDER:**

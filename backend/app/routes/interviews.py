@@ -28,6 +28,83 @@ from app.schemas.interview_schema import (
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 
 
+@router.get("/by-token/{token}")
+async def get_interview_by_token(
+    token: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Get interview details by AI interview token.
+    This endpoint is public (no auth required) as it's accessed by the AI interview page.
+    The token itself serves as authentication.
+    """
+    try:
+        from app.models.company import Company
+        
+        # Find interview by token
+        interview_query = select(Interview).filter(
+            Interview.ai_interview_token == token
+        )
+        result = await session.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Get candidate info
+        candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+        candidate_result = await session.execute(candidate_query)
+        candidate = candidate_result.scalars().first()
+        
+        # Get company info
+        company_query = select(Company).filter(Company.id == interview.company_id)
+        company_result = await session.execute(company_query)
+        company = company_result.scalars().first()
+        
+        # Get interviewer info
+        interviewer_name = None
+        if interview.interviewer_id:
+            interviewer_query = select(User).filter(User.id == interview.interviewer_id)
+            interviewer_result = await session.execute(interviewer_query)
+            interviewer = interviewer_result.scalars().first()
+            if interviewer:
+                interviewer_name = interviewer.name
+        
+        return {
+            "id": str(interview.id),
+            "candidate_id": str(interview.candidate_id) if interview.candidate_id else None,
+            "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() if candidate else "Unknown",
+            "candidate_email": candidate.email if candidate else "",
+            "position": candidate.position if candidate else None,
+            "company_id": str(interview.company_id) if interview.company_id else None,
+            "company_name": company.name if company else "Unknown Company",
+            "interviewer_id": str(interview.interviewer_id) if interview.interviewer_id else None,
+            "interviewer_name": interviewer_name,
+            "round": interview.round.value if interview.round else "SCREENING",
+            "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+            "timezone": interview.timezone or "UTC",
+            "status": interview.status.value if interview.status else "SCHEDULED",
+            "meeting_link": interview.meeting_link,
+            "ai_interview_token": interview.ai_interview_token,
+            "exam_id": interview.exam_id,
+            "notes": interview.notes,
+            "resume_text": candidate.resume_text if candidate else None,
+            "job_template_id": str(candidate.job_template_id) if candidate and candidate.job_template_id else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching interview: {str(e)}"
+        )
+
+
 @router.post(
     "",
     response_model=InterviewResponse,
@@ -381,6 +458,14 @@ async def complete_interview(
             )
 
         interview.status = InterviewStatus.COMPLETED
+        
+        # Update candidate status to interview_completed
+        from sqlalchemy import text
+        await session.execute(
+            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+            {"status": "interview_completed", "id": str(interview.candidate_id)}
+        )
+        
         await session.commit()
         await session.refresh(interview)
         return {"status": "completed", "interview": interview}
