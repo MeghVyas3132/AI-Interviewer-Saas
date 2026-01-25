@@ -1,0 +1,38 @@
+[
+  {
+    "examId": "mfbcc84ad2xjlz0vx09",
+    "subcategoryId": "mfbcc84brpyrorciwfn",
+    "category": "General",
+    "subcategory": "Introduction",
+    "subsection": "Personal",
+    "question": "Tell me about yourself and your background.",
+    "isActive": true,
+    "id": "mfbcc84cq3hfwb54b6",
+    "createdAt": "2025-09-08T16:33:18.876Z",
+    "updatedAt": "2025-09-08T16:33:18.876Z"
+  },
+  {
+    "examId": "mfbcc84ad2xjlz0vx09",
+    "subcategoryId": "mfbcc84brpyrorciwfn",
+    "category": "General",
+    "subcategory": "Experience",
+    "subsection": "Professional",
+    "question": "What are your strengths and weaknesses?",
+    "isActive": true,
+    "id": "mfbcc84cc80gt91t8ym",
+    "createdAt": "2025-09-08T16:33:18.876Z",
+    "updatedAt": "2025-09-08T16:33:18.876Z"
+  },
+  {
+    "examId": "mfbcc84ad2xjlz0vx09",
+    "subcategoryId": "mfbcc84brpyrorciwfn",
+    "category": "General",
+    "subcategory": "Behavioral",
+    "subsection": "Leadership",
+    "question": "Describe a time when you had to lead a team.",
+    "isActive": true,
+    "id": "mfbcc84c9lw84ziejd",
+    "createdAt": "2025-09-08T16:33:18.876Z",
+    "updatedAt": "2025-09-08T16:33:18.876Z"
+  }
+]
