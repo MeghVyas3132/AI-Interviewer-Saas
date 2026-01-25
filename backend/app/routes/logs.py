@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.middleware.auth import (
     get_current_user,
-    require_team_lead,
+    require_hr_or_employee,
 )
 from app.models.user import User
 from app.schemas.audit_log_schema import AuditLogResponse
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/logs", tags=["logs"])
 
 @router.get("", response_model=List[AuditLogResponse])
 async def get_audit_logs(
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -52,13 +52,13 @@ async def get_audit_logs(
 @router.get("/user/{user_id}", response_model=List[AuditLogResponse])
 async def get_user_logs(
     user_id: UUID,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ) -> List[AuditLogResponse]:
     """
-    Get audit logs for a specific user (Team Lead and above).
+    Get audit logs for a specific user (HR and Employee).
 
     Args:
         user_id: User ID

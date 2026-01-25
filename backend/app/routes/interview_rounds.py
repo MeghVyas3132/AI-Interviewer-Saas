@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.middleware.auth import get_current_user, require_employee, require_team_lead
+from app.middleware.auth import get_current_user, require_employee, require_hr_or_employee
 from app.models.user import User, UserRole
 from app.schemas.interview_round_schema import (
     BatchRoundResponse,
@@ -93,7 +93,7 @@ async def schedule_interview_round(
 )
 async def batch_schedule_rounds(
     batch_data: RoundScheduleRequest,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
 ) -> BatchRoundResponse:
     """
@@ -282,7 +282,7 @@ async def get_round(
 async def update_round(
     round_id: UUID,
     round_data: InterviewRoundUpdate,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
 ) -> InterviewRoundResponse:
     """
@@ -324,7 +324,7 @@ async def update_round(
 async def reschedule_round(
     round_id: UUID,
     reschedule_data: RescheduleRoundRequest,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
 ) -> InterviewRoundResponse:
     """
@@ -371,7 +371,7 @@ async def reschedule_round(
 @router.post("/{round_id}/cancel", status_code=status.HTTP_200_OK)
 async def cancel_round(
     round_id: UUID,
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     """

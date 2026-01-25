@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ============================================================================
@@ -81,19 +81,8 @@ class CandidateResponse(CandidateBase):
     resume_url: Optional[str]
     assigned_to: Optional[UUID] = Field(None, description="Assigned employee ID")
     assigned_employee_name: Optional[str] = Field(None, description="Assigned employee name")
-    ats_score: Optional[int] = Field(None, description="ATS resume score")
-    full_name: Optional[str] = Field(None, description="Computed full name from first_name and last_name")
     created_at: datetime
     updated_at: datetime
-
-    @model_validator(mode='after')
-    def compute_full_name(self):
-        """Compute full_name from first_name and last_name if not provided."""
-        if not self.full_name:
-            first_name = self.first_name or ''
-            last_name = self.last_name or ''
-            self.full_name = f"{first_name} {last_name}".strip() or self.email
-        return self
 
     class Config:
         from_attributes = True

@@ -14,7 +14,7 @@ from app.middleware.auth import (
     require_employee,
     require_hr,
     require_hr_or_admin,
-    require_team_lead,
+    require_hr_or_employee,
 )
 from app.models.user import User, UserRole
 from app.schemas.user_schema import (
@@ -75,7 +75,7 @@ async def create_user(
 
 @router.get("", response_model=List[UserListResponse])
 async def list_users(
-    current_user: User = Depends(require_team_lead),
+    current_user: User = Depends(require_hr_or_employee),
     session: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),

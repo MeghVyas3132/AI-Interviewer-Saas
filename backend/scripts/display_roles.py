@@ -37,7 +37,7 @@ class Colors:
 
 async def get_roles_with_users(session: AsyncSession, company_id: UUID = None) -> dict:
     """
-    Fetch all system roles (HR, TEAM_LEAD, EMPLOYEE, CANDIDATE) with their assigned users.
+    Fetch all system roles (HR, EMPLOYEE, CANDIDATE) with their assigned users.
     
     Args:
         session: Database session

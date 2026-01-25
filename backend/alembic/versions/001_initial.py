@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column(
             "role",
-            sa.Enum("HR", "TEAM_LEAD", "EMPLOYEE", "CANDIDATE", name="userrole"),
+            sa.Enum("SYSTEM_ADMIN", "HR", "EMPLOYEE", "CANDIDATE", name="userrole"),
             nullable=False,
         ),
         sa.Column("manager_id", postgresql.UUID(as_uuid=True), nullable=True),

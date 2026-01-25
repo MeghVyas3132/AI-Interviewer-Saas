@@ -77,14 +77,11 @@ class UserResponse(UserBase):
     email_verified: bool = False
     created_at: datetime
     updated_at: datetime
-    # Expose name as full_name for API consistency
-    full_name: str = Field(..., alias="name", description="User's full name")
 
     class Config:
         """Pydantic config."""
 
         from_attributes = True
-        populate_by_name = True  # Allow both name and full_name
 
 
 class UserListResponse(BaseModel):
