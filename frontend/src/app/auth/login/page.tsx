@@ -103,17 +103,17 @@ export default function LoginPage() {
 
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-between w-full p-12">
-          {/* Logo */}
-          <div className="flex items-center space-x-3">
+          {/* Logo - Bookmark style in top-left corner */}
+          <div className="absolute top-0 left-0 bg-white/10 backdrop-blur-sm px-4 py-3 rounded-br-2xl">
             <img
               src="/images/logo.png"
               alt="AIGENTHIX"
-              className="h-10 w-auto"
+              className="h-10 w-auto rounded-lg"
             />
           </div>
 
           {/* Center Content */}
-          <div className="flex-1 flex flex-col justify-center max-w-lg">
+          <div className="flex-1 flex flex-col justify-center max-w-lg mt-16">
             <h1 className="text-4xl lg:text-5xl font-bold text-white leading-tight mb-6">
               Transform Your Hiring Process with AI
             </h1>

@@ -399,3 +399,93 @@ async def candidate_login(
         "companies": companies_list,
         "interviews": interviews_list,
     }
+
+
+@router.get("/my-results")
+async def get_my_results(
+    current_user: User = Depends(require_candidate),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get interview results for the candidate.
+    Returns completed interviews with scores and feedback.
+    """
+    try:
+        # Get candidate record by email
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.email == current_user.email,
+                Candidate.company_id == current_user.company_id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            return {
+                "results": [],
+                "company_name": None,
+                "position": None,
+                "total_completed": 0,
+                "message": "No candidate profile found"
+            }
+
+        # Get company info
+        company_query = select(Company).filter(Company.id == current_user.company_id)
+        company_result = await db.execute(company_query)
+        company = company_result.scalars().first()
+
+        # Get all interviews (completed ones will have results)
+        interviews_query = select(Interview).filter(
+            Interview.candidate_id == candidate.id
+        ).order_by(Interview.scheduled_time.desc())
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+
+        # Format results - include completed interviews with any available scores
+        results = []
+        for interview in interviews:
+            # Only include completed interviews or those with results
+            status_value = interview.status.value.upper() if interview.status else ""
+            if status_value == 'COMPLETED':
+                # Parse ai_verdict JSON if available
+                verdict_data = {}
+                if interview.ai_verdict:
+                    try:
+                        import json
+                        verdict_data = json.loads(interview.ai_verdict)
+                    except:
+                        pass
+                
+                results.append({
+                    "interview_id": str(interview.id),
+                    "round": interview.round.value if interview.round else None,
+                    "completed_at": interview.updated_at.isoformat() if interview.updated_at else None,
+                    "verdict": interview.ai_recommendation,  # HIRE, REJECT, NEUTRAL
+                    "score": verdict_data.get("overall_score") or interview.answer_score,
+                    "summary": verdict_data.get("summary"),
+                    "behavior_score": interview.behavior_score,
+                    "confidence_score": interview.confidence_score,
+                    "answer_score": interview.answer_score,
+                    "feedback": verdict_data.get("detailed_feedback"),
+                    "employee_verdict": interview.employee_verdict,
+                    "strengths": verdict_data.get("strengths", []),
+                    "weaknesses": verdict_data.get("weaknesses", []),
+                    "hiring_risk": verdict_data.get("hiring_risk"),
+                })
+
+        return {
+            "results": results,
+            "company_name": company.name if company else None,
+            "position": candidate.position,
+            "total_completed": len(results),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching results: {str(e)}"
+        )

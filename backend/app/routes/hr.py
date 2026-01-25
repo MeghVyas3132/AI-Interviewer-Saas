@@ -549,3 +549,121 @@ async def get_hr_interviews(
         })
     
     return response_list
+
+
+@router.post("/interviews/{interview_id}/transcript")
+async def save_interview_transcript(
+    interview_id: UUID,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save interview transcript and mark interview as completed.
+    This endpoint is called by the interview room when the interview ends.
+    No auth required as the interview token serves as authentication.
+    Triggers AI analysis to generate scores and verdict.
+    """
+    try:
+        import json
+        from sqlalchemy import text
+        from app.services.ai_service import generate_interview_verdict
+        
+        # Find interview by ID
+        interview_query = select(Interview).filter(Interview.id == interview_id)
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Get candidate info for position
+        candidate = None
+        position = ""
+        if interview.candidate_id:
+            candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+            candidate_result = await db.execute(candidate_query)
+            candidate = candidate_result.scalars().first()
+            if candidate:
+                position = candidate.position or ""
+        
+        # Extract data from request
+        transcript_data = data.get("transcript", [])
+        duration_seconds = data.get("duration_seconds", 0)
+        resume_text = data.get("resume_text", "")
+        
+        # Update interview with transcript
+        interview.transcript = json.dumps(transcript_data) if transcript_data else None
+        interview.resume_text = resume_text if resume_text else interview.resume_text
+        
+        # Mark interview as completed using raw SQL to handle enum properly
+        await db.execute(
+            text("UPDATE interviews SET status = 'COMPLETED' WHERE id = :interview_id"),
+            {"interview_id": str(interview_id)}
+        )
+        
+        # Also update candidate status to interview_completed
+        if interview.candidate_id:
+            await db.execute(
+                text("UPDATE candidates SET status = 'interview_completed' WHERE id = :candidate_id"),
+                {"candidate_id": str(interview.candidate_id)}
+            )
+        
+        await db.commit()
+        
+        # Trigger AI analysis asynchronously (non-blocking)
+        ai_verdict = None
+        if transcript_data and len(transcript_data) > 2:  # At least welcome + 1 Q&A
+            try:
+                ai_verdict = await generate_interview_verdict(
+                    transcript=transcript_data,
+                    resume_text=resume_text or (candidate.resume_text if candidate else ""),
+                    ats_score=interview.ats_score,
+                    position=position
+                )
+                
+                # Update interview with AI scores
+                if ai_verdict:
+                    await db.execute(
+                        text("""
+                            UPDATE interviews SET 
+                                behavior_score = :behavior_score,
+                                confidence_score = :confidence_score,
+                                answer_score = :answer_score,
+                                ai_verdict = :ai_verdict,
+                                ai_recommendation = :ai_recommendation
+                            WHERE id = :interview_id
+                        """),
+                        {
+                            "interview_id": str(interview_id),
+                            "behavior_score": ai_verdict.get("behavior_score"),
+                            "confidence_score": ai_verdict.get("confidence_score"),
+                            "answer_score": ai_verdict.get("answer_score"),
+                            "ai_verdict": json.dumps(ai_verdict),
+                            "ai_recommendation": ai_verdict.get("recommendation"),
+                        }
+                    )
+                    await db.commit()
+            except Exception as ai_error:
+                # Don't fail the whole request if AI analysis fails
+                print(f"AI analysis error (non-critical): {ai_error}")
+        
+        return {
+            "success": True,
+            "message": "Interview transcript saved and marked as completed",
+            "interview_id": str(interview_id),
+            "duration_seconds": duration_seconds,
+            "ai_analysis": ai_verdict is not None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error saving transcript: {str(e)}"
+        )

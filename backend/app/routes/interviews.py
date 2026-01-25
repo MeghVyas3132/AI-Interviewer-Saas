@@ -40,6 +40,7 @@ async def get_interview_by_token(
     """
     try:
         from app.models.company import Company
+        from app.models.job import JobTemplate, Question
         
         # Find interview by token
         interview_query = select(Interview).filter(
@@ -73,6 +74,28 @@ async def get_interview_by_token(
             if interviewer:
                 interviewer_name = interviewer.name
         
+        # Get questions from job template
+        questions_generated = []
+        if candidate and candidate.job_template_id:
+            questions_query = select(Question).filter(
+                Question.job_template_id == candidate.job_template_id
+            ).order_by(Question.weight.desc(), Question.created_at)
+            questions_result = await session.execute(questions_query)
+            questions = questions_result.scalars().all()
+            questions_generated = [q.text for q in questions]
+        
+        # If no questions in job template, generate default questions based on position
+        if not questions_generated:
+            position = candidate.position if candidate else "the role"
+            questions_generated = [
+                f"Tell me about yourself and your experience relevant to {position}.",
+                f"What interests you about this {position} position?",
+                "Describe a challenging project you've worked on and how you handled it.",
+                "What are your greatest strengths and how do they apply to this role?",
+                "Where do you see yourself professionally in the next 3-5 years?",
+                "Do you have any questions for us about the role or company?",
+            ]
+        
         return {
             "id": str(interview.id),
             "candidate_id": str(interview.candidate_id) if interview.candidate_id else None,
@@ -93,6 +116,8 @@ async def get_interview_by_token(
             "notes": interview.notes,
             "resume_text": candidate.resume_text if candidate else None,
             "job_template_id": str(candidate.job_template_id) if candidate and candidate.job_template_id else None,
+            "questions_generated": questions_generated,
+            "duration_minutes": 30,  # Default interview duration
         }
     except HTTPException:
         raise
