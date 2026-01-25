@@ -21,8 +21,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "MeghVyas3132"
+          git config user.email "megh.vyas@yahoo.com"
 
       - name: Sync to main branch
         run: |
@@ -91,8 +91,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "MeghVyas3132"
+          git config user.email "megh.vyas@yahoo.com"
 
       - name: Sync to frontend branch
         run: |
@@ -144,8 +144,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "MeghVyas3132"
+          git config user.email "megh.vyas@yahoo.com"
 
       - name: Sync to ai branch
         run: |
