@@ -15,6 +15,19 @@ from app.models.company_request import CompanyRequest, RequestStatus
 from app.models.interview_round import InterviewRound
 from app.models.employee_availability import EmployeeAvailability, ScheduledSlot, AutoScheduleConfig, DayOfWeek
 from app.models.company_ai_config import CompanyAIConfig
+from app.models.realtime_insights import (
+    CandidateResume,
+    LiveInsight,
+    FraudAlert,
+    InterviewTranscript,
+    HumanVerdict,
+    InterviewSummary,
+    AIAuditLog,
+    InterviewModeType,
+    InsightType,
+    AlertSeverity,
+    VerdictDecision,
+)
 
 __all__ = [
     "Company",
@@ -39,6 +52,18 @@ __all__ = [
     "AutoScheduleConfig",
     "DayOfWeek",
     "CompanyAIConfig",
+    # Real-time AI Insights models
+    "CandidateResume",
+    "LiveInsight",
+    "FraudAlert",
+    "InterviewTranscript",
+    "HumanVerdict",
+    "InterviewSummary",
+    "AIAuditLog",
+    "InterviewModeType",
+    "InsightType",
+    "AlertSeverity",
+    "VerdictDecision",
 ]
 
 
