@@ -21,7 +21,7 @@ from app.core.database import close_db, init_db, AsyncSessionLocal
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import auth, admin, company, interviews, interview_rounds, logs, roles, scores, hr, users, email, register, candidates, employee, candidate_portal, ai, jobs
+from app.routes import auth, admin, company, interviews, interview_rounds, logs, roles, scores, hr, users, email, register, candidates, employee, candidate_portal, ai, jobs, realtime
 from app.utils.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(candidates.router)
     app.include_router(ai.router)
     app.include_router(jobs.router)
+    app.include_router(realtime.router)
 
     @app.get("/health")
     async def health_check():
