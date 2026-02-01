@@ -125,6 +125,36 @@ class Settings(BaseSettings):
     groq_api_keys: str = ""  # Multiple Groq API keys (comma-separated) for rotation
     groq_api_url: str = "https://api.groq.com/openai/v1"  # Groq OpenAI-compatible endpoint
 
+    # ===========================================
+    # Real-Time AI Insight Services (Human-Assisted Interviews)
+    # ===========================================
+    
+    # Internal API key for service-to-service communication
+    internal_api_key: str = "dev-internal-key-change-in-prod"
+    
+    # VideoSDK Configuration (for human-assisted interviews)
+    videosdk_api_key: str = ""
+    videosdk_secret: str = ""
+    videosdk_api_endpoint: str = "https://api.videosdk.live/v2"
+    
+    # ML Service URLs (for containerized deployment)
+    speech_service_url: str = "http://localhost:8001"
+    video_service_url: str = "http://localhost:8002"
+    fraud_service_url: str = "http://localhost:8003"
+    nlp_service_url: str = "http://localhost:8004"
+    insight_aggregator_url: str = "http://localhost:8005"
+    
+    # Speech-to-Text Configuration
+    deepgram_api_key: str = ""
+    whisper_model_size: str = "base"  # tiny, base, small, medium, large
+    
+    # LLM Configuration for NLP Engine
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4-turbo-preview"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-3-sonnet-20240229"
+    llm_provider: str = "openai"  # openai, anthropic
+
     @field_validator("secret_key")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
