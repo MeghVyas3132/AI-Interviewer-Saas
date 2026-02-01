@@ -30,15 +30,16 @@ jobs:
           git fetch origin
 
           # Check if main branch exists, create if not
+          # Use git switch for branch operations to avoid ambiguity with files/dirs
           if git ls-remote --heads origin main | grep -q main; then
-            git checkout main
+            git switch main
             git pull origin main
           else
             git checkout --orphan main
             git rm -rf . || true
             git commit --allow-empty -m "Initialize main branch"
             git push origin main
-            git checkout main
+            git switch main
           fi
 
           # Remove all current files (this handles deletions)
@@ -100,15 +101,16 @@ jobs:
           git fetch origin
 
           # Check if frontend branch exists, create if not
+          # Use git switch for branch operations to avoid ambiguity with files/dirs
           if git ls-remote --heads origin frontend | grep -q frontend; then
-            git checkout frontend
+            git switch frontend
             git pull origin frontend
           else
             git checkout --orphan frontend
             git rm -rf . || true
             git commit --allow-empty -m "Initialize frontend branch"
             git push origin frontend
-            git checkout frontend
+            git switch frontend
           fi
 
           # Remove all current files (this handles deletions)
@@ -153,15 +155,16 @@ jobs:
           git fetch origin
 
           # Check if ai branch exists, create if not
+          # Use git switch for branch operations to avoid ambiguity with files/dirs
           if git ls-remote --heads origin ai | grep -q ai; then
-            git checkout ai
+            git switch ai
             git pull origin ai
           else
             git checkout --orphan ai
             git rm -rf . || true
             git commit --allow-empty -m "Initialize ai branch"
             git push origin ai
-            git checkout ai
+            git switch ai
           fi
 
           # Remove all current files (this handles deletions)
