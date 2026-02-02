@@ -2,9 +2,8 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'ax
 import Cookies from 'js-cookie'
 import { LoginRequest, LoginResponse, RefreshTokenRequest, ApiError } from '@/types'
 
-// Always use localhost:8000 for browser requests
-// This client is only used client-side where localhost resolves correctly
-const API_URL = 'http://localhost:8000/api/v1'
+// Use environment variable with localhost fallback for development
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 class APIClient {
   private client: AxiosInstance
