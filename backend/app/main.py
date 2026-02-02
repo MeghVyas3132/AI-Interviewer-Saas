@@ -85,10 +85,9 @@ def create_app() -> FastAPI:
     # 3. Security headers (add security headers to all responses)
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # 4. Rate limiting - DISABLED for testing phase
-    # Uncomment for production deployment:
-    # if settings.environment == "production":
-    #     app.add_middleware(RateLimitMiddleware)
+    # 4. Rate limiting - enabled for all non-development environments
+    if settings.environment != "development":
+        app.add_middleware(RateLimitMiddleware)
 
     # 5. CORS (outermost - handles preflight requests first)
     app.add_middleware(

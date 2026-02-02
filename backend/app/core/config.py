@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     # ===========================================
     
     # Internal API key for service-to-service communication
-    internal_api_key: str = "dev-internal-key-change-in-prod"
+    internal_api_key: str = ""  # REQUIRED in production - set via INTERNAL_API_KEY env var
     
     # VideoSDK Configuration (for human-assisted interviews)
     videosdk_api_key: str = ""
@@ -219,6 +219,18 @@ class Settings(BaseSettings):
         if redis_url:
             return redis_url
         raise ValueError("CELERY_RESULT_BACKEND_URL or REDIS_URL must be set")
+
+    @field_validator("internal_api_key")
+    @classmethod
+    def validate_internal_api_key(cls, v: str, info) -> str:
+        """Ensure internal API key is set in production."""
+        environment = info.data.get("environment", "development")
+        if environment == "production" and (not v or v == "" or "dev-" in v):
+            raise ValueError(
+                "INTERNAL_API_KEY must be set to a secure value in production. "
+                "Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+        return v
 
     class Config:
         """Pydantic settings config."""

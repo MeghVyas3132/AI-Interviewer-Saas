@@ -1,9 +1,18 @@
 import asyncio
 import sys
+import secrets
+import string
 from app.core.database import async_session_maker, init_db
 from app.models.user import User, UserRole
 from sqlalchemy import text
 from passlib.context import CryptContext
+
+
+def generate_secure_password(length: int = 16) -> str:
+    """Generate a cryptographically secure random password."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
 
 print("=" * 50)
 print("SIMPLE SEED SCRIPT STARTING...")
@@ -69,8 +78,9 @@ async def main():
         print("Creating SYSTEM_ADMIN user...")
         sys.stdout.flush()
         
-        # Create system admin directly
-        hashed_password = pwd_context.hash("qwerty123")
+        # Create system admin with secure random password
+        admin_password = generate_secure_password()
+        hashed_password = pwd_context.hash(admin_password)
         
         await session.execute(
             text("""
@@ -98,9 +108,15 @@ async def main():
         print("=" * 50)
         sys.stdout.flush()
         print()
+        print("=" * 50)
+        print("⚠️  SAVE THESE CREDENTIALS - SHOWN ONLY ONCE ⚠️")
+        print("=" * 50)
         print("System Admin credentials:")
-        print("  Email: admin@aigenthix.com")
-        print("  Password: qwerty123")
+        print(f"  Email: admin@aigenthix.com")
+        print(f"  Password: {admin_password}")
+        print("=" * 50)
+        print("⚠️  Change this password after first login! ⚠️")
+        print("=" * 50)
 
 if __name__ == "__main__":
     print("Running main()...")
