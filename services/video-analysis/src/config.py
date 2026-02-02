@@ -1,4 +1,6 @@
 from pydantic_settings import BaseSettings
+from typing import List
+import os
 
 
 class Settings(BaseSettings):
@@ -7,12 +9,16 @@ class Settings(BaseSettings):
     # Server
     port: int = 8002
     debug: bool = False
+    environment: str = "development"
     
     # Redis
     redis_url: str = "redis://localhost:6379"
     
-    # Internal API Key
-    internal_api_key: str = "dev-internal-key"
+    # Internal API Key - REQUIRED in production
+    internal_api_key: str = ""  # Must be set via environment variable
+    
+    # CORS - Allowed origins (comma-separated in env)
+    allowed_origins: List[str] = ["http://localhost:3000", "http://localhost:8000"]
     
     # Analysis settings
     frame_analysis_interval_ms: int = 2000  # Analyze every 2 seconds

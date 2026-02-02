@@ -14,13 +14,32 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import redis.asyncio as redis
 
 from .config import settings
 from .analyzer import ResumeContradictionAnalyzer, TranscriptAnalyzer
+
+
+# =============================================================================
+# API Key Verification
+# =============================================================================
+
+async def verify_internal_api_key(x_internal_api_key: str = Header(None)):
+    """Verify internal API key for service-to-service auth."""
+    # Skip in development if no key configured
+    if settings.environment == "development" and not settings.internal_api_key:
+        return True
+    
+    if not x_internal_api_key or x_internal_api_key != settings.internal_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing internal API key"
+        )
+    return True
+
 
 # Configure logging
 logging.basicConfig(
@@ -98,10 +117,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - Use configured origins, not wildcard
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins if settings.environment != "development" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -244,7 +263,10 @@ async def readiness_check():
 # =============================================================================
 
 @app.post("/analyze/contradiction", response_model=ContradictionResponse)
-async def analyze_contradiction(request: ContradictionRequest):
+async def analyze_contradiction(
+    request: ContradictionRequest,
+    _: bool = Depends(verify_internal_api_key)
+):
     """
     Analyze transcript for contradictions with resume.
     

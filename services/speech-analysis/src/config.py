@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -8,12 +8,16 @@ class Settings(BaseSettings):
     # Server
     port: int = 8001
     debug: bool = False
+    environment: str = "development"
     
     # Redis
     redis_url: str = "redis://localhost:6379"
     
-    # Internal API Key
-    internal_api_key: str = "dev-internal-key"
+    # Internal API Key - REQUIRED in production
+    internal_api_key: str = ""  # Must be set via environment variable
+    
+    # CORS - Allowed origins
+    allowed_origins: List[str] = ["http://localhost:3000", "http://localhost:8000"]
     
     # Deepgram (Primary STT)
     deepgram_api_key: Optional[str] = None

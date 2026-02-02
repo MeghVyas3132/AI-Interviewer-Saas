@@ -48,7 +48,7 @@ services:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:9002","http://localhost:9004"]'
-      SECRET_KEY: your-super-secret-256bit-key-for-prod-deployment-12345678
+      SECRET_KEY: ${SECRET_KEY:-TQ4UwEiBQZGau0QX4czZbSsJJYu04XdzgSjS2Woh6nc=}
       ALGORITHM: HS256
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
@@ -59,9 +59,8 @@ services:
       # Gemini API for fallback
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      # AI Interview Coach Service integration
-      AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
-      SYNC_API_KEY: ai-interviewer-sync-key-2024
+      # Internal API key for service-to-service communication
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
     ports:
       - "8000:8000"
     healthcheck:
@@ -82,57 +81,9 @@ services:
       - backend
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
-      NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:3001
-      # For server-side API proxies (container-to-container communication)
-      AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
     ports:
       - "3000:3000"
-    networks:
-      - app-network
-
-  # AI Service (Candidate Interface) - Internal only, accessed via frontend proxy
-  ai-service:
-    build:
-      context: ./AI/Aigenthix_AI_Interviewer
-      dockerfile: Dockerfile
-    container_name: ai-interviewer-coach
-    command: npm run dev
-    depends_on:
-      - backend
-      - postgres
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
-      NEXT_PUBLIC_WS_PROXY_URL: ws://localhost:9003
-      DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
-      PORT: 3000
-      # Google Gemini API Key - required for AI interview agent
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-your_gemini_api_key_here}
-      # Backend URL for AI service to notify on interview completion
-      BACKEND_URL: http://backend:8000/api/v1
-      NEXT_PUBLIC_BACKEND_URL: http://backend:8000/api/v1
-    # Port 3001 removed - AI service is accessed internally via frontend proxy
-    # ports:
-    #   - "3001:3000"
-    volumes:
-      - ./AI/Aigenthix_AI_Interviewer:/app
-      - /app/node_modules
-      - /app/.next
-    networks:
-      - app-network
-
-  # AI WebSocket Proxy
-  ai-ws-proxy:
-    build:
-      context: ./AI/Aigenthix_AI_Interviewer
-      dockerfile: Dockerfile
-    container_name: ai_interviewer_ws_proxy
-    command: node ws-proxy-server.js
-    environment:
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-8579e234fc6147ba8be07d23c0b153ec}
-      # Allow WS proxy to know AI service URL if it needs to call backend
-      AI_SERVICE_URL: ${AI_SERVICE_URL}
-    ports:
-      - "9003:9003"
     networks:
       - app-network
 
@@ -150,6 +101,7 @@ services:
     environment:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-TQ4UwEiBQZGau0QX4czZbSsJJYu04XdzgSjS2Woh6nc=}
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
       # Groq API for question generation

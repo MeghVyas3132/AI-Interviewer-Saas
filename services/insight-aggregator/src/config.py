@@ -2,7 +2,7 @@
 Insight Aggregator Configuration
 """
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     service_name: str = "insight-aggregator"
     environment: str = "development"
     debug: bool = False
+    
+    # Internal API Key - REQUIRED in production
+    internal_api_key: str = ""  # Must be set via environment variable
+    
+    # CORS - Allowed origins
+    allowed_origins: List[str] = ["http://localhost:3000", "http://localhost:8000"]
     
     # Redis
     redis_url: str = "redis://localhost:6379"

@@ -71,10 +71,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# CORS - Use configured origins, not wildcard
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins if settings.environment != "development" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
