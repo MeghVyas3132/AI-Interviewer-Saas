@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Update</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .content { background: #f9f9f9; padding: 40px 20px; }
+        .footer { background: #333; color: #fff; text-align: center; padding: 20px; font-size: 12px; border-radius: 0 0 8px 8px; }
+        .details-box { background: white; padding: 20px; border-left: 4px solid #e74c3c; margin: 20px 0; border-radius: 4px; }
+        .detail-item { margin: 10px 0; }
+        .detail-label { font-weight: bold; color: #e74c3c; }
+        .feedback-box { background: #f5f5f5; padding: 15px; border-radius: 4px; margin: 20px 0; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📬 Application Update</h1>
+        </div>
+        <div class="content">
+            <p>Hello {{ recipient_name }},</p>
+            
+            <p>Thank you for your interest in the <strong>{{ position }}</strong> position at our company. After careful consideration, we have decided to move forward with other candidates at this time.</p>
+            
+            <div class="details-box">
+                <div class="detail-item">
+                    <span class="detail-label">📋 Position:</span> {{ position }}
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">📊 Status:</span> Not Moving Forward
+                </div>
+            </div>
+            
+            {% if feedback %}
+            <p><strong>Feedback:</strong></p>
+            <div class="feedback-box">
+                {{ feedback }}
+            </div>
+            {% endif %}
+            
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            
+            <p><strong>What's Next?</strong></p>
+            <p>We encourage you to apply for future positions that match your skills and experience. Keep an eye on our careers page for new opportunities.</p>
+            
+            <p>Thank you for considering our company!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{ current_year }} AI Interviewer. All rights reserved.</p>
+            <p>This is an automated message, please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>
