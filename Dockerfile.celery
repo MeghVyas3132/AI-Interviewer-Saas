@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the backend application
+COPY backend/ .
+
+# Run Celery worker
+CMD ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info", "--concurrency=2"]
