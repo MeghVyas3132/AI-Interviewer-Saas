@@ -309,7 +309,11 @@ async def submit_employee_verdict(
 ):
     """
     Submit employee's verdict for an interview.
-    Used when AI verdict is NEUTRAL and requires human review.
+    Used when AI verdict is NEUTRAL/REVIEW and requires human review.
+    
+    For multi-round flow:
+    - APPROVE: Promotes candidate to eligible_round_2 (or next round)
+    - REJECT: Marks candidate as failed
     """
     try:
         # Get interview
@@ -331,19 +335,57 @@ async def submit_employee_verdict(
         # Update employee verdict
         interview.employee_verdict = request.verdict
         
-        # Update candidate status based on verdict
+        # Update candidate status based on verdict - MULTI-ROUND FLOW
         if interview.candidate_id:
             from sqlalchemy import text
-            if request.verdict.upper() in ["APPROVE", "PASS", "ACCEPTED"]:
-                new_status = "passed"
-            elif request.verdict.upper() in ["REJECT", "FAIL", "REJECTED"]:
-                new_status = "failed"
-            else:
-                new_status = "review"  # NEUTRAL or other verdicts go to review
+            from datetime import datetime
             
+            verdict_upper = request.verdict.upper()
+            
+            if verdict_upper in ["APPROVE", "PASS", "ACCEPTED", "HIRE"]:
+                # APPROVE - Promote to eligible for Round 2
+                new_status = "eligible_round_2"
+                
+                await db.execute(
+                    text("""
+                        UPDATE candidates 
+                        SET status = :status, 
+                            current_round = 2,
+                            promoted_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {"status": new_status, "id": str(interview.candidate_id)}
+                )
+                print(f"[Employee Verdict] APPROVED - Candidate promoted to eligible_round_2")
+                
+            elif verdict_upper in ["REJECT", "FAIL", "REJECTED"]:
+                # REJECT - Mark as failed
+                new_status = "failed"
+                await db.execute(
+                    text("UPDATE candidates SET status = :status, updated_at = NOW() WHERE id = :id"),
+                    {"status": new_status, "id": str(interview.candidate_id)}
+                )
+                print(f"[Employee Verdict] REJECTED - Candidate marked as failed")
+                
+            else:
+                # Keep in review for further consideration
+                new_status = "review"
+                await db.execute(
+                    text("UPDATE candidates SET status = :status, updated_at = NOW() WHERE id = :id"),
+                    {"status": new_status, "id": str(interview.candidate_id)}
+                )
+            
+            # Also update interview with review metadata
             await db.execute(
-                text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
-                {"status": new_status, "id": str(interview.candidate_id)}
+                text("""
+                    UPDATE interviews 
+                    SET reviewed_by = :reviewed_by,
+                        reviewed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = :interview_id
+                """),
+                {"reviewed_by": str(current_user.id), "interview_id": str(interview_id)}
             )
         
         await db.commit()
@@ -352,14 +394,91 @@ async def submit_employee_verdict(
             "status": "success",
             "message": "Verdict submitted successfully",
             "interview_id": str(interview_id),
-            "employee_verdict": request.verdict
+            "employee_verdict": request.verdict,
+            "candidate_status": new_status if interview.candidate_id else None,
+            "promoted_to_round_2": new_status == "eligible_round_2"
         }
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error submitting verdict: {str(e)}"
+        )
+
+
+@router.get("/candidates-for-review")
+async def get_candidates_for_review(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get all candidates that need manual review (ai_review status).
+    These are candidates where AI verdict was NEUTRAL/REVIEW.
+    Employee can APPROVE (promote to Round 2) or REJECT these candidates.
+    """
+    try:
+        # Get candidates with ai_review status assigned to this employee
+        query = select(Candidate, Interview).join(
+            Interview, Interview.candidate_id == Candidate.id
+        ).filter(
+            and_(
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id,
+                Candidate.status == "ai_review"
+            )
+        ).order_by(Interview.updated_at.desc())
+        
+        result = await db.execute(query)
+        rows = result.fetchall()
+        
+        candidates_for_review = []
+        for candidate, interview in rows:
+            # Parse AI verdict for display
+            ai_verdict_data = {}
+            if interview.ai_verdict:
+                import json
+                try:
+                    ai_verdict_data = json.loads(interview.ai_verdict)
+                except:
+                    pass
+            
+            candidates_for_review.append({
+                "candidate_id": str(candidate.id),
+                "interview_id": str(interview.id),
+                "name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                "email": candidate.email,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "interview_date": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "completed_at": interview.updated_at.isoformat() if interview.updated_at else None,
+                # Scores
+                "overall_score": ai_verdict_data.get("overall_score"),
+                "behavior_score": interview.behavior_score,
+                "confidence_score": interview.confidence_score,
+                "answer_score": interview.answer_score,
+                "ats_score": interview.ats_score,
+                # AI Analysis
+                "ai_recommendation": interview.ai_recommendation,
+                "summary": ai_verdict_data.get("summary"),
+                "strengths": ai_verdict_data.get("strengths", []),
+                "weaknesses": ai_verdict_data.get("weaknesses", []),
+                "hiring_risk": ai_verdict_data.get("hiring_risk"),
+                "detailed_feedback": ai_verdict_data.get("detailed_feedback"),
+            })
+        
+        return {
+            "candidates": candidates_for_review,
+            "total": len(candidates_for_review)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidates for review: {str(e)}"
         )
 
 
@@ -837,6 +956,48 @@ async def get_my_interviews(
                     "detail_score": provider_response.get("detail_score"),
                 }
 
+        # Helper to get verdict from interview or report
+        def get_interview_verdict(interview, reports_dict):
+            # First check AIReport
+            report_data = reports_dict.get(interview.id, {})
+            if report_data.get("verdict"):
+                return report_data
+            
+            # Fall back to Interview table fields (set by ai-complete endpoint)
+            verdict = None
+            score = None
+            summary = None
+            
+            if interview.ai_recommendation:
+                # Map ai_recommendation to PASS/REVIEW/FAIL
+                if interview.ai_recommendation in ["HIRE", "PASS"]:
+                    verdict = "PASS"
+                elif interview.ai_recommendation == "REJECT":
+                    verdict = "FAIL"
+                else:
+                    verdict = "REVIEW"
+            
+            # Get score from answer_score or calculate from ai_verdict JSON
+            if interview.answer_score:
+                score = interview.answer_score
+            elif interview.ai_verdict:
+                import json
+                try:
+                    ai_data = json.loads(interview.ai_verdict)
+                    score = ai_data.get("overall_score") or ai_data.get("answer_score")
+                    summary = ai_data.get("summary")
+                except:
+                    pass
+            
+            if verdict:
+                return {
+                    "verdict": verdict,
+                    "score": score,
+                    "summary": summary,
+                }
+            
+            return {}
+
         return [
             {
                 "id": str(interview.id),
@@ -848,10 +1009,10 @@ async def get_my_interviews(
                 "status": interview.status.value if interview.status else None,
                 "meeting_link": interview.meeting_link,
                 "notes": interview.notes,
-                # Include verdict data for completed interviews
-                "verdict": reports_dict.get(interview.id, {}).get("verdict"),
-                "score": reports_dict.get(interview.id, {}).get("score"),
-                "verdict_summary": reports_dict.get(interview.id, {}).get("summary"),
+                # Include verdict data for completed interviews - check both AIReport and Interview table
+                "verdict": get_interview_verdict(interview, reports_dict).get("verdict"),
+                "score": get_interview_verdict(interview, reports_dict).get("score"),
+                "verdict_summary": get_interview_verdict(interview, reports_dict).get("summary"),
             }
             for interview, candidate in rows
         ]
@@ -1469,6 +1630,544 @@ async def delete_availability_slot(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting availability slot: {str(e)}"
+        )
+
+
+# ==============================================================================
+# Round 2+ Human-Conducted Interview Scheduling
+# ==============================================================================
+
+
+class ScheduleHumanRoundRequest(BaseModel):
+    """Request to schedule a human-conducted interview round."""
+    candidate_id: str
+    round_type: str = "TECHNICAL"  # TECHNICAL, BEHAVIORAL, FINAL, HR
+    scheduled_at: str  # ISO format datetime
+    timezone: str = "UTC"
+    duration_minutes: int = 60
+    notes: Optional[str] = None
+
+
+@router.get("/ready-for-round-2")
+async def get_candidates_ready_for_round_2(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get candidates who have completed AI interviews with PASS verdict
+    and are ready for Round 2 (human-conducted interview).
+    
+    Returns candidates assigned to the current employee who:
+    - Have completed at least one AI interview
+    - Received PASS or REVIEW verdict
+    - Haven't been scheduled for a human-conducted round yet
+    """
+    try:
+        from app.models.ai_report import AIReport
+        from app.models.interview_round import InterviewRound, RoundStatus, InterviewMode
+        
+        # Get all candidates assigned to this employee
+        # Include both new statuses and legacy statuses for backwards compatibility
+        candidates_query = select(Candidate).filter(
+            and_(
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id,
+                Candidate.status.in_([
+                    # New multi-round statuses
+                    CandidateStatus.AI_INTERVIEW_PASSED,
+                    CandidateStatus.ELIGIBLE_FOR_ROUND_2,
+                    # Legacy statuses for backwards compatibility
+                    CandidateStatus.INTERVIEW_COMPLETED,
+                    CandidateStatus.PASSED,
+                    CandidateStatus.REVIEW
+                ])
+            )
+        )
+        candidates_result = await db.execute(candidates_query)
+        candidates = candidates_result.scalars().all()
+        
+        ready_candidates = []
+        
+        for candidate in candidates:
+            # Get completed interviews for this candidate
+            interviews_query = select(Interview).filter(
+                and_(
+                    Interview.candidate_id == candidate.id,
+                    Interview.status == InterviewStatus.COMPLETED
+                )
+            ).order_by(Interview.scheduled_time.desc())
+            interviews_result = await db.execute(interviews_query)
+            interviews = interviews_result.scalars().all()
+            
+            if not interviews:
+                continue
+            
+            # Get AI reports for these interviews
+            interview_ids = [i.id for i in interviews]
+            reports_query = select(AIReport).filter(
+                AIReport.interview_id.in_(interview_ids)
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+            
+            # Check if any interview passed
+            passed_interviews = []
+            for interview in interviews:
+                report = next((r for r in reports if r.interview_id == interview.id), None)
+                if report:
+                    verdict = None
+                    if report.provider_response:
+                        verdict = report.provider_response.get("verdict")
+                    if not verdict and report.score is not None:
+                        if report.score >= 70:
+                            verdict = "PASS"
+                        elif report.score >= 50:
+                            verdict = "REVIEW"
+                    
+                    if verdict in ["PASS", "REVIEW"]:
+                        passed_interviews.append({
+                            "interview_id": str(interview.id),
+                            "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                            "score": report.score,
+                            "verdict": verdict,
+                            "summary": report.summary,
+                        })
+            
+            if not passed_interviews:
+                continue
+            
+            # Check if human-conducted round already scheduled
+            human_round_query = select(InterviewRound).filter(
+                and_(
+                    InterviewRound.candidate_id == candidate.id,
+                    InterviewRound.interview_mode == InterviewMode.HUMAN_AI_ASSISTED,
+                    InterviewRound.status.in_([RoundStatus.SCHEDULED, RoundStatus.IN_PROGRESS])
+                )
+            )
+            human_round_result = await db.execute(human_round_query)
+            existing_human_round = human_round_result.scalars().first()
+            
+            ready_candidates.append({
+                "id": str(candidate.id),
+                "email": candidate.email,
+                "first_name": candidate.first_name,
+                "last_name": candidate.last_name,
+                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                "phone": candidate.phone,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "status": candidate.status.value if candidate.status else None,
+                "ai_interviews": passed_interviews,
+                "best_score": max([i["score"] for i in passed_interviews if i["score"]]) if passed_interviews else None,
+                "human_round_scheduled": existing_human_round is not None,
+                "human_round_id": str(existing_human_round.id) if existing_human_round else None,
+                "human_round_time": existing_human_round.scheduled_at.isoformat() if existing_human_round and existing_human_round.scheduled_at else None,
+            })
+        
+        return {
+            "candidates": ready_candidates,
+            "total": len(ready_candidates),
+            "message": f"Found {len(ready_candidates)} candidates ready for Round 2"
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidates ready for Round 2: {str(e)}"
+        )
+
+
+@router.get("/pending-review")
+async def get_candidates_pending_review(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get candidates who need manual review after AI interview.
+    
+    These are candidates where:
+    - AI gave a REVIEW/NEUTRAL verdict (unsure)
+    - OR AI interview failed but needs employee verification
+    
+    Returns candidates with their AI interview results for employee to review and decide.
+    """
+    try:
+        from app.models.ai_report import AIReport
+        
+        # Get candidates with ai_interview_review status assigned to this employee
+        candidates_query = select(Candidate).filter(
+            and_(
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id,
+                Candidate.status.in_([
+                    CandidateStatus.AI_INTERVIEW_REVIEW,  # AI unsure, needs review
+                    CandidateStatus.AI_INTERVIEW_FAILED,  # AI rejected, can override
+                ])
+            )
+        )
+        candidates_result = await db.execute(candidates_query)
+        candidates = candidates_result.scalars().all()
+        
+        review_candidates = []
+        
+        for candidate in candidates:
+            # Get the most recent completed interview for this candidate
+            interview_query = select(Interview).filter(
+                and_(
+                    Interview.candidate_id == candidate.id,
+                    Interview.status == InterviewStatus.COMPLETED
+                )
+            ).order_by(Interview.scheduled_time.desc())
+            interview_result = await db.execute(interview_query)
+            interview = interview_result.scalars().first()
+            
+            if not interview:
+                continue
+            
+            # Get AI report for this interview
+            report_query = select(AIReport).filter(
+                AIReport.interview_id == interview.id
+            )
+            report_result = await db.execute(report_query)
+            report = report_result.scalars().first()
+            
+            # Determine verdict and scores
+            verdict = None
+            score = None
+            summary = None
+            recommendation = None
+            
+            # Check interview table first (from ai-complete callback)
+            if interview.ai_recommendation:
+                recommendation = interview.ai_recommendation
+            if interview.ai_verdict:
+                verdict = interview.ai_verdict
+            
+            # Then check AIReport if available
+            if report:
+                score = report.score
+                summary = report.summary
+                if report.provider_response:
+                    if not verdict:
+                        verdict = report.provider_response.get("verdict")
+                    recommendation = recommendation or report.provider_response.get("recommendation")
+            
+            # If no verdict yet, derive from score
+            if not verdict and score is not None:
+                if score >= 70:
+                    verdict = "PASS"
+                elif score >= 50:
+                    verdict = "REVIEW"
+                else:
+                    verdict = "FAIL"
+            
+            review_candidates.append({
+                "id": str(candidate.id),
+                "email": candidate.email,
+                "first_name": candidate.first_name,
+                "last_name": candidate.last_name,
+                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                "phone": candidate.phone,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "status": candidate.status.value if candidate.status else None,
+                "interview_id": str(interview.id),
+                "interview_date": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "ai_verdict": verdict,
+                "ai_score": score,
+                "ai_recommendation": recommendation,
+                "ai_summary": summary,
+                "can_override": candidate.status == CandidateStatus.AI_INTERVIEW_FAILED,  # Employee can override AI rejection
+            })
+        
+        return {
+            "candidates": review_candidates,
+            "total": len(review_candidates),
+            "message": f"Found {len(review_candidates)} candidates pending review"
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidates pending review: {str(e)}"
+        )
+
+
+@router.post("/review-candidate/{candidate_id}")
+async def review_candidate(
+    candidate_id: str,
+    decision: str = Query(..., description="APPROVE or REJECT"),
+    notes: str = Query(None, description="Optional review notes"),
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Employee reviews a candidate that AI flagged for review or rejected.
+    
+    - APPROVE: Moves candidate to eligible_for_round_2 status
+    - REJECT: Moves candidate to rejected status
+    """
+    try:
+        # Get the candidate
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == UUID(candidate_id),
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id,
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found or not assigned to you"
+            )
+        
+        # Validate candidate is in reviewable status
+        if candidate.status not in [CandidateStatus.AI_INTERVIEW_REVIEW, CandidateStatus.AI_INTERVIEW_FAILED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Candidate is not pending review. Current status: {candidate.status.value}"
+            )
+        
+        decision = decision.upper()
+        if decision == "APPROVE":
+            candidate.status = CandidateStatus.ELIGIBLE_FOR_ROUND_2
+            message = f"Candidate approved for Round 2 by {current_user.email}"
+        elif decision == "REJECT":
+            candidate.status = CandidateStatus.REJECTED
+            message = f"Candidate rejected by {current_user.email}"
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Decision must be APPROVE or REJECT"
+            )
+        
+        await db.commit()
+        await db.refresh(candidate)
+        
+        return {
+            "success": True,
+            "message": message,
+            "candidate_id": str(candidate.id),
+            "new_status": candidate.status.value,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error reviewing candidate: {str(e)}"
+        )
+
+
+@router.post("/schedule-human-round")
+async def schedule_human_conducted_round(
+    request: ScheduleHumanRoundRequest,
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Schedule a human-conducted interview round (Round 2+) with AI assistance.
+    
+    This creates an InterviewRound with HUMAN_AI_ASSISTED mode, which will:
+    - Generate a VideoSDK meeting room
+    - Enable real-time AI insights during the interview
+    - Allow the interviewer to see transcripts, fraud alerts, and recommendations
+    """
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from app.models.interview_round import InterviewRound, RoundStatus, RoundType, InterviewMode
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        candidate_id = UUID(request.candidate_id)
+        
+        # Verify candidate is assigned to this employee
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id,
+                Candidate.assigned_to == current_user.id
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found or not assigned to you"
+            )
+        
+        # Parse scheduled time
+        try:
+            # Handle different ISO format variations
+            scheduled_time_str = request.scheduled_at
+            if scheduled_time_str.endswith('Z'):
+                scheduled_time_str = scheduled_time_str[:-1] + '+00:00'
+            
+            # Try to parse with timezone
+            try:
+                scheduled_dt = datetime.fromisoformat(scheduled_time_str)
+            except ValueError:
+                # If that fails, try parsing without timezone and apply the provided timezone
+                scheduled_dt = datetime.fromisoformat(scheduled_time_str.replace('Z', ''))
+                tz = ZoneInfo(request.timezone)
+                scheduled_dt = scheduled_dt.replace(tzinfo=tz)
+            
+            # Convert to UTC for storage
+            if scheduled_dt.tzinfo is None:
+                tz = ZoneInfo(request.timezone)
+                scheduled_dt = scheduled_dt.replace(tzinfo=tz)
+            scheduled_dt_utc = scheduled_dt.astimezone(ZoneInfo('UTC'))
+            
+        except Exception as parse_error:
+            logger.error(f"Error parsing scheduled time: {parse_error}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scheduled time format: {request.scheduled_at}"
+            )
+        
+        # Map round type
+        round_type_map = {
+            "SCREENING": RoundType.SCREENING,
+            "TECHNICAL": RoundType.TECHNICAL,
+            "BEHAVIORAL": RoundType.BEHAVIORAL,
+            "FINAL": RoundType.FINAL,
+            "HR": RoundType.HR,
+            "CUSTOM": RoundType.CUSTOM,
+        }
+        round_type = round_type_map.get(request.round_type.upper(), RoundType.TECHNICAL)
+        
+        # Create the interview round
+        interview_round = InterviewRound(
+            company_id=current_user.company_id,
+            candidate_id=candidate_id,
+            interviewer_id=current_user.id,
+            round_type=round_type,
+            scheduled_at=scheduled_dt_utc,
+            timezone=request.timezone,
+            duration_minutes=request.duration_minutes,
+            status=RoundStatus.SCHEDULED,
+            interview_mode=InterviewMode.HUMAN_AI_ASSISTED,
+            notes=request.notes,
+            created_by=current_user.id,
+        )
+        
+        db.add(interview_round)
+        await db.commit()
+        await db.refresh(interview_round)
+        
+        # Update candidate status
+        candidate.status = CandidateStatus.INTERVIEW_SCHEDULED
+        await db.commit()
+        
+        logger.info(f"Created human-AI-assisted interview round {interview_round.id} for candidate {candidate_id}")
+        
+        return {
+            "success": True,
+            "message": f"Human-conducted interview scheduled for {request.scheduled_at}",
+            "round": {
+                "id": str(interview_round.id),
+                "candidate_id": str(candidate_id),
+                "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip(),
+                "round_type": interview_round.round_type.value,
+                "interview_mode": "HUMAN_AI_ASSISTED",
+                "scheduled_at": interview_round.scheduled_at.isoformat(),
+                "timezone": interview_round.timezone,
+                "duration_minutes": interview_round.duration_minutes,
+                "status": interview_round.status.value,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error scheduling human-conducted round: {str(e)}"
+        )
+
+
+@router.get("/my-human-rounds")
+async def get_my_human_conducted_rounds(
+    current_user: User = Depends(require_employee),
+    db: AsyncSession = Depends(get_db),
+    status_filter: Optional[str] = None,
+):
+    """
+    Get all human-conducted interview rounds assigned to the current employee.
+    """
+    try:
+        from app.models.interview_round import InterviewRound, RoundStatus, InterviewMode
+        
+        # Build query
+        query = select(InterviewRound).filter(
+            and_(
+                InterviewRound.company_id == current_user.company_id,
+                InterviewRound.interviewer_id == current_user.id,
+                InterviewRound.interview_mode == InterviewMode.HUMAN_AI_ASSISTED
+            )
+        )
+        
+        if status_filter:
+            try:
+                status_enum = RoundStatus[status_filter.upper()]
+                query = query.filter(InterviewRound.status == status_enum)
+            except KeyError:
+                pass  # Ignore invalid status filter
+        
+        query = query.order_by(InterviewRound.scheduled_at.desc())
+        
+        result = await db.execute(query)
+        rounds = result.scalars().all()
+        
+        # Get candidate info for each round
+        rounds_data = []
+        for round_obj in rounds:
+            # Get candidate
+            candidate_query = select(Candidate).filter(Candidate.id == round_obj.candidate_id)
+            candidate_result = await db.execute(candidate_query)
+            candidate = candidate_result.scalars().first()
+            
+            rounds_data.append({
+                "id": str(round_obj.id),
+                "candidate_id": str(round_obj.candidate_id),
+                "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() if candidate else "Unknown",
+                "candidate_email": candidate.email if candidate else None,
+                "position": candidate.position if candidate else None,
+                "round_type": round_obj.round_type.value,
+                "interview_mode": "HUMAN_AI_ASSISTED",
+                "scheduled_at": round_obj.scheduled_at.isoformat() if round_obj.scheduled_at else None,
+                "timezone": round_obj.timezone,
+                "duration_minutes": round_obj.duration_minutes,
+                "status": round_obj.status.value,
+                "started_at": round_obj.started_at.isoformat() if round_obj.started_at else None,
+                "ended_at": round_obj.ended_at.isoformat() if round_obj.ended_at else None,
+                "videosdk_meeting_id": round_obj.videosdk_meeting_id,
+                "notes": round_obj.notes,
+            })
+        
+        return {
+            "rounds": rounds_data,
+            "total": len(rounds_data),
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching human-conducted rounds: {str(e)}"
         )
 
 

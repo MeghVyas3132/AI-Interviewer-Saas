@@ -667,3 +667,218 @@ async def save_interview_transcript(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error saving transcript: {str(e)}"
         )
+
+
+@router.post("/interviews/ai-complete/{token}")
+async def ai_complete_interview(
+    token: str,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Callback endpoint from AI service when interview is completed.
+    This endpoint is called by the AI service (Aigenthix_AI_Interviewer) 
+    after the candidate finishes their AI interview.
+    
+    This will:
+    1. Find the interview by ai_interview_token
+    2. Mark it as COMPLETED
+    3. Update candidate status to interview_completed
+    4. Generate AI verdict using the transcript
+    5. Store all scores (behavior, confidence, answer, overall)
+    
+    No auth required as this is a server-to-server callback using the token.
+    """
+    try:
+        import json
+        from sqlalchemy import text
+        from app.services.ai_service import generate_interview_verdict
+        
+        print(f"[AI-Complete] Received callback for token: {token}")
+        print(f"[AI-Complete] Data: {json.dumps(data, default=str)[:500]}...")
+        
+        # Find interview by ai_interview_token
+        interview_query = select(Interview).filter(Interview.ai_interview_token == token)
+        result = await db.execute(interview_query)
+        interview = result.scalars().first()
+        
+        if not interview:
+            print(f"[AI-Complete] Interview not found for token: {token}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Interview not found for this token"
+            )
+        
+        print(f"[AI-Complete] Found interview: {interview.id}, current status: {interview.status}")
+        
+        # Check if already completed
+        if interview.status == InterviewStatus.COMPLETED:
+            print(f"[AI-Complete] Interview already completed, returning success")
+            return {
+                "success": True,
+                "message": "Interview already completed",
+                "interview_id": str(interview.id),
+            }
+        
+        # Get candidate info for position
+        candidate = None
+        position = ""
+        if interview.candidate_id:
+            candidate_query = select(Candidate).filter(Candidate.id == interview.candidate_id)
+            candidate_result = await db.execute(candidate_query)
+            candidate = candidate_result.scalars().first()
+            if candidate:
+                position = candidate.position or ""
+        
+        # Extract data from request
+        transcript_data = data.get("transcript", [])
+        duration_seconds = data.get("duration_seconds", 0)
+        resume_text = data.get("resume_text", "")
+        pre_calculated_scores = data.get("pre_calculated_scores", {})
+        
+        # Update interview with transcript
+        interview.transcript = json.dumps(transcript_data) if transcript_data else None
+        interview.resume_text = resume_text if resume_text else interview.resume_text
+        
+        # Mark interview as completed
+        await db.execute(
+            text("UPDATE interviews SET status = 'COMPLETED' WHERE id = :interview_id"),
+            {"interview_id": str(interview.id)}
+        )
+        
+        # Update candidate status to interview_completed
+        if interview.candidate_id:
+            await db.execute(
+                text("UPDATE candidates SET status = 'interview_completed' WHERE id = :candidate_id"),
+                {"candidate_id": str(interview.candidate_id)}
+            )
+        
+        await db.commit()
+        print(f"[AI-Complete] Marked interview as COMPLETED and updated candidate status")
+        
+        # Generate AI verdict
+        ai_verdict = None
+        
+        # First try to use pre-calculated scores from AI service
+        if pre_calculated_scores:
+            print(f"[AI-Complete] Using pre-calculated scores from AI service")
+            ai_verdict = {
+                "recommendation": pre_calculated_scores.get("verdict", "NEUTRAL"),
+                "behavior_score": pre_calculated_scores.get("behavioral_score", 50),
+                "confidence_score": pre_calculated_scores.get("communication_score", 50),  # Map communication to confidence
+                "answer_score": pre_calculated_scores.get("technical_score", 50),  # Map technical to answer
+                "overall_score": pre_calculated_scores.get("overall_score", 50),
+                "summary": pre_calculated_scores.get("summary", "Interview completed via AI service."),
+                "strengths": pre_calculated_scores.get("strengths", []),
+                "weaknesses": pre_calculated_scores.get("weaknesses", []),
+            }
+        
+        # If no pre-calculated scores and we have transcript, generate verdict using AI
+        if not ai_verdict and transcript_data and len(transcript_data) > 2:
+            try:
+                print(f"[AI-Complete] Generating AI verdict from transcript...")
+                ai_verdict = await generate_interview_verdict(
+                    transcript=transcript_data,
+                    resume_text=resume_text or (candidate.resume_text if candidate else ""),
+                    ats_score=interview.ats_score,
+                    position=position
+                )
+                print(f"[AI-Complete] AI verdict generated: recommendation={ai_verdict.get('recommendation')}")
+            except Exception as ai_error:
+                print(f"[AI-Complete] AI verdict generation failed (non-critical): {ai_error}")
+        
+        # Update interview with AI scores if we have verdict
+        if ai_verdict:
+            recommendation = ai_verdict.get("recommendation", "NEUTRAL")
+            # Map recommendation to ai_recommendation field
+            if recommendation in ["PASS", "HIRE"]:
+                ai_recommendation = "HIRE"
+            elif recommendation in ["FAIL", "REJECT"]:
+                ai_recommendation = "REJECT"
+            else:
+                ai_recommendation = "NEUTRAL"
+                
+            await db.execute(
+                text("""
+                    UPDATE interviews SET 
+                        behavior_score = :behavior_score,
+                        confidence_score = :confidence_score,
+                        answer_score = :answer_score,
+                        ai_verdict = :ai_verdict,
+                        ai_recommendation = :ai_recommendation
+                    WHERE id = :interview_id
+                """),
+                {
+                    "interview_id": str(interview.id),
+                    "behavior_score": ai_verdict.get("behavior_score", 50),
+                    "confidence_score": ai_verdict.get("confidence_score", 50),
+                    "answer_score": ai_verdict.get("answer_score", 50),
+                    "ai_verdict": json.dumps(ai_verdict),
+                    "ai_recommendation": ai_recommendation,
+                }
+            )
+            await db.commit()
+            print(f"[AI-Complete] Updated interview with AI scores and verdict")
+            
+            # AUTO-PROMOTE CANDIDATE BASED ON VERDICT
+            # This is the key logic for multi-round interview flow
+            new_candidate_status = None
+            if ai_recommendation == "HIRE":
+                # PASS - Auto-promote to eligible for Round 2
+                new_candidate_status = "ai_passed"
+                print(f"[AI-Complete] Candidate PASSED - promoting to ai_passed (eligible for Round 2)")
+            elif ai_recommendation == "REJECT":
+                # FAIL - Mark as AI rejected (employee can still override)
+                new_candidate_status = "ai_rejected"
+                print(f"[AI-Complete] Candidate FAILED - marking as ai_rejected")
+            else:
+                # NEUTRAL/REVIEW - Needs employee review
+                new_candidate_status = "ai_review"
+                print(f"[AI-Complete] Candidate needs REVIEW - marking as ai_review")
+            
+            if new_candidate_status and interview.candidate_id:
+                await db.execute(
+                    text("""
+                        UPDATE candidates 
+                        SET status = :status, 
+                            current_round = CASE WHEN :status = 'ai_passed' THEN 2 ELSE current_round END,
+                            promoted_at = CASE WHEN :status = 'ai_passed' THEN NOW() ELSE promoted_at END,
+                            updated_at = NOW()
+                        WHERE id = :candidate_id
+                    """),
+                    {"status": new_candidate_status, "candidate_id": str(interview.candidate_id)}
+                )
+                await db.commit()
+                print(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
+        
+        # Get final status for response
+        final_verdict = "REVIEW"
+        if ai_verdict:
+            rec = ai_verdict.get("recommendation", "NEUTRAL")
+            if rec in ["PASS", "HIRE"]:
+                final_verdict = "PASS"
+            elif rec in ["FAIL", "REJECT"]:
+                final_verdict = "FAIL"
+        
+        return {
+            "success": True,
+            "message": "Interview completed and AI verdict generated",
+            "interview_id": str(interview.id),
+            "duration_seconds": duration_seconds,
+            "ai_analysis": ai_verdict is not None,
+            "recommendation": ai_verdict.get("recommendation") if ai_verdict else None,
+            "verdict": final_verdict,
+            "candidate_status": new_candidate_status if ai_verdict else "interview_completed",
+            "auto_promoted": final_verdict == "PASS",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error completing interview: {str(e)}"
+        )

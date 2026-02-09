@@ -43,6 +43,20 @@ class CandidateStatus(str, Enum):
     REVIEW = "review"               # AI verdict: REVIEW - needs manual review
     AUTO_REJECTED = "auto_rejected" # Auto-rejected due to low score
     
+    # Multi-round interview pipeline statuses
+    AI_PASSED = "ai_passed"                 # AI interview passed
+    AI_REVIEW = "ai_review"                 # AI verdict needs employee review
+    AI_REJECTED = "ai_rejected"             # AI interview failed
+    ELIGIBLE_ROUND_2 = "eligible_round_2"   # Approved for Round 2 (human interview)
+    ROUND_2_SCHEDULED = "round_2_scheduled" # Round 2 interview scheduled
+    ROUND_2_IN_PROGRESS = "round_2_in_progress"  # Round 2 interview in progress
+    ROUND_2_COMPLETED = "round_2_completed" # Round 2 interview completed
+    FINAL_REVIEW = "final_review"           # Awaiting final hiring decision
+    HIRED = "hired"                         # Candidate has been hired
+    OFFER_EXTENDED = "offer_extended"       # Job offer sent
+    OFFER_ACCEPTED = "offer_accepted"       # Candidate accepted offer
+    OFFER_REJECTED = "offer_rejected"       # Candidate rejected offer
+    
     # Legacy statuses (UPPERCASE in DB - for backward compatibility)
     APPLIED = "APPLIED"
     SCREENING = "SCREENING"
