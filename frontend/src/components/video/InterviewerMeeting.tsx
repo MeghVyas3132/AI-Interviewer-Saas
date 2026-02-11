@@ -371,7 +371,9 @@ function MeetingView({
     localScreenShareOn 
   } = useMeeting({
     onMeetingJoined: () => {
-      console.log('[InterviewerMeeting] Meeting joined successfully')
+      console.log('[InterviewerMeeting] Meeting joined successfully, meetingId:', meetingId)
+      console.log('[InterviewerMeeting] toggleMic available:', !!toggleMic)
+      console.log('[InterviewerMeeting] toggleWebcam available:', !!toggleWebcam)
       setReady(true)
     },
     onMeetingLeft: () => { 
@@ -380,6 +382,8 @@ function MeetingView({
       onLeave?.()
     },
     onError: (e: unknown) => console.error('[InterviewerMeeting] Meeting error:', e),
+    onParticipantJoined: (participant: unknown) => console.log('[InterviewerMeeting] Participant joined:', participant),
+    onParticipantLeft: (participant: unknown) => console.log('[InterviewerMeeting] Participant left:', participant),
   })
 
   useEffect(() => { 
@@ -390,21 +394,75 @@ function MeetingView({
     } 
   }, [join, joined])
 
-  const doToggleMic = useCallback(() => { 
-    if (ready && toggleMic) toggleMic()
-  }, [ready, toggleMic])
+  // Debug current state
+  useEffect(() => {
+    console.log('[InterviewerMeeting] State update - ready:', ready, 'localMicOn:', localMicOn, 'localWebcamOn:', localWebcamOn)
+  }, [ready, localMicOn, localWebcamOn])
 
-  const doToggleWebcam = useCallback(() => { 
-    if (ready && toggleWebcam) toggleWebcam()
-  }, [ready, toggleWebcam])
+  const doToggleMic = useCallback(async () => { 
+    console.log('[InterviewerMeeting] Toggle mic called, ready:', ready, 'toggleMic exists:', !!toggleMic, 'localMicOn:', localMicOn)
+    try {
+      // Request mic permission if turning on
+      if (!localMicOn) {
+        await navigator.mediaDevices.getUserMedia({ audio: true })
+      }
+      if (toggleMic) {
+        toggleMic()
+        console.log('[InterviewerMeeting] toggleMic executed')
+      } else {
+        console.error('[InterviewerMeeting] toggleMic is undefined')
+      }
+    } catch (err) {
+      console.error('[InterviewerMeeting] Error toggling mic:', err)
+      alert('Could not access microphone. Please check browser permissions.')
+    }
+  }, [ready, toggleMic, localMicOn])
+
+  const doToggleWebcam = useCallback(async () => { 
+    console.log('[InterviewerMeeting] Toggle webcam called, ready:', ready, 'toggleWebcam exists:', !!toggleWebcam, 'localWebcamOn:', localWebcamOn)
+    try {
+      // Request camera permission if turning on
+      if (!localWebcamOn) {
+        await navigator.mediaDevices.getUserMedia({ video: true })
+      }
+      if (toggleWebcam) {
+        toggleWebcam()
+        console.log('[InterviewerMeeting] toggleWebcam executed')
+      } else {
+        console.error('[InterviewerMeeting] toggleWebcam is undefined')
+      }
+    } catch (err) {
+      console.error('[InterviewerMeeting] Error toggling webcam:', err)
+      alert('Could not access camera. Please check browser permissions.')
+    }
+  }, [ready, toggleWebcam, localWebcamOn])
 
   const doToggleScreen = useCallback(() => { 
-    if (ready && toggleScreenShare) toggleScreenShare()
+    console.log('[InterviewerMeeting] Toggle screen called, ready:', ready)
+    if (toggleScreenShare) {
+      try {
+        toggleScreenShare()
+      } catch (err) {
+        console.error('[InterviewerMeeting] Error toggling screen share:', err)
+      }
+    }
   }, [ready, toggleScreenShare])
 
   const doLeave = useCallback(() => { 
-    if (ready && leave) leave()
-  }, [ready, leave])
+    console.log('[InterviewerMeeting] Leave called, ready:', ready)
+    try {
+      if (leave) {
+        leave()
+        console.log('[InterviewerMeeting] leave executed')
+      } else {
+        console.error('[InterviewerMeeting] leave is undefined, calling onLeave directly')
+        onLeave?.()
+      }
+    } catch (err) {
+      console.error('[InterviewerMeeting] Error leaving:', err)
+      onLeave?.()
+    }
+  }, [ready, leave, onLeave])
 
   const allIds = useMemo(() => [...participants.keys()], [participants])
   const remoteId = useMemo(() => allIds.find((id: string) => id !== localParticipant?.id) || null, [allIds, localParticipant])
@@ -455,11 +513,9 @@ function MeetingView({
         <div className="flex items-center gap-3">
           <button 
             onClick={doToggleMic} 
-            disabled={!ready}
             className={`
               px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
               ${localMicOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}
-              disabled:opacity-50 disabled:cursor-not-allowed
             `}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -471,11 +527,9 @@ function MeetingView({
 
           <button 
             onClick={doToggleWebcam} 
-            disabled={!ready}
             className={`
               px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
               ${localWebcamOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}
-              disabled:opacity-50 disabled:cursor-not-allowed
             `}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -486,11 +540,9 @@ function MeetingView({
 
           <button 
             onClick={doToggleScreen} 
-            disabled={!ready}
             className={`
               px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
               ${localScreenShareOn ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-white'}
-              disabled:opacity-50 disabled:cursor-not-allowed
             `}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -503,8 +555,7 @@ function MeetingView({
 
           <button 
             onClick={doLeave} 
-            disabled={!ready}
-            className="px-5 py-3 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
+            className="px-5 py-3 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 transition-all duration-200"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>

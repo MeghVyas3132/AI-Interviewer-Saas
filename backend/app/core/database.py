@@ -9,7 +9,7 @@ from typing import AsyncGenerator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from .config import settings
 
@@ -21,7 +21,7 @@ engine = create_async_engine(
     echo=settings.debug,
     echo_pool=settings.debug,
     # Connection pooling - optimized for low latency
-    poolclass=QueuePool,
+    poolclass=AsyncAdaptedQueuePool,
     pool_size=settings.database_pool_size,  # 20 concurrent connections
     max_overflow=settings.database_max_overflow,  # 10 overflow under load
     pool_pre_ping=True,  # Verify connection health before use

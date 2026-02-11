@@ -1674,8 +1674,8 @@ async def get_candidates_ready_for_round_2(
                 Candidate.assigned_to == current_user.id,
                 Candidate.status.in_([
                     # New multi-round statuses
-                    CandidateStatus.AI_INTERVIEW_PASSED,
-                    CandidateStatus.ELIGIBLE_FOR_ROUND_2,
+                    CandidateStatus.AI_PASSED,
+                    CandidateStatus.ELIGIBLE_ROUND_2,
                     # Legacy statuses for backwards compatibility
                     CandidateStatus.INTERVIEW_COMPLETED,
                     CandidateStatus.PASSED,
@@ -1714,8 +1714,11 @@ async def get_candidates_ready_for_round_2(
             passed_interviews = []
             for interview in interviews:
                 report = next((r for r in reports if r.interview_id == interview.id), None)
+                verdict = None
+                score = None
+                summary = None
+                
                 if report:
-                    verdict = None
                     if report.provider_response:
                         verdict = report.provider_response.get("verdict")
                     if not verdict and report.score is not None:
@@ -1723,15 +1726,42 @@ async def get_candidates_ready_for_round_2(
                             verdict = "PASS"
                         elif report.score >= 50:
                             verdict = "REVIEW"
-                    
-                    if verdict in ["PASS", "REVIEW"]:
-                        passed_interviews.append({
-                            "interview_id": str(interview.id),
-                            "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
-                            "score": report.score,
-                            "verdict": verdict,
-                            "summary": report.summary,
-                        })
+                    score = report.score
+                    summary = report.summary
+                
+                # Fallback: use interview's ai_verdict field if no AIReport
+                if not verdict and interview.ai_verdict:
+                    import json
+                    ai_verdict_data = interview.ai_verdict if isinstance(interview.ai_verdict, dict) else json.loads(interview.ai_verdict) if interview.ai_verdict else {}
+                    rec = ai_verdict_data.get("recommendation", "")
+                    if rec in ["PASS", "HIRE"]:
+                        verdict = "PASS"
+                    elif rec in ["FAIL", "REJECT"]:
+                        verdict = "FAIL"
+                    else:
+                        verdict = "REVIEW"
+                    score = ai_verdict_data.get("answer_score") or interview.answer_score
+                    summary = ai_verdict_data.get("summary", "")
+                
+                # Also use ai_recommendation field as fallback
+                if not verdict and interview.ai_recommendation:
+                    rec = interview.ai_recommendation
+                    if rec in ["PASS", "HIRE"]:
+                        verdict = "PASS"
+                    elif rec in ["FAIL", "REJECT"]:
+                        verdict = "FAIL"
+                    else:
+                        verdict = "REVIEW"
+                    score = interview.answer_score
+                
+                if verdict in ["PASS", "REVIEW"]:
+                    passed_interviews.append({
+                        "interview_id": str(interview.id),
+                        "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                        "score": score,
+                        "verdict": verdict,
+                        "summary": summary,
+                    })
             
             if not passed_interviews:
                 continue
@@ -1795,14 +1825,16 @@ async def get_candidates_pending_review(
     try:
         from app.models.ai_report import AIReport
         
-        # Get candidates with ai_interview_review status assigned to this employee
+        # Get candidates with ai_review, ai_rejected, or interview_completed status assigned to this employee
+        # interview_completed is included as fallback when AI verdict generation fails
         candidates_query = select(Candidate).filter(
             and_(
                 Candidate.company_id == current_user.company_id,
                 Candidate.assigned_to == current_user.id,
                 Candidate.status.in_([
-                    CandidateStatus.AI_INTERVIEW_REVIEW,  # AI unsure, needs review
-                    CandidateStatus.AI_INTERVIEW_FAILED,  # AI rejected, can override
+                    CandidateStatus.AI_REVIEW,  # AI unsure, needs review
+                    CandidateStatus.AI_REJECTED,  # AI rejected, can override
+                    CandidateStatus.INTERVIEW_COMPLETED,  # Fallback: AI verdict failed
                 ])
             )
         )
@@ -1878,7 +1910,7 @@ async def get_candidates_pending_review(
                 "ai_score": score,
                 "ai_recommendation": recommendation,
                 "ai_summary": summary,
-                "can_override": candidate.status == CandidateStatus.AI_INTERVIEW_FAILED,  # Employee can override AI rejection
+                "can_override": candidate.status in [CandidateStatus.AI_REJECTED, CandidateStatus.INTERVIEW_COMPLETED],  # Employee can override AI rejection or review stuck candidates
             })
         
         return {
@@ -1928,7 +1960,7 @@ async def review_candidate(
             )
         
         # Validate candidate is in reviewable status
-        if candidate.status not in [CandidateStatus.AI_INTERVIEW_REVIEW, CandidateStatus.AI_INTERVIEW_FAILED]:
+        if candidate.status not in [CandidateStatus.AI_REVIEW, CandidateStatus.AI_REJECTED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Candidate is not pending review. Current status: {candidate.status.value}"
@@ -1936,7 +1968,7 @@ async def review_candidate(
         
         decision = decision.upper()
         if decision == "APPROVE":
-            candidate.status = CandidateStatus.ELIGIBLE_FOR_ROUND_2
+            candidate.status = CandidateStatus.ELIGIBLE_ROUND_2
             message = f"Candidate approved for Round 2 by {current_user.email}"
         elif decision == "REJECT":
             candidate.status = CandidateStatus.REJECTED

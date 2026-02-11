@@ -24,6 +24,7 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user, require_employee
 from app.models.user import User, UserRole
 from app.models.interview_round import InterviewRound, RoundStatus
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.realtime_insights import (
     LiveInsight,
     FraudAlert,
@@ -53,6 +54,11 @@ class VideoSDKTokenResponse(BaseModel):
     meeting_id: str
     token: str
     participant_id: str
+    # Aliases for frontend compatibility
+    videosdk_meeting_id: Optional[str] = None
+    videosdk_token: Optional[str] = None
+    interview_mode: Optional[str] = None
+    id: Optional[str] = None
 
 
 class InsightResponse(BaseModel):
@@ -92,12 +98,17 @@ class TranscriptSegment(BaseModel):
 
 class VerdictCreate(BaseModel):
     """Create verdict request."""
-    decision: str = Field(..., pattern="^(ADVANCE|REJECT|HOLD|REASSESS)$")
+    decision: str = Field(..., pattern="^(ADVANCE|REJECT|HOLD|REASSESS|selected|rejected|on_hold)$")
     overall_rating: Optional[int] = Field(None, ge=1, le=5)
     criteria_scores: Optional[dict] = None
     notes: Optional[str] = None
     ai_insights_helpful: Optional[bool] = None
     ai_feedback_notes: Optional[str] = None
+    # Additional fields for alternative payload format
+    strengths: List[str] = []
+    improvements: List[str] = []
+    feedback: Optional[str] = None
+    ratings: Optional[dict] = None
 
 
 class VerdictResponse(BaseModel):
@@ -338,6 +349,7 @@ async def get_videosdk_token(
     Get VideoSDK token for joining the interview meeting.
     
     Returns participant token based on user role.
+    Auto-creates the meeting if not started yet.
     """
     result = await session.execute(
         select(InterviewRound).filter(InterviewRound.id == round_id)
@@ -354,13 +366,21 @@ async def get_videosdk_token(
             raise HTTPException(status_code=403, detail="Access denied")
     
     meeting_id = getattr(round_obj, 'videosdk_meeting_id', None)
+    
+    # Auto-create meeting if not started yet
     if not meeting_id:
-        raise HTTPException(status_code=400, detail="Meeting not started yet")
+        import uuid
+        meeting_id = f"ai-int-{str(uuid.uuid4())[:8]}"
+        round_obj.videosdk_meeting_id = meeting_id
+        round_obj.status = RoundStatus.IN_PROGRESS
+        round_obj.started_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(round_obj)
     
     # Generate VideoSDK JWT token
-    # In production, use proper VideoSDK API key/secret
-    videosdk_api_key = settings.get("VIDEOSDK_API_KEY", "")
-    videosdk_secret = settings.get("VIDEOSDK_SECRET", "")
+    # Use VideoSDK API key/secret from settings
+    videosdk_api_key = settings.videosdk_api_key
+    videosdk_secret = settings.videosdk_secret
     
     if not videosdk_api_key or not videosdk_secret:
         # Return mock token for development
@@ -379,6 +399,11 @@ async def get_videosdk_token(
         meeting_id=meeting_id,
         token=token,
         participant_id=str(current_user.id),
+        # Include aliases for frontend compatibility
+        videosdk_meeting_id=meeting_id,
+        videosdk_token=token,
+        interview_mode=getattr(round_obj, 'interview_mode', 'HUMAN_AI_ASSISTED'),
+        id=str(round_id),
     )
 
 
@@ -545,19 +570,79 @@ async def submit_verdict(
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Verdict already submitted for this round")
     
+    # Normalize payload - support both formats
+    # Use ratings if criteria_scores not provided
+    final_scores = verdict.criteria_scores or verdict.ratings
+    
+    # Build notes from multiple sources
+    notes_parts = []
+    if verdict.notes:
+        notes_parts.append(verdict.notes)
+    if verdict.feedback and verdict.feedback != verdict.notes:
+        notes_parts.append(verdict.feedback)
+    if verdict.strengths:
+        notes_parts.append(f"Strengths: {', '.join(verdict.strengths)}")
+    if verdict.improvements:
+        notes_parts.append(f"Areas for improvement: {', '.join(verdict.improvements)}")
+    final_notes = '\n\n'.join(notes_parts) if notes_parts else None
+    
+    # Normalize decision value
+    decision_map = {
+        'selected': 'ADVANCE',
+        'rejected': 'REJECT',
+        'on_hold': 'HOLD',
+    }
+    normalized_decision = decision_map.get(verdict.decision.lower(), verdict.decision.upper())
+    
     # Create verdict
     new_verdict = HumanVerdict(
         round_id=round_id,
         interviewer_id=current_user.id,
-        decision=verdict.decision,
+        decision=normalized_decision,
         overall_rating=verdict.overall_rating,
-        criteria_scores=verdict.criteria_scores,
-        notes=verdict.notes,
+        criteria_scores=final_scores,
+        notes=final_notes,
         ai_insights_helpful=verdict.ai_insights_helpful,
         ai_feedback_notes=verdict.ai_feedback_notes,
     )
     
     session.add(new_verdict)
+    
+    # Update candidate status based on verdict decision
+    candidate_result = await session.execute(
+        select(Candidate).filter(Candidate.id == round_obj.candidate_id)
+    )
+    candidate = candidate_result.scalars().first()
+    
+    if candidate:
+        # Use the already-normalized decision
+        if normalized_decision == "ADVANCE":
+            # Promote to next round or final review
+            if candidate.status in (
+                CandidateStatus.AI_PASSED,
+                CandidateStatus.AI_REVIEW,
+                CandidateStatus.ROUND_2_IN_PROGRESS,
+                CandidateStatus.ROUND_2_COMPLETED,
+                CandidateStatus.INTERVIEW_SCHEDULED,
+                CandidateStatus.INTERVIEW_COMPLETED,
+            ):
+                candidate.status = CandidateStatus.ELIGIBLE_ROUND_2
+            else:
+                candidate.status = CandidateStatus.FINAL_REVIEW
+            logging.info(f"[Verdict] ADVANCE - Candidate {candidate.id} → {candidate.status.value}")
+        elif normalized_decision == "REJECT":
+            candidate.status = CandidateStatus.FAILED
+            logging.info(f"[Verdict] REJECT - Candidate {candidate.id} → failed")
+        elif normalized_decision == "HOLD":
+            candidate.status = CandidateStatus.FINAL_REVIEW
+            logging.info(f"[Verdict] HOLD - Candidate {candidate.id} → final_review")
+        elif normalized_decision == "REASSESS":
+            candidate.status = CandidateStatus.REVIEW
+            logging.info(f"[Verdict] REASSESS - Candidate {candidate.id} → review")
+    
+    # Also mark round as having a verdict
+    round_obj.status = RoundStatus.COMPLETED
+    
     await session.commit()
     await session.refresh(new_verdict)
     

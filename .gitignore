@@ -72,6 +72,10 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Test files with secrets (DO NOT COMMIT)
+backend/test_env_loading.py
+backend/test_groq_api.py
+
 # Misc
 .mypy_cache/
 .dmypy.json

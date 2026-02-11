@@ -645,6 +645,24 @@ async def save_interview_transcript(
                             "ai_recommendation": ai_verdict.get("recommendation"),
                         }
                     )
+                    
+                    # Update candidate status based on AI recommendation
+                    if interview.candidate_id:
+                        recommendation = ai_verdict.get("recommendation", "").upper()
+                        if recommendation in ("PASS", "PASSED", "ADVANCE", "HIRE"):
+                            candidate_status = "ai_passed"
+                        elif recommendation in ("FAIL", "FAILED", "REJECT", "REJECTED"):
+                            candidate_status = "ai_rejected"
+                        else:
+                            # NEUTRAL or unclear verdicts go to review
+                            candidate_status = "ai_review"
+                        
+                        await db.execute(
+                            text("UPDATE candidates SET status = :status WHERE id = :candidate_id"),
+                            {"status": candidate_status, "candidate_id": str(interview.candidate_id)}
+                        )
+                        print(f"[Transcript] Updated candidate {interview.candidate_id} status to {candidate_status} (recommendation: {recommendation})")
+                    
                     await db.commit()
             except Exception as ai_error:
                 # Don't fail the whole request if AI analysis fails
@@ -746,15 +764,12 @@ async def ai_complete_interview(
             {"interview_id": str(interview.id)}
         )
         
-        # Update candidate status to interview_completed
-        if interview.candidate_id:
-            await db.execute(
-                text("UPDATE candidates SET status = 'interview_completed' WHERE id = :candidate_id"),
-                {"candidate_id": str(interview.candidate_id)}
-            )
+        # NOTE: Don't update candidate status here - we'll set the final status
+        # (ai_passed/ai_rejected/ai_review) after generating the AI verdict.
+        # This prevents candidates from getting stuck at 'interview_completed'.
         
         await db.commit()
-        print(f"[AI-Complete] Marked interview as COMPLETED and updated candidate status")
+        print(f"[AI-Complete] Marked interview as COMPLETED")
         
         # Generate AI verdict
         ai_verdict = None
@@ -841,8 +856,6 @@ async def ai_complete_interview(
                     text("""
                         UPDATE candidates 
                         SET status = :status, 
-                            current_round = CASE WHEN :status = 'ai_passed' THEN 2 ELSE current_round END,
-                            promoted_at = CASE WHEN :status = 'ai_passed' THEN NOW() ELSE promoted_at END,
                             updated_at = NOW()
                         WHERE id = :candidate_id
                     """),
@@ -850,6 +863,23 @@ async def ai_complete_interview(
                 )
                 await db.commit()
                 print(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
+        
+        # FALLBACK: If no ai_verdict was generated, still update candidate status
+        # This ensures candidate doesn't get stuck at 'interview_completed'
+        if not ai_verdict and interview.candidate_id:
+            new_candidate_status = "ai_review"  # Default to review when no verdict
+            print(f"[AI-Complete] No AI verdict generated, defaulting to ai_review")
+            await db.execute(
+                text("""
+                    UPDATE candidates 
+                    SET status = :status, 
+                        updated_at = NOW()
+                    WHERE id = :candidate_id
+                """),
+                {"status": new_candidate_status, "candidate_id": str(interview.candidate_id)}
+            )
+            await db.commit()
+            print(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
         
         # Get final status for response
         final_verdict = "REVIEW"

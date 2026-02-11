@@ -21,6 +21,8 @@ interface Interview {
   status: string
   meeting_link: string | null
   ai_interview_token?: string | null
+  interview_mode?: string
+  videosdk_meeting_id?: string | null
 }
 
 interface User {
@@ -39,11 +41,23 @@ export default function CandidatePortalPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth()
 
   const handleLaunchInterview = (interview: Interview) => {
+    // Handle Human-AI assisted interviews
+    if (interview.interview_mode === 'HUMAN_AI_ASSISTED') {
+      // Navigate to candidate interview room for human-AI interviews
+      router.push(`/candidate-portal/interview-room/${interview.id}`)
+      return
+    }
+    
     if (interview.ai_interview_token) {
       // Navigate to our internal AI Interview page (same UI)
       router.push(`/interview/${interview.ai_interview_token}`)
     } else if (interview.meeting_link) {
-      window.open(interview.meeting_link, '_blank')
+      // Check if it's an internal link or external
+      if (interview.meeting_link.startsWith('/')) {
+        router.push(interview.meeting_link)
+      } else {
+        window.open(interview.meeting_link, '_blank')
+      }
     }
   }
 
@@ -215,16 +229,21 @@ export default function CandidatePortalPage() {
           </div>
           <div className="mt-4 md:mt-0">
             {(() => {
-              const scheduledInterviews = interviews.filter(i => i.status?.toLowerCase() === 'scheduled');
-              const hasScheduledInterview = scheduledInterviews.length > 0;
-              const nextInterview = scheduledInterviews[0];
-              const isInterviewReady = hasScheduledInterview && nextInterview && 
-                (nextInterview.ai_interview_token || nextInterview.meeting_link) &&
-                isInterviewTimeReady(nextInterview.scheduled_time);
+              // Include both SCHEDULED and IN_PROGRESS interviews
+              const activeInterviews = interviews.filter(i => 
+                ['scheduled', 'in_progress'].includes(i.status?.toLowerCase())
+              );
+              const hasActiveInterview = activeInterviews.length > 0;
+              const nextInterview = activeInterviews[0];
+              // In-progress interviews are always ready
+              const isInterviewReady = hasActiveInterview && nextInterview && 
+                (nextInterview.status?.toLowerCase() === 'in_progress' || 
+                 ((nextInterview.ai_interview_token || nextInterview.meeting_link || nextInterview.interview_mode === 'HUMAN_AI_ASSISTED') &&
+                  isInterviewTimeReady(nextInterview.scheduled_time)));
               
               return (
                 <button
-                  onClick={() => hasScheduledInterview && isInterviewReady && handleLaunchInterview(nextInterview)}
+                  onClick={() => hasActiveInterview && isInterviewReady && handleLaunchInterview(nextInterview)}
                   disabled={!isInterviewReady}
                   className={`inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-sm text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 ${
                     isInterviewReady 
@@ -235,11 +254,13 @@ export default function CandidatePortalPage() {
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a1 1 0 01-3 3z" />
                   </svg>
-                  {!hasScheduledInterview 
+                  {!hasActiveInterview 
                     ? 'No Interview Scheduled' 
                     : !isInterviewReady 
                       ? `Interview Not Ready Yet${nextInterview ? ` (${getTimeUntilInterview(nextInterview.scheduled_time)})` : ''}`
-                      : 'Launch Next Interview'}
+                      : nextInterview.status?.toLowerCase() === 'in_progress' 
+                        ? 'Join Live Interview' 
+                        : 'Launch Next Interview'}
                 </button>
               );
             })()}
@@ -252,15 +273,15 @@ export default function CandidatePortalPage() {
             <h2 className="text-lg font-semibold text-gray-900">Your Schedule</h2>
           </div>
           <div className="divide-y divide-gray-100">
-            {interviews.filter(i => i.status?.toLowerCase() === 'scheduled').length === 0 ? (
+            {interviews.filter(i => ['scheduled', 'in_progress'].includes(i.status?.toLowerCase())).length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-gray-500">No interviews scheduled at the moment.</p>
               </div>
             ) : (
               interviews
-                .filter(i => i.status?.toLowerCase() === 'scheduled')
+                .filter(i => ['scheduled', 'in_progress'].includes(i.status?.toLowerCase()))
                 .map((interview) => {
-                  const isReady = isInterviewTimeReady(interview.scheduled_time)
+                  const isReady = interview.status?.toLowerCase() === 'in_progress' || isInterviewTimeReady(interview.scheduled_time)
                   const timeUntil = getTimeUntilInterview(interview.scheduled_time)
                   
                   return (
@@ -277,19 +298,23 @@ export default function CandidatePortalPage() {
                     <div className="text-right flex flex-col items-end">
                       <p className="text-sm font-medium text-gray-900">{formatDate(interview.scheduled_time)}</p>
                       <span className={`inline-flex mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(interview.status)}`}>
-                        {interview.status}
+                        {interview.status === 'IN_PROGRESS' ? 'Live Now' : interview.status}
                       </span>
-                      {interview.status === 'scheduled' && (
+                      {['scheduled', 'in_progress'].includes(interview.status?.toLowerCase()) && (
                         isReady ? (
                           <button
                             onClick={() => handleLaunchInterview(interview)}
-                            className="mt-2 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition flex items-center gap-1"
+                            className={`mt-2 px-3 py-1.5 text-white text-xs font-medium rounded-lg transition flex items-center gap-1 ${
+                              interview.status?.toLowerCase() === 'in_progress' 
+                                ? 'bg-blue-600 hover:bg-blue-700 animate-pulse' 
+                                : 'bg-green-600 hover:bg-green-700'
+                            }`}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Start Interview
+                            {interview.status?.toLowerCase() === 'in_progress' ? 'Join Now' : 'Start Interview'}
                           </button>
                         ) : (
                           <div className="mt-2 text-center">

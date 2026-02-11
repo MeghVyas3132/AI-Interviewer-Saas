@@ -35,7 +35,12 @@ class TokenBlacklistService:
                 logger.warning("Attempt to blacklist invalid token")
                 return False
             
-            token_id = payload.get("jti", token[:20])  # Use jti if available, else token prefix
+            # Use jti if available, else create unique ID from sub + iat
+            token_id = payload.get("jti")
+            if not token_id:
+                sub = payload.get("sub", "unknown")
+                iat = payload.get("iat", 0)
+                token_id = f"{sub}:{iat}"
             key = f"token_blacklist:{token_id}"
             
             # Add to blacklist with TTL
@@ -64,7 +69,12 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            token_id = payload.get("jti", token[:20])
+            # Use jti if available, else create unique ID from sub + iat
+            token_id = payload.get("jti")
+            if not token_id:
+                sub = payload.get("sub", "unknown")
+                iat = payload.get("iat", 0)
+                token_id = f"{sub}:{iat}"
             key = f"token_blacklist:{token_id}"
             
             exists = await redis_client.exists(key)
@@ -90,7 +100,12 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            token_id = payload.get("jti", token[:20])
+            # Use jti if available, else create unique ID from sub + iat
+            token_id = payload.get("jti")
+            if not token_id:
+                sub = payload.get("sub", "unknown")
+                iat = payload.get("iat", 0)
+                token_id = f"{sub}:{iat}"
             key = f"token_blacklist:{token_id}"
             
             await redis_client.delete(key)

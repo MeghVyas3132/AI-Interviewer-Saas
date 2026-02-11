@@ -1,16 +1,18 @@
 import asyncio
 import sys
+import bcrypt
 from app.core.database import async_session_maker, init_db
 from app.models.user import User, UserRole
 from sqlalchemy import text
-from passlib.context import CryptContext
 
 print("=" * 50)
 print("SIMPLE SEED SCRIPT STARTING...")
 print("=" * 50)
 sys.stdout.flush()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt directly."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 async def main():
     """Simple seed script that creates a SYSTEM_ADMIN user."""
@@ -70,7 +72,7 @@ async def main():
         sys.stdout.flush()
         
         # Create system admin directly
-        hashed_password = pwd_context.hash("qwerty123")
+        hashed_password = hash_password("qwerty123")
         
         await session.execute(
             text("""

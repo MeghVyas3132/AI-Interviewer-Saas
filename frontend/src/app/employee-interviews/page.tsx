@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiClient } from '@/lib/api'
@@ -156,13 +156,17 @@ export default function EmployeeDashboardPage() {
 
   // Review candidates (AI unsure/failed)
   const [reviewCandidates, setReviewCandidates] = useState<ReviewCandidate[]>([])
-  const [loadingReview, setLoadingReview] = useState(false)
+  const [loadingReview, setLoadingReview] = useState(true)
   const [reviewingCandidate, setReviewingCandidate] = useState<string | null>(null)
 
   // Round 2 scheduling
   const [round2Candidates, setRound2Candidates] = useState<Round2Candidate[]>([])
   const [humanRounds, setHumanRounds] = useState<HumanRound[]>([])
-  const [loadingRound2, setLoadingRound2] = useState(false)
+  const [loadingRound2, setLoadingRound2] = useState(true)
+
+  // Track if initial load completed (to avoid flash of empty state)
+  const initialLoadDone = useRef(false)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [showHumanRoundModal, setShowHumanRoundModal] = useState(false)
   const [selectedRound2Candidate, setSelectedRound2Candidate] = useState<Round2Candidate | null>(null)
   const [humanRoundForm, setHumanRoundForm] = useState({
@@ -185,104 +189,140 @@ export default function EmployeeDashboardPage() {
     }
   }, [authLoading, user, router])
 
-  // Fetch data
+  // Helper: case-insensitive status check
+  const statusIs = (val: string, target: string) => val?.toLowerCase() === target.toLowerCase()
+
+  // Core data fetcher - fetches everything for the dashboard
+  const fetchAllData = useCallback(async (isBackground = false) => {
+    if (authLoading || user?.role !== 'EMPLOYEE') return
+
+    try {
+      if (!isBackground) {
+        setLoading(true)
+        setLoadingReview(true)
+        setLoadingRound2(true)
+      }
+      setError('')
+
+      // Fetch all data sources in parallel for speed
+      const [candidatesRes, interviewsRes, reviewRes, round2Res, humanRoundsRes] = await Promise.all([
+        apiClient.get<AssignedCandidate[]>('/employee/my-candidates').catch(() => []),
+        apiClient.get<Interview[]>('/employee/my-interviews').catch(() => []),
+        apiClient.get<{ candidates: ReviewCandidate[], total: number }>('/employee/pending-review').catch(() => ({ candidates: [], total: 0 })),
+        apiClient.get<{ candidates: Round2Candidate[], total: number }>('/employee/ready-for-round-2').catch(() => ({ candidates: [], total: 0 })),
+        apiClient.get<{ rounds: HumanRound[], total: number }>('/employee/my-human-rounds').catch(() => ({ rounds: [], total: 0 })),
+      ])
+
+      const rawCandidatesList = Array.isArray(candidatesRes) ? candidatesRes : []
+      const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
+      setInterviews(interviewsList)
+
+      // Fetch jobs (non-critical)
+      try {
+        const jobsRes = await apiClient.get<{ items?: Job[], jobs?: Job[] } | Job[]>('/jobs')
+        const jobsList = Array.isArray(jobsRes) ? jobsRes : (jobsRes.items || jobsRes.jobs || [])
+        setJobs(jobsList)
+      } catch {
+        if (!isBackground) setJobs([])
+      }
+
+      // Map schedules with case-insensitive status comparison
+      const candidatesList = rawCandidatesList.map(c => {
+        const upcoming = interviewsList.find(i => i.candidate_id === c.id && statusIs(i.status, 'scheduled'));
+        return {
+          ...c,
+          name: `${c.first_name} ${c.last_name}`,
+          scheduled_at: upcoming?.scheduled_time,
+          interview_token: upcoming?.interview_token,
+          interview_id: upcoming?.id
+        }
+      });
+      setCandidates(candidatesList)
+
+      // Dashboard metrics with case-insensitive comparison
+      try {
+        const metricsRes = await apiClient.get<any>('/employee/dashboard')
+        setMetrics({
+          total_assigned: metricsRes.total_assigned_candidates || candidatesList.length,
+          pending_interviews: metricsRes.scheduled_interviews || interviewsList.filter((i: Interview) => statusIs(i.status, 'scheduled')).length,
+          completed_interviews: metricsRes.completed_interviews || interviewsList.filter((i: Interview) => statusIs(i.status, 'completed')).length,
+          status_breakdown: {}
+        })
+      } catch {
+        setMetrics({
+          total_assigned: candidatesList.length,
+          pending_interviews: interviewsList.filter((i: Interview) => statusIs(i.status, 'scheduled')).length,
+          completed_interviews: interviewsList.filter((i: Interview) => statusIs(i.status, 'completed')).length,
+          status_breakdown: {}
+        })
+      }
+
+      // Set review & round2 data (already fetched in parallel above)
+      setReviewCandidates(reviewRes.candidates || [])
+      setRound2Candidates(round2Res.candidates || [])
+      setHumanRounds(humanRoundsRes.rounds || [])
+
+      initialLoadDone.current = true
+    } catch (err: any) {
+      console.error('Error fetching dashboard data:', err)
+      if (!isBackground) {
+        setError(err.response?.data?.detail || 'Failed to load data')
+      }
+    } finally {
+      setLoading(false)
+      setLoadingReview(false)
+      setLoadingRound2(false)
+    }
+  }, [authLoading, user])
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchAllData(false)
+  }, [fetchAllData])
+
+  // Auto-polling every 15 seconds for real-time updates
   useEffect(() => {
     if (authLoading || user?.role !== 'EMPLOYEE') return
 
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        setError('')
+    pollIntervalRef.current = setInterval(() => {
+      fetchAllData(true) // background fetch — no loading spinners
+    }, 15000)
 
-        // Fetch assigned candidates
-        const candidatesRes = await apiClient.get<AssignedCandidate[]>('/employee/my-candidates')
-        const rawCandidatesList = Array.isArray(candidatesRes) ? candidatesRes : []
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    }
+  }, [authLoading, user, fetchAllData])
 
-        // Fetch interviews
-        const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-        const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
-        setInterviews(interviewsList)
-
-        // Fetch jobs for assigning to candidates
-        try {
-          const jobsRes = await apiClient.get<{ items?: Job[], jobs?: Job[] } | Job[]>('/jobs')
-          const jobsList = Array.isArray(jobsRes) ? jobsRes : (jobsRes.items || jobsRes.jobs || [])
-          setJobs(jobsList)
-        } catch {
-          setJobs([])
-        }
-
-        // Map schedules and normalize name
-        const candidatesList = rawCandidatesList.map(c => {
-          const upcoming = interviewsList.find(i => i.candidate_id === c.id && i.status === 'scheduled');
-          return {
-            ...c,
-            name: `${c.first_name} ${c.last_name}`,
-            scheduled_at: upcoming?.scheduled_time,
-            interview_token: upcoming?.interview_token,
-            interview_id: upcoming?.id
-          }
-        });
-        setCandidates(candidatesList)
-
-        // Fetch dashboard metrics
-        try {
-          const metricsRes = await apiClient.get<any>('/employee/dashboard')
-          setMetrics({
-            total_assigned: metricsRes.total_assigned_candidates || candidatesList.length,
-            pending_interviews: metricsRes.scheduled_interviews || interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
-            completed_interviews: metricsRes.completed_interviews || interviewsList.filter((i: Interview) => i.status === 'completed').length,
-            status_breakdown: {}
-          })
-        } catch {
-          setMetrics({
-            total_assigned: candidatesList.length,
-            pending_interviews: interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
-            completed_interviews: interviewsList.filter((i: Interview) => i.status === 'completed').length,
-            status_breakdown: {}
-          })
-        }
-
-        // Fetch candidates pending review (for tab count)
-        try {
-          const reviewRes = await apiClient.get<{ candidates: ReviewCandidate[], total: number }>('/employee/pending-review')
-          setReviewCandidates(reviewRes.candidates || [])
-        } catch {
-          // Silent fail - will show 0 in tab
-        }
-      } catch (err: any) {
-        console.error('Error fetching data:', err)
-        setError(err.response?.data?.detail || 'Failed to load data')
-      } finally {
-        setLoading(false)
+  // Refresh when window regains focus (user comes back from interview tab)
+  useEffect(() => {
+    const onFocus = () => {
+      if (user?.role === 'EMPLOYEE' && initialLoadDone.current) {
+        fetchAllData(true)
       }
     }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [user, fetchAllData])
 
-    fetchData()
-  }, [authLoading, user])
-
-  // Fetch Round 2 candidates and human rounds
-  const fetchRound2Data = async () => {
+  // Fetch Round 2 candidates and human rounds (used by tab refresh button)
+  const fetchRound2Data = useCallback(async () => {
     try {
       setLoadingRound2(true)
-      
-      // Fetch candidates ready for Round 2
-      const round2Res = await apiClient.get<{ candidates: Round2Candidate[], total: number }>('/employee/ready-for-round-2')
+      const [round2Res, humanRoundsRes] = await Promise.all([
+        apiClient.get<{ candidates: Round2Candidate[], total: number }>('/employee/ready-for-round-2'),
+        apiClient.get<{ rounds: HumanRound[], total: number }>('/employee/my-human-rounds'),
+      ])
       setRound2Candidates(round2Res.candidates || [])
-      
-      // Fetch existing human-conducted rounds
-      const humanRoundsRes = await apiClient.get<{ rounds: HumanRound[], total: number }>('/employee/my-human-rounds')
       setHumanRounds(humanRoundsRes.rounds || [])
     } catch (err: any) {
       console.error('Error fetching Round 2 data:', err)
-      // Don't set error - allow partial data loading
     } finally {
       setLoadingRound2(false)
     }
-  }
+  }, [])
 
-  // Fetch candidates pending review (AI unsure/rejected)
-  const fetchReviewCandidates = async () => {
+  // Fetch candidates pending review (used by tab refresh button)
+  const fetchReviewCandidates = useCallback(async () => {
     try {
       setLoadingReview(true)
       const res = await apiClient.get<{ candidates: ReviewCandidate[], total: number }>('/employee/pending-review')
@@ -292,7 +332,7 @@ export default function EmployeeDashboardPage() {
     } finally {
       setLoadingReview(false)
     }
-  }
+  }, [])
 
   // Handle review decision (approve/reject)
   const handleReviewDecision = async (candidateId: string, decision: 'APPROVE' | 'REJECT') => {
@@ -316,19 +356,15 @@ export default function EmployeeDashboardPage() {
     }
   }
 
-  // Fetch review candidates when tab is selected
+  // Refresh tab-specific data when tab is selected (only if initial load is done)
   useEffect(() => {
-    if (activeTab === 'review' && user?.role === 'EMPLOYEE') {
+    if (!initialLoadDone.current || user?.role !== 'EMPLOYEE') return
+    if (activeTab === 'review') {
       fetchReviewCandidates()
-    }
-  }, [activeTab, user])
-
-  // Fetch Round 2 data when tab is selected
-  useEffect(() => {
-    if (activeTab === 'round2' && user?.role === 'EMPLOYEE') {
+    } else if (activeTab === 'round2') {
       fetchRound2Data()
     }
-  }, [activeTab, user])
+  }, [activeTab, user, fetchReviewCandidates, fetchRound2Data])
 
   // Schedule human-conducted round
   const handleScheduleHumanRound = async (e: React.FormEvent) => {

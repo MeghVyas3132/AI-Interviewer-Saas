@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     cors_origins: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:9002",
         "http://127.0.0.1:9002",
         "http://localhost:9004",
@@ -124,6 +126,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""  # Single Groq API key
     groq_api_keys: str = ""  # Multiple Groq API keys (comma-separated) for rotation
     groq_api_url: str = "https://api.groq.com/openai/v1"  # Groq OpenAI-compatible endpoint
+    
+    # VideoSDK Configuration (for real-time interviews)
+    videosdk_api_key: str = ""  # VideoSDK API key
+    videosdk_secret: str = ""  # VideoSDK secret for JWT signing
 
     @field_validator("secret_key")
     @classmethod
@@ -195,7 +201,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-        extra = "forbid"  # Reject unknown environment variables
+        extra = "ignore"  # Allow unknown environment variables
 
 
 # Lazy initialization with validation

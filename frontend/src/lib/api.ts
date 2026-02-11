@@ -21,12 +21,25 @@ class APIClient {
       },
     })
 
-    // Request interceptor - add auth token
+    // Request interceptor - add auth token (skip for auth endpoints)
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
-        const token = Cookies.get('access_token')
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`
+        // Don't add auth header for login/register endpoints
+        const isAuthEndpoint = config.url?.includes('/auth/login') || 
+                               config.url?.includes('/auth/register') ||
+                               config.url?.includes('/auth/refresh')
+        
+        console.log('[APIClient] Request:', config.url, 'isAuthEndpoint:', isAuthEndpoint)
+        
+        if (!isAuthEndpoint) {
+          const token = Cookies.get('access_token')
+          if (token) {
+            console.log('[APIClient] Adding auth header')
+            config.headers.Authorization = `Bearer ${token}`
+          }
+        } else {
+          // Explicitly remove any auth header for auth endpoints
+          delete config.headers.Authorization
         }
         return config
       },
@@ -39,8 +52,13 @@ class APIClient {
       async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
-        // If 401 and not already retried, try to refresh token
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // Skip token refresh for auth endpoints - they should return 401 for invalid credentials
+        const isAuthEndpoint = originalRequest.url?.includes('/auth/login') || 
+                               originalRequest.url?.includes('/auth/register') ||
+                               originalRequest.url?.includes('/auth/refresh')
+
+        // If 401 and not already retried and not an auth endpoint, try to refresh token
+        if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
           originalRequest._retry = true
 
           try {
@@ -97,16 +115,28 @@ class APIClient {
 
   // Auth endpoints
   async login(request: LoginRequest): Promise<LoginResponse> {
-    const response = await this.client.post<LoginResponse>('/auth/login', request)
-    const { access_token, user } = response.data
+    console.log('[APIClient] Login request:', { email: request.email, passwordLength: request.password?.length })
+    
+    // Clear any stale tokens before login
+    Cookies.remove('access_token')
+    Cookies.remove('refresh_token')
+    
+    try {
+      const response = await this.client.post<LoginResponse>('/auth/login', request)
+      console.log('[APIClient] Login success:', response.status)
+      const { access_token, user } = response.data
 
-    // Store tokens
-    Cookies.set('access_token', access_token, {
-      sameSite: 'strict',
-      expires: 1 / 24 / 60 * 15, // 15 minutes
-    })
+      // Store tokens
+      Cookies.set('access_token', access_token, {
+        sameSite: 'strict',
+        expires: 1 / 24 / 60 * 15, // 15 minutes
+      })
 
-    return response.data
+      return response.data
+    } catch (error: any) {
+      console.error('[APIClient] Login error:', error.response?.status, error.response?.data)
+      throw error
+    }
   }
 
   async logout(): Promise<void> {

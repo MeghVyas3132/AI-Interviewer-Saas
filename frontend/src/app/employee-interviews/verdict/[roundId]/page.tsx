@@ -62,9 +62,13 @@ export default function VerdictPage() {
         const data = await apiClient.get<RoundSummary>(`/realtime/rounds/${roundId}/summary`)
         setSummary(data)
         setVerdict(v => ({ ...v, interviewerId: user?.id || '' }))
-      } catch (err) {
-        console.error('[VerdictPage] Error fetching summary:', err)
-        // Continue without summary
+      } catch (err: unknown) {
+        // 404 is expected when no AI summary exists (e.g. human-only rounds)
+        const status = (err as { response?: { status?: number } })?.response?.status
+        if (status !== 404) {
+          console.error('[VerdictPage] Error fetching summary:', err)
+        }
+        // Continue without summary - verdict form works independently
       } finally {
         setLoading(false)
       }
@@ -107,14 +111,75 @@ export default function VerdictPage() {
       setSubmitting(true)
       setError(null)
 
-      await apiClient.post(`/realtime/rounds/${roundId}/verdict`, verdict)
+      // Map frontend decision values to backend-expected values
+      const decisionMap: Record<string, string> = {
+        'proceed': 'ADVANCE',
+        'reject': 'REJECT',
+        'on_hold': 'HOLD',
+        'needs_discussion': 'REASSESS',
+      }
+
+      // Compute overall rating (1-5 scale) from individual scores (1-10 scale)
+      const scores = [
+        verdict.technicalScore,
+        verdict.communicationScore,
+        verdict.problemSolvingScore || 0,
+        verdict.cultureFitScore || 0,
+      ].filter(s => s > 0)
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+      // Only set overall_rating if we have scores; null is accepted, but 0 fails ge=1 validation
+      const overallRating = scores.length > 0 ? Math.min(5, Math.max(1, Math.round(avgScore / 2))) : null
+
+      // Build payload matching backend VerdictCreate schema
+      const payload = {
+        decision: decisionMap[verdict.decision] || 'HOLD',
+        overall_rating: overallRating,
+        // Primary format: criteria_scores + notes
+        criteria_scores: scores.length > 0 ? {
+          technical: verdict.technicalScore || 0,
+          communication: verdict.communicationScore || 0,
+          problem_solving: verdict.problemSolvingScore || 0,
+          culture_fit: verdict.cultureFitScore || 0,
+        } : null,
+        notes: verdict.feedback || null,
+        ai_insights_helpful: verdict.aiAlignment === 'agreed' ? true : verdict.aiAlignment === 'disagreed' ? false : null,
+        ai_feedback_notes: verdict.aiAlignment !== 'agreed' ? `AI alignment: ${verdict.aiAlignment}` : null,
+        // Alternative format: separate arrays for strengths/improvements
+        strengths: verdict.strengths || [],
+        improvements: verdict.improvements || [],
+        feedback: verdict.feedback || null,
+        ratings: scores.length > 0 ? {
+          technical: Number(verdict.technicalScore) || 0,
+          communication: Number(verdict.communicationScore) || 0,
+          problem_solving: Number(verdict.problemSolvingScore) || 0,
+          culture_fit: Number(verdict.cultureFitScore) || 0,
+        } : null,
+      }
+
+      console.log('[VerdictPage] Submitting payload:', JSON.stringify(payload, null, 2))
+      await apiClient.post(`/realtime/rounds/${roundId}/verdict`, payload)
       
       setSuccess(true)
       setTimeout(() => {
         router.push('/employee-interviews')
       }, 2000)
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to submit verdict'
+      // Extract detailed error from Axios response
+      let errorMessage = 'Failed to submit verdict'
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosErr = err as { response?: { data?: { detail?: string | Array<{msg: string, loc: string[]}> }, status?: number } }
+        const detail = axiosErr.response?.data?.detail
+        if (typeof detail === 'string') {
+          errorMessage = detail
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(d => `${d.loc?.join('.')}: ${d.msg}`).join('; ')
+        } else if (axiosErr.response?.status === 422) {
+          errorMessage = `Validation error (422): ${JSON.stringify(axiosErr.response?.data)}`
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message
+      }
+      console.error('[VerdictPage] Submit error:', err)
       setError(errorMessage)
     } finally {
       setSubmitting(false)
