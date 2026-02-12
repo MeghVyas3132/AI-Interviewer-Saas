@@ -62,6 +62,9 @@ services:
       # AI Interview Coach Service integration
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
       SYNC_API_KEY: ai-interviewer-sync-key-2024
+      # VideoSDK Configuration (for Round 2 real-time interviews)
+      VIDEOSDK_API_KEY: ${VIDEOSDK_API_KEY:-}
+      VIDEOSDK_SECRET: ${VIDEOSDK_SECRET:-}
     ports:
       - "8000:8000"
     healthcheck:
@@ -85,6 +88,7 @@ services:
       NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:3001
       # For server-side API proxies (container-to-container communication)
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
+      BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
     networks:
