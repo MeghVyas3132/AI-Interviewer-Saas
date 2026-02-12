@@ -594,6 +594,13 @@ async def save_interview_transcript(
         duration_seconds = data.get("duration_seconds", 0)
         resume_text = data.get("resume_text", "")
         
+        # Sanitize resume_text: strip null bytes and detect raw PDF binary
+        if resume_text:
+            resume_text = resume_text.replace("\x00", "")
+            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
+                print(f"[Transcript] Resume text appears to be raw PDF binary, discarding")
+                resume_text = ""
+        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
         interview.resume_text = resume_text if resume_text else interview.resume_text
@@ -753,6 +760,15 @@ async def ai_complete_interview(
         duration_seconds = data.get("duration_seconds", 0)
         resume_text = data.get("resume_text", "")
         pre_calculated_scores = data.get("pre_calculated_scores", {})
+        
+        # Sanitize resume_text: strip null bytes and detect raw PDF binary
+        if resume_text:
+            # Remove null bytes that PostgreSQL VARCHAR can't store
+            resume_text = resume_text.replace("\x00", "")
+            # If it's raw PDF binary (not extracted text), discard it
+            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
+                print(f"[AI-Complete] Resume text appears to be raw PDF binary, discarding")
+                resume_text = ""
         
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None

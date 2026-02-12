@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
-import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/react-sdk'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import Cookies from 'js-cookie'
 import type { AIMetrics, LiveInsight, Recommendation } from '@/types'
 
 interface InterviewerMeetingProps {
@@ -16,161 +16,94 @@ interface InterviewerMeetingProps {
   onLeave?: () => void
 }
 
-// Participant Tile Component
-function ParticipantTile({ participantId, size = 'normal' }: { participantId: string; size?: 'normal' | 'small' | 'pip' }) {
-  const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName } = useParticipant(participantId)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const [isSpeaking, setIsSpeaking] = useState(false)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const animRef = useRef<number | null>(null)
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+  ],
+}
 
-  useEffect(() => {
-    const videoElement = videoRef.current
-    if (!videoElement) return
+function getAuthToken(): string {
+  if (typeof window !== 'undefined') {
+    return Cookies.get('access_token') || ''
+  }
+  return ''
+}
 
-    if (webcamOn && webcamStream) {
-      const track = webcamStream.track
-      if (track) {
-        const mediaStream = new MediaStream()
-        mediaStream.addTrack(track)
-        videoElement.srcObject = mediaStream
-        videoElement.play().catch((err: unknown) => {
-          console.error(`[ParticipantTile] Video play error:`, err)
-        })
-      }
-    } else {
-      videoElement.srcObject = null
-    }
-  }, [webcamStream, webcamOn])
+async function postSignal(roundId: string, type: string, data: object) {
+  const authToken = getAuthToken()
+  try {
+    await fetch('/api/realtime/rounds/' + roundId + '/signal', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + authToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type, data }),
+    })
+  } catch (err) {
+    console.error('[InterviewerMeeting] postSignal error:', err)
+  }
+}
 
-  useEffect(() => {
-    const audioElement = audioRef.current
-    if (!audioElement) return
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pollSignals(roundId: string): Promise<Array<{ type: string; data: any; from_role: string }>> {
+  const authToken = getAuthToken()
+  try {
+    const res = await fetch('/api/realtime/rounds/' + roundId + '/signal', {
+      headers: { 'Authorization': 'Bearer ' + authToken },
+    })
+    const json = await res.json()
+    return json.messages || []
+  } catch {
+    return []
+  }
+}
 
-    if (micOn && micStream && !isLocal) {
-      const track = micStream.track
-      if (track) {
-        const mediaStream = new MediaStream()
-        mediaStream.addTrack(track)
-        audioElement.srcObject = mediaStream
-        audioElement.play().catch((err: unknown) => {
-          console.error(`[ParticipantTile] Audio play error:`, err)
-        })
-      }
-    } else {
-      audioElement.srcObject = null
-    }
-  }, [micStream, micOn, isLocal])
+async function postPresence(roundId: string) {
+  const authToken = getAuthToken()
+  try {
+    await fetch('/api/realtime/rounds/' + roundId + '/presence', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + authToken,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch (err) {
+    console.error('[InterviewerMeeting] postPresence error:', err)
+  }
+}
 
-  // Speech detection via audio analysis
-  useEffect(() => {
-    if (micStream && micOn) {
-      const track = micStream.track
-      if (!track) return
-      
-      try {
-        audioCtxRef.current = new AudioContext()
-        const analyser = audioCtxRef.current.createAnalyser()
-        const mediaStream = new MediaStream()
-        mediaStream.addTrack(track)
-        const source = audioCtxRef.current.createMediaStreamSource(mediaStream)
-        source.connect(analyser)
-        analyser.fftSize = 256
-        const check = () => {
-          const data = new Uint8Array(analyser.frequencyBinCount)
-          analyser.getByteFrequencyData(data)
-          setIsSpeaking(data.reduce((a, b) => a + b) / data.length > 20)
-          animRef.current = requestAnimationFrame(check)
-        }
-        check()
-      } catch (e) {
-        console.error('[ParticipantTile] Audio context error:', e)
-      }
-    }
-    return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current)
-      audioCtxRef.current?.close().catch(() => {})
-    }
-  }, [micStream, micOn])
-
-  const initials = (displayName || 'U').charAt(0).toUpperCase()
-  const isPip = size === 'pip'
-  const isSmall = size === 'small'
-
-  return (
-    <div className={`
-      relative overflow-hidden h-full transition-all duration-300 group
-      ${isPip ? 'rounded-xl' : 'rounded-2xl'}
-      ${isSpeaking ? 'ring-[3px] ring-blue-400 shadow-lg shadow-blue-400/20' : 'ring-1 ring-gray-600'}
-      bg-gray-700
-    `}>
-      {webcamOn && webcamStream ? (
-        <video 
-          ref={videoRef} 
-          data-local={isLocal ? 'true' : 'false'} 
-          autoPlay 
-          playsInline 
-          muted={isLocal} 
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
-          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-800">
-          <div className={`
-            rounded-full flex items-center justify-center transition-all duration-300
-            ${isPip ? 'w-12 h-12' : isSmall ? 'w-16 h-16' : 'w-24 h-24'}
-            ${isSpeaking ? 'scale-110 ring-4 ring-blue-400/30 animate-pulse' : ''}
-            bg-gradient-to-br from-gray-600 to-gray-700
-          `}>
-            <span className={`font-medium text-white ${isPip ? 'text-lg' : isSmall ? 'text-xl' : 'text-3xl'}`}>{initials}</span>
-          </div>
-        </div>
-      )}
-      
-      <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent ${isPip ? 'px-2 py-1.5' : 'px-3 py-2'}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {isSpeaking && (
-              <div className="flex gap-0.5 items-end h-3">
-                <div className="w-0.5 bg-blue-400 rounded-full animate-pulse" style={{ height: '30%' }} />
-                <div className="w-0.5 bg-blue-400 rounded-full animate-pulse" style={{ height: '60%', animationDelay: '0.1s' }} />
-                <div className="w-0.5 bg-blue-400 rounded-full animate-pulse" style={{ height: '100%', animationDelay: '0.2s' }} />
-              </div>
-            )}
-            <span className={`text-white font-medium truncate ${isPip ? 'text-[10px]' : 'text-xs'}`}>
-              {displayName || 'Participant'} {isLocal && <span className="text-gray-400">(You)</span>}
-            </span>
-          </div>
-          {!micOn && (
-            <div className="p-1 bg-red-500 rounded-full animate-pulse">
-              <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-              </svg>
-            </div>
-          )}
-        </div>
-      </div>
-      {!isLocal && <audio ref={audioRef} autoPlay playsInline />}
-    </div>
-  )
+async function checkPresence(roundId: string): Promise<boolean> {
+  const authToken = getAuthToken()
+  try {
+    const res = await fetch('/api/realtime/rounds/' + roundId + '/presence', {
+      headers: { 'Authorization': 'Bearer ' + authToken },
+    })
+    const json = await res.json()
+    return json.peer_online || false
+  } catch {
+    return false
+  }
 }
 
 // AI Insights Panel Component
-function InsightsPanel({ 
-  insights, 
-  recommendations, 
-  metrics, 
-  resumeUrl 
-}: { 
+function InsightsPanel({
+  insights,
+  recommendations,
+  metrics,
+  resumeUrl
+}: {
   insights?: LiveInsight[]
   recommendations?: Recommendation[]
   metrics?: AIMetrics
-  resumeUrl?: string 
+  resumeUrl?: string
 }) {
   const [activeTab, setActiveTab] = useState<'ai' | 'resume'>('ai')
-  
+
   const getSeverityColor = (severity?: string) => {
     switch (severity?.toLowerCase()) {
       case 'high':
@@ -185,13 +118,12 @@ function InsightsPanel({
 
   return (
     <div className="w-80 bg-gray-800 rounded-2xl overflow-hidden flex flex-col ring-1 ring-gray-700 shadow-xl">
-      {/* Tabs */}
       <div className="flex border-b border-gray-700">
         <button
           onClick={() => setActiveTab('ai')}
           className={`flex-1 py-3 px-4 text-sm font-medium transition-all ${
-            activeTab === 'ai' 
-              ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' 
+            activeTab === 'ai'
+              ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5'
               : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
           }`}
         >
@@ -205,8 +137,8 @@ function InsightsPanel({
         <button
           onClick={() => setActiveTab('resume')}
           className={`flex-1 py-3 px-4 text-sm font-medium transition-all ${
-            activeTab === 'resume' 
-              ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' 
+            activeTab === 'resume'
+              ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5'
               : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
           }`}
         >
@@ -219,11 +151,9 @@ function InsightsPanel({
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {activeTab === 'ai' ? (
           <>
-            {/* Metrics Summary */}
             {metrics && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
@@ -256,7 +186,6 @@ function InsightsPanel({
               </div>
             )}
 
-            {/* Live Insights */}
             {insights && insights.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
@@ -265,8 +194,8 @@ function InsightsPanel({
                 </h3>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {insights.slice(0, 5).map((insight) => (
-                    <div 
-                      key={insight.id} 
+                    <div
+                      key={insight.id}
                       className={`px-3 py-2 rounded-lg border ${getSeverityColor(insight.severity)}`}
                     >
                       <div className="text-sm font-medium">{insight.title}</div>
@@ -277,7 +206,6 @@ function InsightsPanel({
               </div>
             )}
 
-            {/* Recommendations */}
             {recommendations && recommendations.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
@@ -299,7 +227,7 @@ function InsightsPanel({
                       <div className="text-sm text-white">{rec.title}</div>
                       {rec.suggestedQuestions && rec.suggestedQuestions.length > 0 && (
                         <div className="mt-2 text-xs text-cyan-400">
-                          💡 Ask: {rec.suggestedQuestions[0]}
+                          Ask: {rec.suggestedQuestions[0]}
                         </div>
                       )}
                     </div>
@@ -308,7 +236,6 @@ function InsightsPanel({
               </div>
             )}
 
-            {/* Empty state */}
             {(!insights || insights.length === 0) && (!metrics) && (
               <div className="flex flex-col items-center justify-center h-48 text-gray-400">
                 <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center mb-3 animate-pulse">
@@ -340,221 +267,312 @@ function InsightsPanel({
   )
 }
 
-// Meeting View Component
-function MeetingView({ 
-  insights, 
-  recommendations, 
-  metrics, 
+// Main Interviewer Meeting Component
+export default function InterviewerMeeting({
+  meetingId,
+  participantName,
+  roundId,
+  insights,
+  recommendations,
+  metrics,
   resumeUrl,
-  onLeave 
-}: { 
-  insights?: LiveInsight[]
-  recommendations?: Recommendation[]
-  metrics?: AIMetrics
-  resumeUrl?: string
-  onLeave?: () => void
-}) {
-  const [joined, setJoined] = useState(false)
-  const [ready, setReady] = useState(false)
+  onLeave
+}: InterviewerMeetingProps) {
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [connected, setConnected] = useState(false)
+  const [peerOnline, setPeerOnline] = useState(false)
+  const [micOn, setMicOn] = useState(true)
+  const [camOn, setCamOn] = useState(true)
+  const [connectionState, setConnectionState] = useState('new')
 
-  const { 
-    join, 
-    leave, 
-    toggleMic, 
-    toggleWebcam, 
-    toggleScreenShare, 
-    localParticipant, 
-    participants, 
-    meetingId, 
-    localMicOn, 
-    localWebcamOn, 
-    localScreenShareOn 
-  } = useMeeting({
-    onMeetingJoined: () => {
-      console.log('[InterviewerMeeting] Meeting joined successfully, meetingId:', meetingId)
-      console.log('[InterviewerMeeting] toggleMic available:', !!toggleMic)
-      console.log('[InterviewerMeeting] toggleWebcam available:', !!toggleWebcam)
-      setReady(true)
-    },
-    onMeetingLeft: () => { 
-      console.log('[InterviewerMeeting] Meeting left')
-      setReady(false)
-      onLeave?.()
-    },
-    onError: (e: unknown) => console.error('[InterviewerMeeting] Meeting error:', e),
-    onParticipantJoined: (participant: unknown) => console.log('[InterviewerMeeting] Participant joined:', participant),
-    onParticipantLeft: (participant: unknown) => console.log('[InterviewerMeeting] Participant left:', participant),
-  })
+  const localVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const iceCandidatesQueue = useRef<RTCIceCandidate[]>([])
+  const hasCreatedOffer = useRef(false)
+  const mountedRef = useRef(true)
 
-  useEffect(() => { 
-    if (!joined) { 
-      console.log('[InterviewerMeeting] Joining meeting...')
-      join()
-      setJoined(true)
-    } 
-  }, [join, joined])
-
-  // Debug current state
+  // Initialize local media
   useEffect(() => {
-    console.log('[InterviewerMeeting] State update - ready:', ready, 'localMicOn:', localMicOn, 'localWebcamOn:', localWebcamOn)
-  }, [ready, localMicOn, localWebcamOn])
+    mountedRef.current = true
+    let stream: MediaStream | null = null
 
-  const doToggleMic = useCallback(async () => { 
-    console.log('[InterviewerMeeting] Toggle mic called, ready:', ready, 'toggleMic exists:', !!toggleMic, 'localMicOn:', localMicOn)
-    try {
-      // Request mic permission if turning on
-      if (!localMicOn) {
-        await navigator.mediaDevices.getUserMedia({ audio: true })
-      }
-      if (toggleMic) {
-        toggleMic()
-        console.log('[InterviewerMeeting] toggleMic executed')
-      } else {
-        console.error('[InterviewerMeeting] toggleMic is undefined')
-      }
-    } catch (err) {
-      console.error('[InterviewerMeeting] Error toggling mic:', err)
-      alert('Could not access microphone. Please check browser permissions.')
-    }
-  }, [ready, toggleMic, localMicOn])
-
-  const doToggleWebcam = useCallback(async () => { 
-    console.log('[InterviewerMeeting] Toggle webcam called, ready:', ready, 'toggleWebcam exists:', !!toggleWebcam, 'localWebcamOn:', localWebcamOn)
-    try {
-      // Request camera permission if turning on
-      if (!localWebcamOn) {
-        await navigator.mediaDevices.getUserMedia({ video: true })
-      }
-      if (toggleWebcam) {
-        toggleWebcam()
-        console.log('[InterviewerMeeting] toggleWebcam executed')
-      } else {
-        console.error('[InterviewerMeeting] toggleWebcam is undefined')
-      }
-    } catch (err) {
-      console.error('[InterviewerMeeting] Error toggling webcam:', err)
-      alert('Could not access camera. Please check browser permissions.')
-    }
-  }, [ready, toggleWebcam, localWebcamOn])
-
-  const doToggleScreen = useCallback(() => { 
-    console.log('[InterviewerMeeting] Toggle screen called, ready:', ready)
-    if (toggleScreenShare) {
+    const init = async () => {
       try {
-        toggleScreenShare()
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return }
+        setLocalStream(stream)
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream
+        }
       } catch (err) {
-        console.error('[InterviewerMeeting] Error toggling screen share:', err)
+        console.error('[InterviewerMeeting] getUserMedia error:', err)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return }
+          setLocalStream(stream)
+        } catch (err2) {
+          console.error('[InterviewerMeeting] Audio-only also failed:', err2)
+        }
       }
     }
-  }, [ready, toggleScreenShare])
 
-  const doLeave = useCallback(() => { 
-    console.log('[InterviewerMeeting] Leave called, ready:', ready)
-    try {
-      if (leave) {
-        leave()
-        console.log('[InterviewerMeeting] leave executed')
-      } else {
-        console.error('[InterviewerMeeting] leave is undefined, calling onLeave directly')
-        onLeave?.()
-      }
-    } catch (err) {
-      console.error('[InterviewerMeeting] Error leaving:', err)
-      onLeave?.()
+    init()
+    return () => {
+      mountedRef.current = false
+      stream?.getTracks().forEach(t => t.stop())
     }
-  }, [ready, leave, onLeave])
+  }, [])
 
-  const allIds = useMemo(() => [...participants.keys()], [participants])
-  const remoteId = useMemo(() => allIds.find((id: string) => id !== localParticipant?.id) || null, [allIds, localParticipant])
+  // Setup RTCPeerConnection and signaling
+  useEffect(() => {
+    if (!localStream) return
+
+    const pc = new RTCPeerConnection(ICE_SERVERS)
+    pcRef.current = pc
+
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream)
+    })
+
+    const remoteMs = new MediaStream()
+    setRemoteStream(remoteMs)
+
+    pc.ontrack = (event) => {
+      console.log('[InterviewerMeeting] Got remote track:', event.track.kind)
+      remoteMs.addTrack(event.track)
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteMs
+      }
+      setConnected(true)
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        postSignal(roundId, 'ice-candidate', { candidate: event.candidate.toJSON() })
+      }
+    }
+
+    pc.onconnectionstatechange = () => {
+      console.log('[InterviewerMeeting] Connection state:', pc.connectionState)
+      setConnectionState(pc.connectionState)
+      if (pc.connectionState === 'connected') setConnected(true)
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') setConnected(false)
+    }
+
+    // Start presence heartbeat
+    postPresence(roundId)
+    presenceIntervalRef.current = setInterval(() => {
+      postPresence(roundId)
+      checkPresence(roundId).then(online => {
+        if (mountedRef.current) setPeerOnline(online)
+      })
+    }, 3000)
+
+    // Start signal polling
+    pollIntervalRef.current = setInterval(async () => {
+      if (!mountedRef.current) return
+      const messages = await pollSignals(roundId)
+
+      for (const msg of messages) {
+        try {
+          if (msg.type === 'answer') {
+            if (pc.signalingState === 'have-local-offer') {
+              console.log('[InterviewerMeeting] Received answer from candidate')
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.data as RTCSessionDescriptionInit))
+
+              for (const ic of iceCandidatesQueue.current) {
+                await pc.addIceCandidate(ic)
+              }
+              iceCandidatesQueue.current = []
+            }
+          } else if (msg.type === 'ice-candidate') {
+            const candidateData = (msg.data as { candidate?: RTCIceCandidateInit }).candidate
+            if (candidateData) {
+              const candidate = new RTCIceCandidate(candidateData)
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(candidate)
+              } else {
+                iceCandidatesQueue.current.push(candidate)
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[InterviewerMeeting] Signal processing error:', err)
+        }
+      }
+    }, 1000)
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+      if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current)
+      pc.close()
+    }
+  }, [localStream, roundId])
+
+  // Interviewer creates the offer when peer comes online
+  useEffect(() => {
+    if (peerOnline && pcRef.current && !hasCreatedOffer.current && localStream) {
+      hasCreatedOffer.current = true
+      const pc = pcRef.current
+
+      console.log('[InterviewerMeeting] Peer is online, creating offer...')
+
+      const createOffer = async () => {
+        try {
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          await postSignal(roundId, 'offer', offer)
+          console.log('[InterviewerMeeting] Offer sent to candidate')
+        } catch (err) {
+          console.error('[InterviewerMeeting] Error creating offer:', err)
+          hasCreatedOffer.current = false
+        }
+      }
+
+      createOffer()
+    }
+  }, [peerOnline, localStream, roundId])
+
+  const toggleMic = useCallback(() => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
+      setMicOn(prev => !prev)
+    }
+  }, [localStream])
+
+  const toggleCam = useCallback(() => {
+    if (localStream) {
+      localStream.getVideoTracks().forEach(t => { t.enabled = !t.enabled })
+      setCamOn(prev => !prev)
+    }
+  }, [localStream])
+
+  const handleLeave = useCallback(() => {
+    if (pcRef.current) pcRef.current.close()
+    localStream?.getTracks().forEach(t => t.stop())
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current)
+    onLeave?.()
+  }, [localStream, onLeave])
+
+  const initials = (participantName || 'I').charAt(0).toUpperCase()
 
   return (
     <div className="fixed inset-0 bg-gray-900 flex flex-col overflow-hidden">
+      {/* Status bar */}
+      <div className="h-8 bg-gray-800/50 flex items-center justify-center px-4 text-xs text-gray-400">
+        Meeting: {meetingId} {' | '}
+        {peerOnline ? ' Candidate is online' : ' Waiting for candidate...'} {' | '}
+        {connected ? ' Connected' : connectionState === 'connecting' ? ' Connecting...' : ' Waiting'}
+      </div>
+
       {/* Main Area */}
       <div className="flex-1 p-4 flex gap-4 min-h-0">
         {/* Video Section */}
         <div className="flex-1 flex gap-4 min-w-0">
-          <div className="flex-1 flex gap-4">
-            {localParticipant && (
-              <div className="flex-1">
-                <ParticipantTile participantId={localParticipant.id} />
+          {/* Local video */}
+          <div className="flex-1 relative rounded-2xl overflow-hidden bg-gray-700 ring-1 ring-gray-600">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
+            />
+            {!camOn && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-800">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center">
+                  <span className="text-3xl font-medium text-white">{initials}</span>
+                </div>
               </div>
             )}
-            {remoteId ? (
-              <div className="flex-1">
-                <ParticipantTile participantId={remoteId} />
-              </div>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+              <span className="text-xs text-white font-medium">{participantName} (You)</span>
+            </div>
+          </div>
+
+          {/* Remote video */}
+          <div className="flex-1 relative rounded-2xl overflow-hidden bg-gray-700 ring-1 ring-gray-600">
+            {connected && remoteStream ? (
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              />
             ) : (
-              <div className="flex-1 rounded-2xl bg-gray-700 ring-1 ring-gray-600 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center text-gray-400">
                   <div className="w-20 h-20 rounded-full bg-gray-600 mx-auto mb-4 flex items-center justify-center">
                     <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
-                  <p className="font-medium">Waiting for candidate...</p>
+                  <p className="font-medium">
+                    {peerOnline ? 'Connecting to candidate...' : 'Waiting for candidate...'}
+                  </p>
                   <p className="text-sm text-gray-500 mt-1">{meetingId}</p>
+                  {peerOnline && (
+                    <div className="mt-3 flex items-center justify-center gap-2">
+                      <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+                      <span className="text-sm text-blue-400">Establishing WebRTC connection...</span>
+                    </div>
+                  )}
                 </div>
+              </div>
+            )}
+            {connected && (
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+                <span className="text-xs text-white font-medium">Candidate</span>
               </div>
             )}
           </div>
         </div>
 
         {/* AI Insights Panel */}
-        <InsightsPanel 
-          insights={insights} 
+        <InsightsPanel
+          insights={insights}
           recommendations={recommendations}
           metrics={metrics}
-          resumeUrl={resumeUrl} 
+          resumeUrl={resumeUrl}
         />
       </div>
 
       {/* Control Bar */}
       <div className="h-20 bg-gray-900 flex items-center justify-center px-4">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={doToggleMic} 
-            className={`
-              px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
-              ${localMicOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}
-            `}
+          <button
+            onClick={toggleMic}
+            className={`px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
+              ${micOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
             </svg>
-            <span className="text-sm font-medium hidden sm:inline">{localMicOn ? 'Mute' : 'Unmute'}</span>
+            <span className="text-sm font-medium hidden sm:inline">{micOn ? 'Mute' : 'Unmute'}</span>
           </button>
 
-          <button 
-            onClick={doToggleWebcam} 
-            className={`
-              px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
-              ${localWebcamOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}
-            `}
+          <button
+            onClick={toggleCam}
+            className={`px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
+              ${camOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
             </svg>
-            <span className="text-sm font-medium hidden sm:inline">{localWebcamOn ? 'Stop video' : 'Start video'}</span>
-          </button>
-
-          <button 
-            onClick={doToggleScreen} 
-            className={`
-              px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
-              ${localScreenShareOn ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-white'}
-            `}
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4z"/>
-            </svg>
-            <span className="text-sm font-medium hidden sm:inline">{localScreenShareOn ? 'Stop' : 'Present'}</span>
+            <span className="text-sm font-medium hidden sm:inline">{camOn ? 'Stop video' : 'Start video'}</span>
           </button>
 
           <div className="w-px h-8 bg-gray-600 mx-2" />
 
-          <button 
-            onClick={doLeave} 
+          <button
+            onClick={handleLeave}
             className="px-5 py-3 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 transition-all duration-200"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -565,39 +583,5 @@ function MeetingView({
         </div>
       </div>
     </div>
-  )
-}
-
-// Main Interviewer Meeting Component
-export default function InterviewerMeeting({ 
-  meetingId, 
-  token, 
-  participantName, 
-  roundId,
-  insights, 
-  recommendations,
-  metrics,
-  resumeUrl,
-  onLeave 
-}: InterviewerMeetingProps) {
-  return (
-    <MeetingProvider 
-      config={{ 
-        meetingId, 
-        micEnabled: false, 
-        webcamEnabled: false, 
-        name: participantName, 
-        debugMode: process.env.NODE_ENV === 'development' 
-      }} 
-      token={token}
-    >
-      <MeetingView 
-        insights={insights} 
-        recommendations={recommendations}
-        metrics={metrics}
-        resumeUrl={resumeUrl}
-        onLeave={onLeave}
-      />
-    </MeetingProvider>
   )
 }

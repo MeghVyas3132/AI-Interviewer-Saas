@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { MeetingProvider, useMeeting, useParticipant } from '@videosdk.live/react-sdk';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import Cookies from 'js-cookie';
 
 interface CandidateMeetingProps {
   meetingId: string;
@@ -12,243 +12,271 @@ interface CandidateMeetingProps {
   onLeave?: () => void;
 }
 
-// Participant Tile
-function ParticipantTile({ participantId, size = 'normal' }: { participantId: string; size?: 'normal' | 'small' | 'pip' }) {
-  const { webcamStream, micStream, webcamOn, micOn, isLocal, displayName } = useParticipant(participantId);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const animRef = useRef<number | null>(null);
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+  ],
+};
 
-  useEffect(() => {
-    const videoElement = videoRef.current;
-    if (!videoElement) return;
-
-    if (webcamOn && webcamStream) {
-      const track = webcamStream.track;
-      if (track) {
-        const mediaStream = new MediaStream();
-        mediaStream.addTrack(track);
-        videoElement.srcObject = mediaStream;
-        videoElement.play().catch((err) => {
-          console.error(`[ParticipantTile ${participantId}] Video play error:`, err);
-        });
-      }
-    } else {
-      videoElement.srcObject = null;
-    }
-  }, [webcamStream, webcamOn, participantId]);
-
-  useEffect(() => {
-    const audioElement = audioRef.current;
-    if (!audioElement) return;
-
-    if (micOn && micStream && !isLocal) {
-      const track = micStream.track;
-      if (track) {
-        const mediaStream = new MediaStream();
-        mediaStream.addTrack(track);
-        audioElement.srcObject = mediaStream;
-        audioElement.play().catch((err) => {
-          console.error(`[ParticipantTile ${participantId}] Audio play error:`, err);
-        });
-      }
-    } else {
-      audioElement.srcObject = null;
-    }
-  }, [micStream, micOn, isLocal, participantId]);
-
-  useEffect(() => {
-    if (micStream && micOn) {
-      const track = micStream.track;
-      if (!track) return;
-      
-      try {
-        audioCtxRef.current = new AudioContext();
-        const analyser = audioCtxRef.current.createAnalyser();
-        const mediaStream = new MediaStream();
-        mediaStream.addTrack(track);
-        const source = audioCtxRef.current.createMediaStreamSource(mediaStream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
-        const check = () => {
-          const data = new Uint8Array(analyser.frequencyBinCount);
-          analyser.getByteFrequencyData(data);
-          setIsSpeaking(data.reduce((a, b) => a + b) / data.length > 20);
-          animRef.current = requestAnimationFrame(check);
-        };
-        check();
-      } catch (e) {
-        console.error(`[ParticipantTile ${participantId}] Audio context error:`, e);
-      }
-    }
-    return () => {
-      animRef.current && cancelAnimationFrame(animRef.current);
-      audioCtxRef.current?.close().catch(() => {});
-    };
-  }, [micStream, micOn, participantId]);
-
-  const initials = (displayName || 'U').charAt(0).toUpperCase();
-  const isPip = size === 'pip';
-  const isSmall = size === 'small';
-
-  return (
-    <div className={`
-      relative overflow-hidden h-full transition-all duration-300 group
-      ${isPip ? 'rounded-xl' : 'rounded-2xl'}
-      ${isSpeaking ? 'ring-[3px] ring-blue-500 shadow-lg shadow-blue-500/20' : 'ring-1 ring-gray-700'}
-      bg-gray-800
-    `}>
-      {webcamOn && webcamStream ? (
-        <video 
-          ref={videoRef} 
-          data-local={isLocal ? "true" : "false"} 
-          autoPlay 
-          playsInline 
-          muted={isLocal} 
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
-          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-800">
-          <div className={`
-            rounded-full flex items-center justify-center transition-all duration-300
-            ${isPip ? 'w-12 h-12' : isSmall ? 'w-16 h-16' : 'w-24 h-24'}
-            ${isSpeaking ? 'scale-110 ring-4 ring-blue-500/30' : ''}
-            bg-gradient-to-br from-gray-600 to-gray-700
-          `}>
-            <span className={`font-medium text-white ${isPip ? 'text-lg' : isSmall ? 'text-xl' : 'text-3xl'}`}>{initials}</span>
-          </div>
-        </div>
-      )}
-      
-      {/* Name badge */}
-      <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent ${isPip ? 'px-2 py-1.5' : 'px-3 py-2'}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {isSpeaking && (
-              <div className="flex gap-0.5 items-end h-3">
-                <div className="w-0.5 bg-blue-500 rounded-full animate-pulse" style={{ height: '8px' }} />
-                <div className="w-0.5 bg-blue-500 rounded-full animate-pulse" style={{ height: '12px', animationDelay: '0.1s' }} />
-                <div className="w-0.5 bg-blue-500 rounded-full animate-pulse" style={{ height: '6px', animationDelay: '0.2s' }} />
-              </div>
-            )}
-            <span className={`text-white font-medium truncate ${isPip ? 'text-[10px]' : 'text-xs'}`}>
-              {displayName || 'Participant'} {isLocal && <span className="text-gray-400">(You)</span>}
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            {!micOn && (
-              <div className="p-1 bg-red-500 rounded-full animate-pulse">
-                <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                  <path d="M3 3l18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      
-      {!isLocal && <audio ref={audioRef} autoPlay playsInline />}
-    </div>
-  );
+function getAuthToken(): string {
+  if (typeof window !== 'undefined') {
+    return Cookies.get('access_token') || '';
+  }
+  return '';
 }
 
-// Main Meeting View
-function MeetingView({ onLeave, companyName }: { onLeave?: () => void; companyName?: string }) {
-  const [joined, setJoined] = useState(false);
-  const [ready, setReady] = useState(false);
+async function postSignal(roundId: string, type: string, data: object) {
+  const authToken = getAuthToken();
+  try {
+    await fetch(`/api/realtime/rounds/${roundId}/signal`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type, data }),
+    });
+  } catch (err) {
+    console.error('[CandidateMeeting] postSignal error:', err);
+  }
+}
 
-  const { 
-    join, 
-    leave, 
-    toggleMic, 
-    toggleWebcam, 
-    localParticipant, 
-    participants, 
-    meetingId, 
-    localMicOn, 
-    localWebcamOn 
-  } = useMeeting({
-    onMeetingJoined: () => {
-      console.log('[CandidateMeeting] Meeting joined successfully');
-      setReady(true);
-    },
-    onMeetingLeft: () => { 
-      console.log('[CandidateMeeting] Meeting left');
-      setReady(false); 
-      onLeave?.();
-    },
-    onError: (e: unknown) => console.error('[CandidateMeeting] Meeting error:', e),
-  });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pollSignals(roundId: string): Promise<Array<{ type: string; data: any; from_role: string }>> {
+  const authToken = getAuthToken();
+  try {
+    const res = await fetch(`/api/realtime/rounds/${roundId}/signal`, {
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    });
+    const json = await res.json();
+    return json.messages || [];
+  } catch {
+    return [];
+  }
+}
 
-  useEffect(() => { 
-    if (!joined) { 
-      console.log('[CandidateMeeting] Joining meeting...');
-      join(); 
-      setJoined(true); 
-    } 
-  }, [join, joined]);
+async function postPresence(roundId: string) {
+  const authToken = getAuthToken();
+  try {
+    await fetch(`/api/realtime/rounds/${roundId}/presence`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  } catch (err) {
+    console.error('[CandidateMeeting] postPresence error:', err);
+  }
+}
 
-  const doToggleMic = useCallback(async () => { 
-    console.log('[CandidateMeeting] Toggle mic clicked, current state:', localMicOn);
-    try {
-      // Request mic permission if not already granted
-      if (!localMicOn) {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+async function checkPresence(roundId: string): Promise<boolean> {
+  const authToken = getAuthToken();
+  try {
+    const res = await fetch(`/api/realtime/rounds/${roundId}/presence`, {
+      headers: { 'Authorization': `Bearer ${authToken}` },
+    });
+    const json = await res.json();
+    return json.peer_online || false;
+  } catch {
+    return false;
+  }
+}
+
+export default function CandidateMeeting({ meetingId, participantName, roundId, companyName, onLeave }: CandidateMeetingProps) {
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [peerOnline, setPeerOnline] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [connectionState, setConnectionState] = useState('new');
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const iceCandidatesQueue = useRef<RTCIceCandidate[]>([]);
+  const hasCreatedOffer = useRef(false);
+  const mountedRef = useRef(true);
+
+  // Initialize local media
+  useEffect(() => {
+    mountedRef.current = true;
+    let stream: MediaStream | null = null;
+
+    const init = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+        setLocalStream(stream);
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error('[CandidateMeeting] getUserMedia error:', err);
+        // Try audio only
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+          setLocalStream(stream);
+        } catch (err2) {
+          console.error('[CandidateMeeting] Audio-only also failed:', err2);
+        }
       }
-      if (toggleMic) {
-        toggleMic();
-        console.log('[CandidateMeeting] toggleMic called successfully');
-      } else {
-        console.error('[CandidateMeeting] toggleMic is undefined');
+    };
+
+    init();
+    return () => {
+      mountedRef.current = false;
+      stream?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  // Setup RTCPeerConnection and signaling
+  useEffect(() => {
+    if (!localStream) return;
+
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    pcRef.current = pc;
+
+    // Add local tracks
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+
+    // Handle remote tracks
+    const remoteMs = new MediaStream();
+    setRemoteStream(remoteMs);
+
+    pc.ontrack = (event) => {
+      console.log('[CandidateMeeting] Got remote track:', event.track.kind);
+      remoteMs.addTrack(event.track);
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteMs;
       }
-    } catch (err) {
-      console.error('[CandidateMeeting] Error toggling mic:', err);
-      alert('Could not access microphone. Please check browser permissions.');
+      setConnected(true);
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log('[CandidateMeeting] Sending ICE candidate');
+        postSignal(roundId, 'ice-candidate', { candidate: event.candidate.toJSON() });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('[CandidateMeeting] Connection state:', pc.connectionState);
+      setConnectionState(pc.connectionState);
+      if (pc.connectionState === 'connected') setConnected(true);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') setConnected(false);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('[CandidateMeeting] ICE state:', pc.iceConnectionState);
+    };
+
+    // Start presence heartbeat
+    postPresence(roundId);
+    presenceIntervalRef.current = setInterval(() => {
+      postPresence(roundId);
+      checkPresence(roundId).then(online => {
+        if (mountedRef.current) setPeerOnline(online);
+      });
+    }, 3000);
+
+    // Start signal polling
+    pollIntervalRef.current = setInterval(async () => {
+      if (!mountedRef.current) return;
+      const messages = await pollSignals(roundId);
+      
+      for (const msg of messages) {
+        try {
+          if (msg.type === 'offer' && pc.signalingState !== 'stable') {
+            console.log('[CandidateMeeting] Ignoring offer - already have one');
+            continue;
+          }
+
+          if (msg.type === 'offer') {
+            console.log('[CandidateMeeting] Received offer from interviewer');
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.data as RTCSessionDescriptionInit));
+            
+            // Flush queued ICE candidates
+            for (const ic of iceCandidatesQueue.current) {
+              await pc.addIceCandidate(ic);
+            }
+            iceCandidatesQueue.current = [];
+            
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await postSignal(roundId, 'answer', answer);
+            console.log('[CandidateMeeting] Sent answer');
+          } else if (msg.type === 'answer') {
+            if (pc.signalingState === 'have-local-offer') {
+              console.log('[CandidateMeeting] Received answer');
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.data as RTCSessionDescriptionInit));
+              
+              for (const ic of iceCandidatesQueue.current) {
+                await pc.addIceCandidate(ic);
+              }
+              iceCandidatesQueue.current = [];
+            }
+          } else if (msg.type === 'ice-candidate') {
+            const candidateData = (msg.data as { candidate?: RTCIceCandidateInit }).candidate;
+            if (candidateData) {
+              const candidate = new RTCIceCandidate(candidateData);
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(candidate);
+              } else {
+                iceCandidatesQueue.current.push(candidate);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[CandidateMeeting] Signal processing error:', err);
+        }
+      }
+    }, 1000);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current);
+      pc.close();
+    };
+  }, [localStream, roundId]);
+
+  // When peer comes online and we haven't created an offer yet,
+  // the candidate waits for the interviewer to send an offer.
+  // But if both sides are waiting, the interviewer creates the offer.
+  // Candidate is passive (answerer).
+
+  const toggleMic = useCallback(() => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
+      setMicOn(prev => !prev);
     }
-  }, [toggleMic, localMicOn]);
+  }, [localStream]);
 
-  const doToggleWebcam = useCallback(async () => { 
-    console.log('[CandidateMeeting] Toggle webcam clicked, current state:', localWebcamOn);
-    try {
-      // Request camera permission if not already granted
-      if (!localWebcamOn) {
-        await navigator.mediaDevices.getUserMedia({ video: true });
-      }
-      if (toggleWebcam) {
-        toggleWebcam();
-        console.log('[CandidateMeeting] toggleWebcam called successfully');
-      } else {
-        console.error('[CandidateMeeting] toggleWebcam is undefined');
-      }
-    } catch (err) {
-      console.error('[CandidateMeeting] Error toggling webcam:', err);
-      alert('Could not access camera. Please check browser permissions.');
+  const toggleCam = useCallback(() => {
+    if (localStream) {
+      localStream.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
+      setCamOn(prev => !prev);
     }
-  }, [toggleWebcam, localWebcamOn]);
+  }, [localStream]);
 
-  const doLeave = useCallback(() => { 
-    console.log('[CandidateMeeting] Leave clicked');
-    try {
-      if (leave) {
-        leave();
-        console.log('[CandidateMeeting] leave called successfully');
-      } else {
-        console.error('[CandidateMeeting] leave is undefined, calling onLeave directly');
-        onLeave?.();
-      }
-    } catch (err) {
-      console.error('[CandidateMeeting] Error leaving:', err);
-      onLeave?.();
-    }
-  }, [leave, onLeave]);
+  const handleLeave = useCallback(() => {
+    if (pcRef.current) pcRef.current.close();
+    localStream?.getTracks().forEach(t => t.stop());
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current);
+    onLeave?.();
+  }, [localStream, onLeave]);
 
-  const allIds = useMemo(() => [...participants.keys()], [participants]);
-  const remoteId = useMemo(() => allIds.find((id: string) => id !== localParticipant?.id) || null, [allIds, localParticipant]);
+  const initials = (participantName || 'C').charAt(0).toUpperCase();
 
   return (
     <div className="fixed inset-0 bg-gray-900 flex flex-col overflow-hidden">
@@ -264,35 +292,76 @@ function MeetingView({ onLeave, companyName }: { onLeave?: () => void; companyNa
             <span className="text-white font-medium">{companyName} Interview</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-sm text-gray-400">Live</span>
+            <div className={`w-2 h-2 rounded-full animate-pulse ${connected ? 'bg-green-500' : 'bg-amber-500'}`} />
+            <span className="text-sm text-gray-400">{connected ? 'Connected' : connectionState === 'connecting' ? 'Connecting...' : 'Waiting'}</span>
           </div>
         </div>
       )}
 
+      {/* Status bar */}
+      <div className="h-8 bg-gray-800/50 flex items-center justify-center px-4 text-xs text-gray-400">
+        Meeting: {meetingId} • 
+        {peerOnline ? ' Interviewer is online' : ' Waiting for interviewer...'} •
+        {connected ? ' 🟢 Video connected' : ' ⏳ Establishing connection'}
+      </div>
+
       {/* Video Area */}
       <div className="flex-1 p-4 flex gap-4 min-h-0">
-        <div className="flex-1 flex gap-4">
-          {localParticipant && (
-            <div className="flex-1">
-              <ParticipantTile participantId={localParticipant.id} />
+        {/* Local video */}
+        <div className="flex-1 relative rounded-2xl overflow-hidden bg-gray-800 ring-1 ring-gray-700">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
+          />
+          {!camOn && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-800">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center">
+                <span className="text-3xl font-medium text-white">{initials}</span>
+              </div>
             </div>
           )}
-          {remoteId ? (
-            <div className="flex-1">
-              <ParticipantTile participantId={remoteId} />
-            </div>
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+            <span className="text-xs text-white font-medium">{participantName} (You)</span>
+          </div>
+        </div>
+
+        {/* Remote video */}
+        <div className="flex-1 relative rounded-2xl overflow-hidden bg-gray-800 ring-1 ring-gray-700">
+          {connected && remoteStream ? (
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover"
+            />
           ) : (
-            <div className="flex-1 rounded-2xl bg-gray-800 ring-1 ring-gray-700 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center text-gray-400">
                 <div className="w-20 h-20 rounded-full bg-gray-700 mx-auto mb-4 flex items-center justify-center">
                   <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>
-                <p className="font-medium">Waiting for interviewer...</p>
+                <p className="font-medium">
+                  {peerOnline ? 'Connecting to interviewer...' : 'Waiting for interviewer...'}
+                </p>
                 <p className="text-sm text-gray-500 mt-1">Meeting ID: {meetingId}</p>
+                {peerOnline && (
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+                    <span className="text-sm text-blue-400">Establishing WebRTC connection...</span>
+                  </div>
+                )}
               </div>
+            </div>
+          )}
+          {connected && (
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+              <span className="text-xs text-white font-medium">Interviewer</span>
             </div>
           )}
         </div>
@@ -302,47 +371,35 @@ function MeetingView({ onLeave, companyName }: { onLeave?: () => void; companyNa
       <div className="h-20 bg-gray-900 flex items-center justify-center px-4">
         <div className="flex items-center gap-3">
           {/* Mic Button */}
-          <button 
-            onClick={doToggleMic} 
-            className={`
-              px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
-              ${localMicOn 
-                ? 'bg-gray-700 hover:bg-gray-600 text-white' 
-                : 'bg-red-500 hover:bg-red-600 text-white'
-              }
-              hover:shadow-lg active:scale-95
-            `}
+          <button
+            onClick={toggleMic}
+            className={`px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200 hover:shadow-lg active:scale-95
+              ${micOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
             </svg>
-            <span className="text-sm font-medium hidden sm:inline">{localMicOn ? 'Mute' : 'Unmute'}</span>
+            <span className="text-sm font-medium hidden sm:inline">{micOn ? 'Mute' : 'Unmute'}</span>
           </button>
 
           {/* Camera Button */}
-          <button 
-            onClick={doToggleWebcam} 
-            className={`
-              px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200
-              ${localWebcamOn 
-                ? 'bg-gray-700 hover:bg-gray-600 text-white' 
-                : 'bg-red-500 hover:bg-red-600 text-white'
-              }
-              hover:shadow-lg active:scale-95
-            `}
+          <button
+            onClick={toggleCam}
+            className={`px-4 py-3 rounded-full flex items-center gap-2 transition-all duration-200 hover:shadow-lg active:scale-95
+              ${camOn ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
             </svg>
-            <span className="text-sm font-medium hidden sm:inline">{localWebcamOn ? 'Stop video' : 'Start video'}</span>
+            <span className="text-sm font-medium hidden sm:inline">{camOn ? 'Stop video' : 'Start video'}</span>
           </button>
 
           <div className="w-px h-8 bg-gray-600 mx-2" />
 
           {/* Leave Button */}
-          <button 
-            onClick={doLeave} 
+          <button
+            onClick={handleLeave}
             className="px-5 py-3 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 transition-all duration-200 hover:shadow-lg hover:shadow-red-500/30 active:scale-95"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -353,22 +410,5 @@ function MeetingView({ onLeave, companyName }: { onLeave?: () => void; companyNa
         </div>
       </div>
     </div>
-  );
-}
-
-export default function CandidateMeeting({ meetingId, token, participantName, roundId, companyName, onLeave }: CandidateMeetingProps) {
-  return (
-    <MeetingProvider 
-      config={{ 
-        meetingId, 
-        micEnabled: false, 
-        webcamEnabled: false, 
-        name: participantName, 
-        debugMode: false 
-      }} 
-      token={token}
-    >
-      <MeetingView onLeave={onLeave} companyName={companyName} />
-    </MeetingProvider>
   );
 }

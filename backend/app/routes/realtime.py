@@ -712,3 +712,135 @@ async def get_summary(
         key_observations=summary.key_observations,
         generated_at=summary.generated_at,
     )
+
+
+# =============================================================================
+# WebRTC Signaling Endpoints (P2P video without VideoSDK)
+# =============================================================================
+
+class SignalMessage(BaseModel):
+    """WebRTC signaling message."""
+    type: str  # "offer", "answer", "ice-candidate"
+    data: dict  # SDP or ICE candidate data
+    from_user: Optional[str] = None
+
+
+@router.post("/rounds/{round_id}/signal")
+async def post_signal(
+    round_id: UUID,
+    signal: SignalMessage,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Post a WebRTC signaling message (offer, answer, or ICE candidate).
+    Messages are stored in Redis with a 60s TTL for the peer to pick up.
+    """
+    from app.utils.redis_client import redis_client
+    import json
+
+    # Verify round exists and user has access
+    result = await session.execute(
+        select(InterviewRound).filter(InterviewRound.id == round_id)
+    )
+    round_obj = result.scalars().first()
+    if not round_obj:
+        raise HTTPException(status_code=404, detail="Round not found")
+
+    user_id = str(current_user.id)
+    role = "interviewer" if current_user.role == UserRole.EMPLOYEE else "candidate"
+    
+    # Store signal in Redis list for the OTHER party to pick up
+    key = f"webrtc_signal:{round_id}:{role}"
+    msg = json.dumps({
+        "type": signal.type,
+        "data": signal.data,
+        "from_user": user_id,
+        "from_role": role,
+        "ts": datetime.utcnow().isoformat(),
+    })
+    
+    if redis_client.client:
+        await redis_client.client.rpush(key, msg)
+        await redis_client.client.expire(key, 120)  # 2 min TTL
+    
+    return {"status": "ok"}
+
+
+@router.get("/rounds/{round_id}/signal")
+async def get_signals(
+    round_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Poll for WebRTC signaling messages from the peer.
+    Returns all pending messages and clears them.
+    """
+    from app.utils.redis_client import redis_client
+    import json
+
+    # Verify round exists
+    result = await session.execute(
+        select(InterviewRound).filter(InterviewRound.id == round_id)
+    )
+    round_obj = result.scalars().first()
+    if not round_obj:
+        raise HTTPException(status_code=404, detail="Round not found")
+
+    role = "interviewer" if current_user.role == UserRole.EMPLOYEE else "candidate"
+    # Read signals FROM the OTHER role
+    peer_role = "candidate" if role == "interviewer" else "interviewer"
+    key = f"webrtc_signal:{round_id}:{peer_role}"
+    
+    messages = []
+    if redis_client.client:
+        # Pop all messages atomically
+        while True:
+            raw = await redis_client.client.lpop(key)
+            if raw is None:
+                break
+            try:
+                messages.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+    
+    return {"messages": messages}
+
+
+@router.post("/rounds/{round_id}/presence")
+async def post_presence(
+    round_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Register presence in a round - lets other party know you're online."""
+    from app.utils.redis_client import redis_client
+    
+    role = "interviewer" if current_user.role == UserRole.EMPLOYEE else "candidate"
+    key = f"webrtc_presence:{round_id}:{role}"
+    
+    if redis_client.client:
+        await redis_client.client.setex(key, 30, str(current_user.id))  # 30s TTL
+    
+    return {"status": "ok", "role": role}
+
+
+@router.get("/rounds/{round_id}/presence")
+async def get_presence(
+    round_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Check if the peer is online in this round."""
+    from app.utils.redis_client import redis_client
+    
+    role = "interviewer" if current_user.role == UserRole.EMPLOYEE else "candidate"
+    peer_role = "candidate" if role == "interviewer" else "interviewer"
+    
+    peer_present = False
+    if redis_client.client:
+        val = await redis_client.client.get(f"webrtc_presence:{round_id}:{peer_role}")
+        peer_present = val is not None
+    
+    return {"peer_online": peer_present, "my_role": role, "peer_role": peer_role}

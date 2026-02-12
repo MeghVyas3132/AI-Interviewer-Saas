@@ -9,6 +9,7 @@ import { useSocket } from '@/hooks/useSocket'
 import { useInsights } from '@/hooks/useInsights'
 import { useAIMetricsStore } from '@/store/realtime'
 import type { AIMetrics, LiveInsight, Recommendation } from '@/types'
+import Cookies from 'js-cookie'
 
 // Dynamically import VideoSDK component to avoid SSR issues
 const InterviewerMeeting = dynamic(
@@ -51,7 +52,7 @@ export default function HumanAssistedInterviewPage() {
   const [resumeUrl, setResumeUrl] = useState<string | undefined>(undefined)
 
   // Get auth token for socket connection
-  const authToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const authToken = typeof window !== 'undefined' ? Cookies.get('access_token') || null : null
 
   // Socket connection for real-time insights
   const { isConnected: socketConnected, error: socketError } = useSocket({
@@ -107,8 +108,8 @@ export default function HumanAssistedInterviewPage() {
         // Fetch round details with video credentials
         const round = await apiClient.get<RoundData>(`/realtime/rounds/${roundId}/token`)
         
-        if (!round.videosdk_meeting_id || !round.videosdk_token) {
-          throw new Error('Meeting credentials not available. Please ensure the interview is set up correctly.')
+        if (!round.videosdk_meeting_id) {
+          throw new Error('Meeting not available. Please ensure the interview is set up correctly.')
         }
 
         // Verify this is a human-AI-assisted interview

@@ -64,8 +64,8 @@ export default function CandidateInterviewRoomPage() {
         // Fetch round details with video credentials for candidate
         const round = await apiClient.get<RoundData>(`/candidate-portal/interview-round/${roundId}`)
         
-        if (!round.videosdk_meeting_id || !round.videosdk_token) {
-          throw new Error('Meeting credentials not available. Please wait for the interviewer to start the meeting.')
+        if (!round.videosdk_meeting_id) {
+          throw new Error('Meeting not started yet. Please wait for the interviewer to start the meeting.')
         }
 
         setRoundData(round)

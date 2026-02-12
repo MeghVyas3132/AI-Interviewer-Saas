@@ -485,11 +485,16 @@ export default function InterviewRoomPage() {
       const resumeFilename = localStorage.getItem(`resume_filename_${currentToken}`) || '';
       
       console.log(`[Interview Complete] Saving results for token: ${currentToken}, messages: ${allMessages.length}, elapsed: ${currentElapsed}s, attempt: ${retryCount + 1}`);
+      console.log(`[Interview Complete] Using same-origin API route: /api/interview/complete/${currentToken}`);
       
-      const response = await fetch(`${API_BASE_URL}/hr/interviews/ai-complete/${currentToken}`, {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      
+      // Use the Next.js API route (same-origin) to avoid cross-origin issues
+      const response = await fetch(`/api/interview/complete/${currentToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
+        signal: controller.signal,
         body: JSON.stringify({
           transcript: transcriptData,
           duration_seconds: currentElapsed,
@@ -498,6 +503,8 @@ export default function InterviewRoomPage() {
           pre_calculated_scores: null
         })
       });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -529,16 +536,22 @@ export default function InterviewRoomPage() {
         }));
         const savedResume = localStorage.getItem(`resume_${currentToken}`) || '';
         
-        const fallbackResp = await fetch(`${API_BASE_URL}/hr/interviews/${currentSession?.id}/transcript`, {
+        const fallbackController = new AbortController();
+        const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), 30000);
+        
+        // Use same-origin API route for fallback too
+        const fallbackResp = await fetch(`/api/interview/transcript/${currentSession?.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
+          signal: fallbackController.signal,
           body: JSON.stringify({
             transcript: transcriptData,
             duration_seconds: currentElapsed,
             resume_text: savedResume
           })
         });
+        
+        clearTimeout(fallbackTimeoutId);
         
         if (fallbackResp.ok) {
           console.log('[Interview Complete] Fallback transcript save succeeded');

@@ -1,28 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Proxy to the Python backend (not the AI coach service)
+// Proxy to the Python backend
 const BACKEND_URL = process.env.BACKEND_URL || 'http://ai_interviewer_backend:8000';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { token } = await params;
+    const { id } = await params;
 
-    if (!token) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, error: 'Token is required' },
+        { success: false, error: 'Interview ID is required' },
         { status: 400 }
       );
     }
 
     const body = await request.json().catch(() => ({}));
 
-    console.log(`[API Route] Proxying interview complete for token: ${token} to ${BACKEND_URL}`);
+    console.log(`[API Route] Proxying transcript save for interview: ${id} to ${BACKEND_URL}`);
 
-    // Proxy the request to the Python backend
-    const response = await fetch(`${BACKEND_URL}/api/v1/hr/interviews/ai-complete/${token}`, {
+    const response = await fetch(`${BACKEND_URL}/api/v1/hr/interviews/${id}/transcript`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,7 +30,7 @@ export async function POST(
     });
 
     const data = await response.json();
-    console.log(`[API Route] Backend responded with status ${response.status}:`, data);
+    console.log(`[API Route] Backend transcript response status ${response.status}:`, data);
 
     if (!response.ok) {
       return NextResponse.json(data, { status: response.status });
@@ -39,9 +38,9 @@ export async function POST(
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('[API Route] Error completing interview:', error);
+    console.error('[API Route] Error saving transcript:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to complete interview' },
+      { success: false, error: 'Failed to save transcript' },
       { status: 500 }
     );
   }
