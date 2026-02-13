@@ -4,11 +4,11 @@ Handles file parsing, validation, and database operations
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import select, and_, func, create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.celery_config import celery_app
@@ -114,7 +114,7 @@ def _process_bulk_import_sync(
     SYNC implementation of bulk import processing (runs in Celery worker)
     """
     try:
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         # Get import job record
         import_job = session.query(ImportJob).filter(
@@ -143,7 +143,7 @@ def _process_bulk_import_sync(
             import_job.error_message = f"File parsing error: {str(e)}"
             import_job.detailed_errors = [str(e)]
             import_job.failed_count = import_job.total_records
-            import_job.processing_end = datetime.utcnow()
+            import_job.processing_end = datetime.now(timezone.utc)
             import_job.processing_duration_seconds = (
                 import_job.processing_end - import_job.processing_start
             ).total_seconds()
@@ -258,7 +258,7 @@ def _process_bulk_import_sync(
             # Users can send bulk emails separately via the bulk email endpoint
         
         # Update import job with final stats
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         processing_duration = (end_time - start_time).total_seconds()
         
         import_job.status = ImportJobStatus.COMPLETED
@@ -298,7 +298,7 @@ def _process_bulk_import_sync(
             if import_job:
                 import_job.status = ImportJobStatus.FAILED
                 import_job.error_message = str(e)
-                import_job.processing_end = datetime.utcnow()
+                import_job.processing_end = datetime.now(timezone.utc)
                 if import_job.processing_start:
                     import_job.processing_duration_seconds = (
                         import_job.processing_end - import_job.processing_start

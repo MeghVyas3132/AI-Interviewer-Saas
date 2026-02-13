@@ -11,7 +11,7 @@ Handles:
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Set, Optional
 from uuid import UUID
 
@@ -71,7 +71,7 @@ class ConnectionManager:
                 "type": "participant_joined",
                 "user_id": user_id,
                 "role": role,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             exclude_user=user_id,
         )
@@ -221,7 +221,7 @@ async def subscribe_to_insights(round_id: str):
                         {
                             "type": "insight",
                             "data": insight_data,
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
                 except json.JSONDecodeError:
@@ -291,7 +291,7 @@ async def handle_client_message(
                     "alert_type": "TAB_SWITCH",
                     "severity": "MEDIUM",
                     "message": "Candidate switched tabs or lost focus",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
     
@@ -304,7 +304,7 @@ async def handle_client_message(
                 "from_user": user_id,
                 "from_role": role,
                 "message": message.get("message", ""),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             exclude_user=None,  # Include sender so they see their own message
         )
@@ -318,7 +318,7 @@ async def handle_client_message(
                 {
                     "type": "interview_control",
                     "action": action,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
     
@@ -327,5 +327,5 @@ async def handle_client_message(
         await manager.send_to_user(
             round_id,
             user_id,
-            {"type": "pong", "timestamp": datetime.utcnow().isoformat()},
+            {"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()},
         )

@@ -4,7 +4,6 @@ Comprehensive CRUD, bulk operations, and email integration
 """
 
 import logging
-from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -14,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.models.candidate import CandidateStatus, CandidateSource, EmailType, EmailPriority
+from app.models.candidate import CandidateStatus, EmailType, EmailPriority
 from app.models.user import User
 from app.schemas.candidate_schema import (
     CandidateCreate,
@@ -25,13 +24,12 @@ from app.schemas.candidate_schema import (
     CandidateUpdate,
     BulkSendEmailRequest,
     BulkActionResponse,
-    BulkActionStatusResponse,
 )
 from app.schemas.import_job_schema import ImportJobResponse, ImportJobStatusResponse
 from app.services.candidate_service import CandidateService
 from app.services.email_async_service import EmailService
 from app.services.import_job_service import ImportJobService
-from app.utils.file_parser import CandidateImportParser, FileParseError, BulkImportStats
+from app.utils.file_parser import CandidateImportParser, FileParseError
 
 logger = logging.getLogger(__name__)
 
@@ -569,7 +567,7 @@ async def bulk_import_file(
         logger.error(f"Error queuing import job: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error queuing import job: {str(e)}"
+            detail="Error queuing import job"
         )
 
 
@@ -638,7 +636,7 @@ async def get_import_job_status(
         logger.error(f"Error fetching import job status: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching import job status: {str(e)}"
+            detail="Error fetching import job status"
         )
 
 
@@ -782,13 +780,13 @@ async def bulk_send_email(
         
         await session.commit()
         
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         
         return BulkActionResponse(
             job_id=email_ids[0] if email_ids else None,  # Return first email ID as job ID
             status="202 ACCEPTED",
             queued_count=len(email_ids),
-            estimated_completion=datetime.utcnow() + timedelta(minutes=2),
+            estimated_completion=datetime.now(timezone.utc) + timedelta(minutes=2),
             message=f"Queued {len(email_ids)} emails for sending",
         )
         
@@ -1009,5 +1007,5 @@ async def bulk_import_candidates_csv(
         logger.error(f"Error in CSV bulk import: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error importing candidates from CSV: {str(e)}"
+            detail="Error importing candidates from CSV"
         )

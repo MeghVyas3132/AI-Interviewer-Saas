@@ -147,6 +147,7 @@ class Candidate(Base):
         Index("idx_candidates_status", "status"),
         Index("idx_candidates_domain", "domain"),
         Index("idx_candidates_created_at", "created_at"),
+        Index("idx_candidates_company_assigned", "company_id", "assigned_to"),
     )
 
     # Primary key
@@ -274,6 +275,7 @@ class Interview(Base):
         Index("idx_interviews_scheduled_time", "scheduled_time"),
         Index("idx_interviews_status", "status"),
         Index("idx_interviews_interviewer_id", "interviewer_id"),
+        Index("idx_interviews_token", "ai_interview_token"),
     )
 
     # Primary key

@@ -109,7 +109,13 @@ class Settings(BaseSettings):
     # Security
     bcrypt_rounds: int = 12
     password_min_length: int = 8
-    
+    # Admin delete code (required for destructive operations)
+    admin_delete_code: str = ""  # Set ADMIN_DELETE_CODE in environment
+
+    # Frontend URL (for email links, redirects, etc.)
+    # Override with FRONTEND_URL env var in production
+    frontend_url: str = "http://localhost:3000"
+
     # AI Service Integration
     ai_service_url: str = "http://localhost:9004"
     ai_service_api_key: str = ""  # For internal API key (AI service)
@@ -121,7 +127,7 @@ class Settings(BaseSettings):
     # AI Interview Coach Service (for actual interviews)
     # In Docker: use container name, outside Docker: use localhost:3001
     ai_interview_service_url: str = "http://ai-interviewer-coach:3000"
-    sync_api_key: str = "ai-interviewer-sync-key-2024"
+    sync_api_key: str = ""  # Set SYNC_API_KEY in environment (required for AI service sync)
     # Groq API (preferred over Gemini - faster and more reliable)
     groq_api_key: str = ""  # Single Groq API key
     groq_api_keys: str = ""  # Multiple Groq API keys (comma-separated) for rotation
@@ -135,10 +141,18 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
         """Ensure secret_key is set and sufficiently long (CRITICAL)."""
-        if not v or v == "your-super-secret-key-change-in-production":
+        blocked_patterns = [
+            "your-super-secret",
+            "change-in-production",
+            "local-dev-super-secret",
+            "changeme",
+            "secret123",
+        ]
+        v_lower = v.lower() if v else ""
+        if not v or any(pat in v_lower for pat in blocked_patterns):
             raise ValueError(
                 "SECRET_KEY environment variable must be set to a secure 256-bit value. "
-                "Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                "Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(48))'"
             )
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters (256-bit)")

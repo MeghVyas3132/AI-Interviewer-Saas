@@ -21,7 +21,7 @@ async def list_job_templates(current_user: User = Depends(get_current_user), ses
     """List all job templates for the current user's company."""
     if current_user.role not in [UserRole.HR, UserRole.SYSTEM_ADMIN, UserRole.EMPLOYEE]:
         raise HTTPException(status_code=403, detail="Not allowed")
-    query = select(JobTemplate).filter(JobTemplate.company_id == current_user.company_id)
+    query = select(JobTemplate).filter(JobTemplate.company_id == current_user.company_id).limit(200)
     result = await session.execute(query)
     rows = result.scalars().all()
     return [{"id": str(r.id), "title": r.title, "description": r.description, "department": getattr(r, 'department', None), "created_at": str(r.created_at)} for r in rows]
@@ -41,7 +41,7 @@ async def create_job_template(payload: dict, current_user: User = Depends(get_cu
             description=payload.get("description"),
             ai_prompt=payload.get("ai_prompt"),
             ai_model=payload.get("ai_model"),
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.add(jt)
         await session.commit()
@@ -138,7 +138,7 @@ async def list_questions(job_id: str, current_user: User = Depends(get_current_u
     # Only company members
     if jt.company_id != current_user.company_id:
         raise HTTPException(status_code=403)
-    query = select(Question).filter(Question.job_template_id == job_id)
+    query = select(Question).filter(Question.job_template_id == job_id).limit(100)
     result = await session.execute(query)
     rows = result.scalars().all()
     return [{"id": str(r.id), "text": r.text} for r in rows]

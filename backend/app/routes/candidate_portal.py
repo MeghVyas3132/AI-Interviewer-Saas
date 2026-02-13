@@ -7,8 +7,8 @@ Candidate capabilities (read-only):
 - View company name and role applied for
 """
 
-from uuid import UUID
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from app.models.company import Company
 from app.models.interview_round import InterviewRound, RoundStatus
 
 router = APIRouter(prefix="/api/v1/candidate-portal", tags=["candidate-portal"])
+logger = logging.getLogger(__name__)
 
 
 def require_candidate(current_user: User = Depends(get_current_user)) -> User:
@@ -100,11 +101,10 @@ async def get_my_info(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidate info: {str(e)}"
+            detail="Error fetching candidate info"
         )
 
 
@@ -137,7 +137,7 @@ async def get_my_interviews(
         # Get legacy interviews from interviews table
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.asc())
+        ).order_by(Interview.scheduled_time.asc()).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -150,7 +150,7 @@ async def get_my_interviews(
                 InterviewRound.candidate_id == current_user.id
             ),
             InterviewRound.status.in_([RoundStatus.SCHEDULED, RoundStatus.IN_PROGRESS])
-        ).order_by(InterviewRound.scheduled_at.asc())
+        ).order_by(InterviewRound.scheduled_at.asc()).limit(50)
         rounds_result = await db.execute(rounds_query)
         interview_rounds = rounds_result.scalars().all()
 
@@ -219,11 +219,10 @@ async def get_my_interviews(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching interviews: {str(e)}"
+            detail="Error fetching interviews"
         )
 
 
@@ -239,7 +238,7 @@ async def get_interview_round_for_candidate(
     try:
         from uuid import UUID as PyUUID
         from sqlalchemy import or_
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from app.core.config import settings
         import jwt
         
@@ -297,8 +296,8 @@ async def get_interview_round_for_candidate(
             payload = {
                 "apikey": videosdk_api_key,
                 "permissions": ["allow_join"],  # Candidate has limited permissions
-                "iat": datetime.utcnow(),
-                "exp": datetime.utcnow() + timedelta(hours=2),
+                "iat": datetime.now(timezone.utc),
+                "exp": datetime.now(timezone.utc) + timedelta(hours=2),
             }
             token = jwt.encode(payload, videosdk_secret, algorithm="HS256")
         
@@ -331,11 +330,10 @@ async def get_interview_round_for_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching interview round: {str(e)}"
+            detail="Error fetching interview round"
         )
 
 
@@ -372,7 +370,7 @@ async def get_candidate_dashboard(
         # Get interviews
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.asc())
+        ).order_by(Interview.scheduled_time.asc()).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -412,11 +410,10 @@ async def get_candidate_dashboard(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching dashboard: {str(e)}"
+            detail="Error fetching dashboard"
         )
 
 
@@ -443,7 +440,7 @@ async def candidate_login(
         )
     
     # Find candidate by email
-    candidate_query = select(Candidate).filter(Candidate.email == email)
+    candidate_query = select(Candidate).filter(Candidate.email == email).limit(10)
     result = await db.execute(candidate_query)
     candidates = result.scalars().all()
     
@@ -519,7 +516,7 @@ async def candidate_login(
     # Get interviews for this candidate
     interviews_list = []
     for c in candidates:
-        interviews_query = select(Interview).filter(Interview.candidate_id == c.id)
+        interviews_query = select(Interview).filter(Interview.candidate_id == c.id).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
         for i in interviews:
@@ -588,7 +585,7 @@ async def get_my_results(
         # Get all interviews (completed ones will have results)
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.desc())
+        ).order_by(Interview.scheduled_time.desc()).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -604,7 +601,7 @@ async def get_my_results(
                     try:
                         import json
                         verdict_data = json.loads(interview.ai_verdict)
-                    except:
+                    except Exception:
                         pass
                 
                 results.append({
@@ -633,9 +630,8 @@ async def get_my_results(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching results: {str(e)}"
+            detail="Error fetching results"
         )

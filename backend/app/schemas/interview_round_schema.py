@@ -2,7 +2,7 @@
 Interview round schemas for request/response validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 from uuid import UUID
@@ -45,7 +45,7 @@ class InterviewRoundCreate(BaseModel):
     @validator("scheduled_at")
     def validate_future_datetime(cls, v):
         """Ensure scheduled time is in the future."""
-        if v <= datetime.now(v.tzinfo) if v.tzinfo else datetime.utcnow():
+        if v <= datetime.now(v.tzinfo) if v.tzinfo else datetime.now(timezone.utc):
             raise ValueError("Scheduled time must be in the future")
         return v
 

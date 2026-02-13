@@ -3,10 +3,12 @@ Authentication schemas for request/response validation.
 """
 
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from enum import Enum
 from datetime import datetime
 from uuid import UUID
+
+from app.schemas.user_schema import validate_password_complexity
 
 
 class UserRole(str, Enum):
@@ -73,6 +75,11 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=255)
     company_name: Optional[str] = Field(None, min_length=2, max_length=255)
     company_id: Optional[str] = Field(None, description="UUID of existing company to join")
+    
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: str) -> str:
+        return validate_password_complexity(v)
 
 
 class RegisterResponse(BaseModel):

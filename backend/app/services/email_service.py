@@ -8,7 +8,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
-from jinja2 import Environment, FileSystemLoader, Template
+from jinja2 import Environment, FileSystemLoader
 
 try:
     import sendgrid

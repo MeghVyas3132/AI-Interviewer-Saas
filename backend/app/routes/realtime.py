@@ -10,13 +10,13 @@ Provides:
 import asyncio
 import jwt
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-from sqlalchemy import select, and_, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -31,8 +31,6 @@ from app.models.realtime_insights import (
     InterviewTranscript,
     HumanVerdict,
     InterviewSummary,
-    CandidateResume,
-    VerdictDecision,
 )
 from app.websocket.realtime_handler import (
     manager,
@@ -241,7 +239,7 @@ async def websocket_interview(
             {
                 "type": "participant_left",
                 "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -287,7 +285,7 @@ async def start_interview_round(
     round_obj.status = RoundStatus.IN_PROGRESS
     round_obj.interview_mode = request.interview_mode
     round_obj.videosdk_meeting_id = meeting_id
-    round_obj.started_at = datetime.utcnow()
+    round_obj.started_at = datetime.now(timezone.utc)
     
     await session.commit()
     await session.refresh(round_obj)
@@ -324,7 +322,7 @@ async def end_interview_round(
         raise HTTPException(status_code=400, detail="Round is not in progress")
     
     round_obj.status = RoundStatus.COMPLETED
-    round_obj.ended_at = datetime.utcnow()
+    round_obj.ended_at = datetime.now(timezone.utc)
     
     await session.commit()
     await session.refresh(round_obj)
@@ -373,7 +371,7 @@ async def get_videosdk_token(
         meeting_id = f"ai-int-{str(uuid.uuid4())[:8]}"
         round_obj.videosdk_meeting_id = meeting_id
         round_obj.status = RoundStatus.IN_PROGRESS
-        round_obj.started_at = datetime.utcnow()
+        round_obj.started_at = datetime.now(timezone.utc)
         await session.commit()
         await session.refresh(round_obj)
     
@@ -390,8 +388,8 @@ async def get_videosdk_token(
         payload = {
             "apikey": videosdk_api_key,
             "permissions": ["allow_join", "allow_mod"],
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(hours=2),
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
         }
         token = jwt.encode(payload, videosdk_secret, algorithm="HS256")
     
@@ -465,7 +463,7 @@ async def get_fraud_alerts(
     if acknowledged is not None:
         query = query.filter(FraudAlert.acknowledged == acknowledged)
     
-    query = query.order_by(FraudAlert.detected_at_ms.desc())
+    query = query.order_by(FraudAlert.detected_at_ms.desc()).limit(200)
     
     result = await session.execute(query)
     alerts = result.scalars().all()
@@ -504,7 +502,7 @@ async def acknowledge_fraud_alert(
     
     alert.acknowledged = True
     alert.acknowledged_by = current_user.id
-    alert.acknowledged_at = datetime.utcnow()
+    alert.acknowledged_at = datetime.now(timezone.utc)
     alert.false_positive_marked = false_positive
     
     await session.commit()
@@ -525,7 +523,7 @@ async def get_transcript(
     if speaker:
         query = query.filter(InterviewTranscript.speaker == speaker.upper())
     
-    query = query.order_by(InterviewTranscript.start_time_ms)
+    query = query.order_by(InterviewTranscript.start_time_ms).limit(500)
     
     result = await session.execute(query)
     segments = result.scalars().all()
@@ -759,7 +757,7 @@ async def post_signal(
         "data": signal.data,
         "from_user": user_id,
         "from_role": role,
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     })
     
     if redis_client.client:

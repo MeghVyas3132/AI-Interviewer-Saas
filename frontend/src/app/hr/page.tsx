@@ -170,32 +170,27 @@ export default function HRDashboard() {
       setLoading(true)
       setError('')
 
-      // Fetch candidates for this company
-      const { candidates = [] } = await apiClient.get<{ candidates: Candidate[] }>('/candidates')
-      setCandidates(candidates)
+      // Fetch all data in parallel for speed
+      const [candidatesRes, hrEmployeesRes, interviewsResponse, metricsRes] = await Promise.all([
+        apiClient.get<{ candidates: Candidate[] }>('/candidates'),
+        apiClient.get<{ items: Employee[] }>('/hr/employees?limit=100'),
+        apiClient.get<any[]>('/hr/interviews'),
+        apiClient.get<HRMetrics>('/hr/metrics'),
+      ])
 
-      // Fetch employees (users with role EMPLOYEE)
-      const empData = await apiClient.get<Employee[]>('/users?role=EMPLOYEE') // Assuming simplified endpoint or filtering
-      // If endpoint returns UserListResponse array, adaptable.
-      // Mocking fetch of employees if direct endpoint isn't perfectly mapped yet or using a known working one:
-      // In real scenario, we'd hit /api/v1/hr/employees or similar exposed in hr.py
-      const hrEmployeesRes = await apiClient.get<{ items: Employee[] }>('/hr/employees?limit=100')
-      // Note: backend 'get_employees' returns custom structure, adjusting if needed.
-      // Assuming it returns standard pagination or list. 
-      // Safely handling potential response structure variation
+      const { candidates = [] } = candidatesRes
+
+      // Process employees
       const empList = Array.isArray(hrEmployeesRes) ? hrEmployeesRes : (hrEmployeesRes.items || [])
       setEmployees(empList)
 
-      // Fetch interviews to map schedules
-      const interviewsResponse = await apiClient.get<any[]>('/hr/interviews')
+      // Process interviews
       const interviews = Array.isArray(interviewsResponse) ? interviewsResponse : []
 
       // Create a map of candidateId -> scheduled_at (using the latest or upcoming interview)
       const scheduleMap = new Map<string, string>()
       interviews.forEach((interview) => {
         if (interview.candidate_id && interview.status === 'SCHEDULED' && interview.scheduled_time) {
-          // Simple logic: overwrite with latest found, or check dates if needed. 
-          // Assuming API returns latest first or we just want *an* upcoming one.
           scheduleMap.set(interview.candidate_id, interview.scheduled_time)
         }
       })
@@ -207,18 +202,9 @@ export default function HRDashboard() {
         scheduled_at: scheduleMap.get(c.id)
       }))
       
-      // Debug: Log assigned_to values
-      console.log('Candidates with assigned_to:', enrichedCandidates.map(c => ({
-        name: c.name,
-        assigned_to: c.assigned_to,
-        assigned_employee_name: (c as any).assigned_employee_name
-      })))
-      
       setCandidates(enrichedCandidates)
 
-
-      // Calculate metrics from candidates data (or fetch real metrics /hr/metrics)
-      const metricsRes = await apiClient.get<HRMetrics>('/hr/metrics')
+      // Set metrics
       setMetrics(metricsRes)
 
     } catch (err: any) {

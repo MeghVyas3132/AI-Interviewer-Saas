@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import UserRole
 from app.schemas.user_schema import UserCreate, UserResponse
@@ -80,11 +81,12 @@ async def register_first_hr(
             await EmailVerificationService.send_verification_email(
                 user,
                 verification_token,
-                frontend_url="http://localhost:3000",  # TODO: Load from config
+                frontend_url=settings.frontend_url,
             )
         except Exception as e:
             # Log the error but don't fail registration
-            print(f"Failed to send verification email to {user.email}: {str(e)}")
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to send verification email to {user.email}: {e}")
         
         return user
     except ValueError as e:

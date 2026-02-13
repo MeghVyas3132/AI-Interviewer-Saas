@@ -2,7 +2,6 @@
 Interview service for interview management operations.
 """
 
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -40,9 +39,9 @@ class InterviewService:
         interview = Interview(
             company_id=company_id,
             candidate_id=candidate_id,
-            scheduled_by=scheduled_by,
+            created_by=scheduled_by,
             interviewer_id=interview_data.interviewer_id,
-            scheduled_at=interview_data.scheduled_at,
+            scheduled_time=getattr(interview_data, 'scheduled_time', None) or getattr(interview_data, 'scheduled_at', None),
             notes=interview_data.notes,
         )
 
@@ -101,7 +100,7 @@ class InterviewService:
         if candidate_id:
             query = query.where(Interview.candidate_id == candidate_id)
 
-        query = query.order_by(Interview.scheduled_at.desc())
+        query = query.order_by(Interview.scheduled_time.desc())
         query = query.offset(skip).limit(limit)
 
         result = await session.execute(query)
@@ -127,7 +126,7 @@ class InterviewService:
             List of interviews
         """
         query = select(Interview).where(Interview.candidate_id == candidate_id)
-        query = query.order_by(Interview.scheduled_at.desc())
+        query = query.order_by(Interview.scheduled_time.desc())
         query = query.offset(skip).limit(limit)
 
         result = await session.execute(query)
@@ -157,8 +156,10 @@ class InterviewService:
         # Update fields if provided
         if interview_data.interviewer_id is not None:
             interview.interviewer_id = interview_data.interviewer_id
-        if interview_data.scheduled_at is not None:
-            interview.scheduled_at = interview_data.scheduled_at
+        if getattr(interview_data, 'scheduled_at', None) is not None:
+            interview.scheduled_time = interview_data.scheduled_at
+        elif getattr(interview_data, 'scheduled_time', None) is not None:
+            interview.scheduled_time = interview_data.scheduled_time
         if interview_data.status is not None:
             interview.status = interview_data.status
         if interview_data.notes is not None:

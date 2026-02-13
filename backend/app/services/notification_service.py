@@ -4,13 +4,12 @@ Handles smart email logic: with/without resume, timing, and user preferences.
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from app.services.email_service import EmailService, EmailTemplate
-from app.core.database import get_db
+from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
@@ -305,17 +304,52 @@ class NotificationService:
         """
         Schedule interview reminder for 24 hours before.
         
-        Note: In Phase 1, this is placeholder.
-        Will be enhanced in Phase 1 with Celery Beat scheduler.
+        Uses Celery's `apply_async(eta=...)` to schedule the task.
+        Falls back to logging if Celery is unavailable.
         """
         # Calculate reminder time (24 hours before)
         reminder_time = scheduled_time - timedelta(hours=24)
         
-        logger.info(
-            f"Scheduled reminder for interview {interview_id} "
-            f"at {reminder_time} (24h before {scheduled_time})"
-        )
+        # If reminder time is already in the past, skip scheduling
+        if reminder_time <= datetime.now(timezone.utc):
+            logger.info(
+                f"Skipping reminder for interview {interview_id}: "
+                f"reminder time {reminder_time} is in the past"
+            )
+            return True
         
-        # TODO: Implement Celery Beat task scheduling
-        # For now, just log the scheduling
-        return True
+        try:
+            from app.core.celery_config import celery_app
+            
+            celery_app.send_task(
+                "tasks.send_email",
+                kwargs={
+                    "recipient_email": recipient_email,
+                    "recipient_name": recipient_name,
+                    "subject": f"Interview Reminder: {position}",
+                    "body": (
+                        f"<p>Hi {recipient_name},</p>"
+                        f"<p>This is a reminder that <strong>{candidate_name}</strong> "
+                        f"({candidate_email}) has an interview scheduled for "
+                        f"<strong>{scheduled_time.strftime('%B %d, %Y at %I:%M %p UTC')}</strong> "
+                        f"for the <strong>{position}</strong> position.</p>"
+                        f"<p>Please ensure everything is ready.</p>"
+                    ),
+                },
+                eta=reminder_time,
+                queue="email",
+            )
+            
+            logger.info(
+                f"Scheduled reminder for interview {interview_id} "
+                f"at {reminder_time} (24h before {scheduled_time})"
+            )
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to schedule interview reminder via Celery: {e}")
+            logger.info(
+                f"[FALLBACK] Reminder needed for interview {interview_id} "
+                f"at {reminder_time} (24h before {scheduled_time})"
+            )
+            return False

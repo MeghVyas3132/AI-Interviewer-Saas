@@ -4,7 +4,6 @@ Production-ready with retry logic, rate limiting, and monitoring
 """
 
 import logging
-from datetime import timedelta
 
 from celery import Celery, Task
 from celery.signals import task_failure, task_retry, task_success

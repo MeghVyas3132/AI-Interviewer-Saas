@@ -389,16 +389,27 @@ class CandidateService:
         candidates: List[Candidate],
     ) -> None:
         """Queue invitation emails for bulk created candidates"""
+        import secrets as _secrets
+        from app.models.company import Company
+        from app.core.config import settings
+        
         try:
+            # Fetch company name
+            company_result = await session.execute(
+                select(Company).where(Company.id == company_id)
+            )
+            company = company_result.scalars().first()
+            company_name = company.name if company else "AI Interviewer"
+            
             recipients = [
                 {
                     "email": candidate.email,
                     "template_id": "candidate_invitation",
                     "variables": {
                         "candidate_name": candidate.full_name,
-                        "company_name": "Your Company",  # TODO: Get from company
-                        "login_link": "https://app.example.com/login",
-                        "password": "temporary_password_123",  # TODO: Generate actual password
+                        "company_name": company_name,
+                        "login_link": f"{settings.frontend_url}/auth/login",
+                        "password": _secrets.token_urlsafe(12),
                     },
                     "recipient_id": candidate.id,
                 }
@@ -636,7 +647,7 @@ class CandidateService:
         """
         try:
             from sqlalchemy import extract
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
             
             # Get accepted candidates with duration
             hired_candidates = await session.execute(
@@ -693,7 +704,7 @@ class CandidateService:
                 }
             
             # Recent hires (last 30 days)
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
             recent_count = sum(1 for _, created_at, _, _ in hired_list if created_at >= thirty_days_ago)
             
             return {

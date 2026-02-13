@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.middleware.auth import get_current_user, require_employee, require_hr_or_employee
+from app.middleware.auth import require_employee, require_hr_or_employee
 from app.models.user import User, UserRole
 from app.schemas.interview_round_schema import (
     BatchRoundResponse,
@@ -107,11 +107,13 @@ async def batch_schedule_rounds(
     Returns:
         Batch scheduling results
     """
-    # Verify candidate
+    # Verify candidate belongs to company
     from app.services.candidate_service import CandidateService
 
-    candidate = await CandidateService.get_candidate_by_user_id(session, batch_data.candidate_id)
-    if not candidate or candidate.company_id != current_user.company_id:
+    candidate = await CandidateService.get_candidate_by_id(
+        session, batch_data.candidate_id, current_user.company_id
+    )
+    if not candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",
@@ -225,11 +227,13 @@ async def get_candidate_progress(
     Returns:
         Candidate progress
     """
-    # Verify candidate
+    # Verify candidate belongs to company
     from app.services.candidate_service import CandidateService
 
-    candidate = await CandidateService.get_candidate_by_user_id(session, candidate_id)
-    if not candidate or candidate.company_id != current_user.company_id:
+    candidate = await CandidateService.get_candidate_by_id(
+        session, candidate_id, current_user.company_id
+    )
+    if not candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate not found",

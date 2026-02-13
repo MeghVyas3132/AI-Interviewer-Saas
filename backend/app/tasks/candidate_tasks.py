@@ -19,13 +19,16 @@ def delete_rejected_candidate(candidate_id: str):
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
     from app.core.config import settings
-    from app.models.candidate import Candidate, CandidateStatus
-    from app.models.interview import Interview
+    from app.models.candidate import Candidate, CandidateStatus, Interview
     from app.models.ai_report import AIReport
     
     async def _delete_candidate():
         # Create async engine and session
-        engine = create_async_engine(settings.DATABASE_URL)
+        engine = create_async_engine(
+            settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
+            echo=False,
+            pool_pre_ping=True,
+        )
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         
         async with async_session() as db:

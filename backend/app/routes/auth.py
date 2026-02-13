@@ -8,11 +8,13 @@ Login Flow:
 4. Cookie setting - Send refresh token via secure HTTP-only cookie
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResponse, UserLoginResponse, RegisterRequest
@@ -25,6 +27,7 @@ from app.models.company import Company
 from app.models.company_request import CompanyRequest, RequestStatus
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 class VerifyEmailRequest(BaseModel):
@@ -208,7 +211,7 @@ async def resend_verification(
         await EmailVerificationService.resend_verification_email(
             session,
             request.email,
-            frontend_url="http://localhost:3000",
+            frontend_url=settings.frontend_url,
         )
         await session.commit()
         return {"message": "Verification email sent. Check your inbox."}
@@ -495,7 +498,7 @@ async def candidate_login(
     try:
         # Find all candidates by email (across all companies)
         result = await session.execute(
-            select(Candidate).where(Candidate.email == request.email.lower().strip())
+            select(Candidate).where(Candidate.email == request.email.lower().strip()).limit(10)
         )
         candidates = result.scalars().all()
         
@@ -557,7 +560,7 @@ async def candidate_login(
             
             # Get interviews for this candidate
             interviews_result = await session.execute(
-                select(Interview).where(Interview.candidate_id == cand.id)
+                select(Interview).where(Interview.candidate_id == cand.id).limit(50)
             )
             interviews = interviews_result.scalars().all()
             
@@ -633,8 +636,7 @@ async def candidate_login(
         raise
     except Exception as e:
         await session.rollback()
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login failed: {str(e)}",
@@ -665,11 +667,15 @@ async def forgot_password(
     Request a password reset email.
     
     For security, always returns success even if email doesn't exist.
-    In production, this would send an email with a reset link.
+    Stores reset token in Redis with 1-hour TTL.
     """
     import secrets
-    from datetime import datetime, timedelta
+    import json
+    import logging
+    from datetime import datetime, timedelta, timezone
+    from app.utils.redis_client import redis_client
     
+    logger = logging.getLogger(__name__)
     email = request.email.lower().strip()
     
     # Find user by email
@@ -682,18 +688,24 @@ async def forgot_password(
         # Generate reset token
         reset_token = secrets.token_urlsafe(32)
         
-        # Store token in user record (in production, use a separate table with expiry)
-        # For now, we'll use a simple approach - store in user metadata or create a reset_tokens table
-        # This is a stub - in production, implement proper token storage with TTL
+        # Store token → user_id mapping in Redis with 1-hour TTL
+        reset_key = f"password_reset:{reset_token}"
+        reset_data = json.dumps({
+            "user_id": str(user.id),
+            "email": email,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        try:
+            await redis_client.setex(reset_key, 3600, reset_data)  # 1 hour TTL
+        except Exception as e:
+            logger.error(f"Failed to store reset token in Redis: {e}")
+            # Still return success for security — don't reveal internal failures
         
-        # In development, log the reset link
-        import logging
-        logger = logging.getLogger(__name__)
-        reset_link = f"http://localhost:3000/auth/reset-password?token={reset_token}"
-        logger.info(f"[DEV] Password reset link for {email}: {reset_link}")
+        reset_link = f"{settings.frontend_url}/auth/reset-password?token={reset_token}"
+        logger.info(f"Password reset link generated for {email}: {reset_link}")
         
-        # TODO: In production, send actual email
-        # await send_password_reset_email(email, reset_token)
+        # TODO: Send actual email via notification service
+        # await notification_service.send_password_reset_email(email, reset_link)
     
     # Always return success for security (don't reveal if email exists)
     return {
@@ -710,24 +722,78 @@ async def reset_password(
     """
     Reset password using a valid reset token.
     
-    This is a stub implementation. In production:
-    - Validate the token from a reset_tokens table
-    - Check token expiry
-    - Mark token as used after password reset
+    Validates the token from Redis, updates the user's password,
+    and deletes the token so it can't be reused.
     """
-    from app.utils.password import hash_password
+    import json
+    import logging
+    from app.utils.redis_client import redis_client
+    from app.utils.password_hashing import hash_password
+    from app.schemas.user_schema import validate_password_complexity
     
-    # TODO: Implement proper token validation
-    # For now, this is a stub that always fails (tokens aren't being stored yet)
+    logger = logging.getLogger(__name__)
     
-    # In a proper implementation:
-    # 1. Look up the token in reset_tokens table
-    # 2. Check it hasn't expired
-    # 3. Get the associated user
-    # 4. Update the password
-    # 5. Mark token as used
+    # 1. Look up the token in Redis
+    reset_key = f"password_reset:{request.token}"
+    try:
+        raw = await redis_client.get(reset_key)
+    except Exception as e:
+        logger.error(f"Redis error during password reset: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to process password reset. Please try again later.",
+        )
     
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Password reset is not yet fully implemented. Please contact support to reset your password."
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token. Please request a new password reset link.",
+        )
+    
+    # 2. Parse token data
+    try:
+        token_data = json.loads(raw)
+        user_id = token_data["user_id"]
+    except (json.JSONDecodeError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid reset token data.",
+        )
+    
+    # 3. Validate password complexity
+    try:
+        validate_password_complexity(request.new_password)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    
+    # 4. Find the user and update password
+    from uuid import UUID as UUIDType
+    result = await session.execute(
+        select(User).where(User.id == UUIDType(user_id))
     )
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid reset token.",
+        )
+    
+    user.password_hash = hash_password(request.new_password)
+    await session.commit()
+    
+    # 5. Delete the token so it can't be reused
+    try:
+        await redis_client.delete(reset_key)
+    except Exception as e:
+        logger.warning(f"Failed to delete used reset token: {e}")
+    
+    logger.info(f"Password reset successful for user {user.email}")
+    
+    return {
+        "message": "Password has been reset successfully. You can now log in with your new password.",
+        "success": True,
+    }

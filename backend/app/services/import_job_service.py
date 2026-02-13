@@ -4,7 +4,7 @@ Handles job creation, status tracking, and rate limiting
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -253,7 +253,7 @@ class ImportJobService:
             return False
         
         import_job.status = ImportJobStatus.CANCELLED
-        import_job.updated_at = datetime.utcnow()
+        import_job.updated_at = datetime.now(timezone.utc)
         await session.commit()
         
         logger.info(f"Cancelled import job {import_job_id}")
@@ -276,7 +276,7 @@ class ImportJobService:
         Returns:
             Dictionary with statistics
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         stmt = select(ImportJob).where(
             and_(

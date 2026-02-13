@@ -8,7 +8,8 @@ Employee capabilities:
 - Update candidate status
 """
 
-from typing import List, Optional
+import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,12 +17,14 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus, InterviewRound
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/employee", tags=["employee"])
+logger = logging.getLogger(__name__)
 
 
 def require_employee(current_user: User = Depends(get_current_user)) -> User:
@@ -45,20 +48,14 @@ async def get_my_candidates(
     Get all candidates assigned to the current employee.
     """
     try:
-        print(f"DEBUG: current_user.id = {current_user.id}")
-        print(f"DEBUG: current_user.company_id = {current_user.company_id}")
-        print(f"DEBUG: current_user.email = {current_user.email}")
-        
         query = select(Candidate).filter(
             and_(
                 Candidate.company_id == current_user.company_id,
                 Candidate.assigned_to == current_user.id
             )
-        )
+        ).limit(500)
         result = await db.execute(query)
         candidates = result.scalars().all()
-        
-        print(f"DEBUG: Found {len(candidates)} candidates")
 
         return [
             {
@@ -78,11 +75,10 @@ async def get_my_candidates(
             for c in candidates
         ]
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching assigned candidates: {str(e)}"
+            detail="Error fetching assigned candidates"
         )
 
 
@@ -115,7 +111,7 @@ async def get_candidate_details(
         # Get interviews for this candidate
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate_id
-        ).order_by(Interview.scheduled_time.desc())
+        ).order_by(Interview.scheduled_time.desc()).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -149,11 +145,10 @@ async def get_candidate_details(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidate details: {str(e)}"
+            detail="Error fetching candidate details"
         )
 
 
@@ -190,7 +185,7 @@ async def get_candidate_detailed_profile(
         # Get all interviews for this candidate
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.desc())
+        ).order_by(Interview.scheduled_time.desc()).limit(50)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -288,11 +283,10 @@ async def get_candidate_detailed_profile(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidate profile: {str(e)}"
+            detail="Error fetching candidate profile"
         )
 
 
@@ -338,7 +332,7 @@ async def submit_employee_verdict(
         # Update candidate status based on verdict - MULTI-ROUND FLOW
         if interview.candidate_id:
             from sqlalchemy import text
-            from datetime import datetime
+            from datetime import datetime, timezone
             
             verdict_upper = request.verdict.upper()
             
@@ -357,7 +351,7 @@ async def submit_employee_verdict(
                     """),
                     {"status": new_status, "id": str(interview.candidate_id)}
                 )
-                print(f"[Employee Verdict] APPROVED - Candidate promoted to eligible_round_2")
+                logger.info(f"[Employee Verdict] APPROVED - Candidate promoted to eligible_round_2")
                 
             elif verdict_upper in ["REJECT", "FAIL", "REJECTED"]:
                 # REJECT - Mark as failed
@@ -366,7 +360,7 @@ async def submit_employee_verdict(
                     text("UPDATE candidates SET status = :status, updated_at = NOW() WHERE id = :id"),
                     {"status": new_status, "id": str(interview.candidate_id)}
                 )
-                print(f"[Employee Verdict] REJECTED - Candidate marked as failed")
+                logger.info(f"[Employee Verdict] REJECTED - Candidate marked as failed")
                 
             else:
                 # Keep in review for further consideration
@@ -401,11 +395,10 @@ async def submit_employee_verdict(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error submitting verdict: {str(e)}"
+            detail="Error submitting verdict"
         )
 
 
@@ -442,7 +435,7 @@ async def get_candidates_for_review(
                 import json
                 try:
                     ai_verdict_data = json.loads(interview.ai_verdict)
-                except:
+                except Exception:
                     pass
             
             candidates_for_review.append({
@@ -474,11 +467,10 @@ async def get_candidates_for_review(
             "total": len(candidates_for_review)
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidates for review: {str(e)}"
+            detail="Error fetching candidates for review"
         )
 
 
@@ -541,8 +533,7 @@ async def update_candidate_status(
                 )
                 scheduled_deletion = True
             except Exception as task_error:
-                import traceback
-                traceback.print_exc()
+                logger.exception("Unexpected error")
                 # Don't fail the status update if task scheduling fails
                 pass
 
@@ -556,11 +547,10 @@ async def update_candidate_status(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating candidate status: {str(e)}"
+            detail="Error updating candidate status"
         )
 
 
@@ -635,11 +625,10 @@ async def assign_job_role(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error assigning job role: {str(e)}"
+            detail="Error assigning job role"
         )
 
 
@@ -801,18 +790,17 @@ async def schedule_interview(
                 "scheduled_time": scheduled_time.isoformat(),
                 "status": "scheduled",
                 "ai_interview_token": token,
-                "interview_url": f"http://localhost:3000/interview/{token}",
+                "interview_url": f"{settings.frontend_url}/interview/{token}",
                 "is_reschedule": is_reschedule
             }
         }
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error scheduling interview: {str(e)}"
+            detail="Error scheduling interview"
         )
 
 
@@ -879,11 +867,10 @@ async def cancel_interview(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error cancelling interview: {str(e)}"
+            detail="Error cancelling interview"
         )
 
 
@@ -986,7 +973,7 @@ async def get_my_interviews(
                     ai_data = json.loads(interview.ai_verdict)
                     score = ai_data.get("overall_score") or ai_data.get("answer_score")
                     summary = ai_data.get("summary")
-                except:
+                except Exception:
                     pass
             
             if verdict:
@@ -1017,11 +1004,10 @@ async def get_my_interviews(
             for interview, candidate in rows
         ]
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching interviews: {str(e)}"
+            detail="Error fetching interviews"
         )
 
 
@@ -1089,11 +1075,10 @@ async def get_employee_dashboard(
             "employee_email": current_user.email,
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching dashboard: {str(e)}"
+            detail="Error fetching dashboard"
         )
 
 
@@ -1111,7 +1096,6 @@ async def create_ai_interview_for_candidate(
     import httpx
     from datetime import datetime, timedelta
     from app.models.job import JobTemplate, Question
-    from app.core.config import settings
     
     try:
         company_id = current_user.company_id
@@ -1162,7 +1146,7 @@ async def create_ai_interview_for_candidate(
                 questions = all_questions
         
         # Create a new interview record (on-spot interview starts now)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         scheduled_time = now
         scheduled_end_time = now + timedelta(hours=1)
         
@@ -1210,16 +1194,16 @@ async def create_ai_interview_for_candidate(
                     json=sync_payload
                 )
                 if sync_response.status_code not in [200, 201]:
-                    print(f"Warning: AI service sync returned {sync_response.status_code}")
+                    logger.warning(f" AI service sync returned {sync_response.status_code}")
         except Exception as sync_error:
-            print(f"Warning: Failed to sync with AI service: {sync_error}")
+            logger.warning(f" Failed to sync with AI service: {sync_error}")
         
         await db.commit()
         
         return {
             "success": True,
             "token": token,
-            "interview_url": f"http://localhost:3000/interview/{token}",  # Use main frontend URL
+            "interview_url": f"{settings.frontend_url}/interview/{token}",
             "message": "AI Interview created successfully. Candidate can start immediately.",
             "interview_id": str(new_interview.id),
             "questions_count": len(questions)
@@ -1228,12 +1212,11 @@ async def create_ai_interview_for_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating AI interview: {str(e)}"
+            detail="Error creating AI interview"
         )
 
 
@@ -1307,15 +1290,15 @@ async def get_my_availability(
             } if config else None
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching availability: {str(e)}"
+            detail="Error fetching availability"
         )
 
 
 @router.post("/availability/slots")
+@router.post("/availability")
 async def add_availability_slot(
     request: AvailabilitySlotRequest,
     current_user: User = Depends(require_employee),
@@ -1326,141 +1309,86 @@ async def add_availability_slot(
     """
     try:
         from app.models.employee_availability import EmployeeAvailability, DayOfWeek
+        from datetime import time as dt_time
         
         # Parse day of week
-        day_mapping = {
-            'monday': DayOfWeek.monday,
-            'tuesday': DayOfWeek.tuesday,
-            'wednesday': DayOfWeek.wednesday,
-            'thursday': DayOfWeek.thursday,
-            'friday': DayOfWeek.friday,
-            'saturday': DayOfWeek.saturday,
-            'sunday': DayOfWeek.sunday,
-        }
-        
-        day = day_mapping.get(request.day_of_week.lower())
-        if not day:
+        try:
+            day = DayOfWeek(request.day_of_week.lower())
+        except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid day of week: {request.day_of_week}"
+                detail=f"Invalid day_of_week. Must be one of: {[d.value for d in DayOfWeek]}"
             )
         
         # Parse times
-        from datetime import time
-        start_parts = request.start_time.split(":")
-        end_parts = request.end_time.split(":")
+        try:
+            start_parts = request.start_time.split(":")
+            end_parts = request.end_time.split(":")
+            start_time = dt_time(int(start_parts[0]), int(start_parts[1]))
+            end_time = dt_time(int(end_parts[0]), int(end_parts[1]))
+        except (ValueError, IndexError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid time format. Use HH:MM"
+            )
         
-        start_time = time(int(start_parts[0]), int(start_parts[1]))
-        end_time = time(int(end_parts[0]), int(end_parts[1]))
+        if start_time >= end_time:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Start time must be before end time"
+            )
         
-        # Create slot
-        slot = EmployeeAvailability(
+        # Check for overlapping slots
+        existing_query = select(EmployeeAvailability).filter(
+            and_(
+                EmployeeAvailability.employee_id == current_user.id,
+                EmployeeAvailability.day_of_week == day,
+                EmployeeAvailability.is_active == True
+            )
+        )
+        existing_result = await db.execute(existing_query)
+        existing_slots = existing_result.scalars().all()
+        
+        for slot in existing_slots:
+            if not (end_time <= slot.start_time or start_time >= slot.end_time):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Time slot overlaps with existing slot ({slot.start_time.strftime('%H:%M')} - {slot.end_time.strftime('%H:%M')})"
+                )
+        
+        # Create new slot
+        new_slot = EmployeeAvailability(
             employee_id=current_user.id,
             company_id=current_user.company_id,
             day_of_week=day,
             start_time=start_time,
             end_time=end_time,
             slot_duration_minutes=request.slot_duration_minutes,
+            max_interviews_per_slot=request.max_interviews_per_slot,
             is_active=True,
         )
         
-        db.add(slot)
+        db.add(new_slot)
         await db.commit()
-        await db.refresh(slot)
+        await db.refresh(new_slot)
         
         return {
             "message": "Availability slot added successfully",
             "slot": {
-                "id": str(slot.id),
-                "day_of_week": slot.day_of_week.value,
-                "start_time": slot.start_time.strftime("%H:%M"),
-                "end_time": slot.end_time.strftime("%H:%M"),
-                "slot_duration_minutes": slot.slot_duration_minutes,
+                "id": str(new_slot.id),
+                "day_of_week": new_slot.day_of_week.value,
+                "start_time": new_slot.start_time.strftime("%H:%M"),
+                "end_time": new_slot.end_time.strftime("%H:%M"),
+                "slot_duration_minutes": new_slot.slot_duration_minutes,
             }
         }
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error adding availability slot: {str(e)}"
-        )
-
-
-# Also support POST /availability for frontend compatibility
-@router.post("/availability")
-async def add_availability_slot_alt(
-    request: AvailabilitySlotRequest,
-    current_user: User = Depends(require_employee),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Add an availability slot for auto-scheduling interviews (alternate path).
-    """
-    try:
-        from app.models.employee_availability import EmployeeAvailability, DayOfWeek
-        
-        # Parse day of week
-        day_mapping = {
-            'monday': DayOfWeek.monday,
-            'tuesday': DayOfWeek.tuesday,
-            'wednesday': DayOfWeek.wednesday,
-            'thursday': DayOfWeek.thursday,
-            'friday': DayOfWeek.friday,
-            'saturday': DayOfWeek.saturday,
-            'sunday': DayOfWeek.sunday,
-        }
-        
-        day = day_mapping.get(request.day_of_week.lower())
-        if not day:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid day of week: {request.day_of_week}"
-            )
-        
-        # Parse times
-        from datetime import time
-        start_parts = request.start_time.split(":")
-        end_parts = request.end_time.split(":")
-        
-        start_time = time(int(start_parts[0]), int(start_parts[1]))
-        end_time = time(int(end_parts[0]), int(end_parts[1]))
-        
-        # Create slot
-        slot = EmployeeAvailability(
-            employee_id=current_user.id,
-            company_id=current_user.company_id,
-            day_of_week=day,
-            start_time=start_time,
-            end_time=end_time,
-            slot_duration_minutes=request.slot_duration_minutes,
-            is_active=True,
-        )
-        
-        db.add(slot)
-        await db.commit()
-        await db.refresh(slot)
-        
-        return {
-            "message": "Availability slot added successfully",
-            "slot": {
-                "id": str(slot.id),
-                "day_of_week": slot.day_of_week.value,
-                "start_time": slot.start_time.strftime("%H:%M"),
-                "end_time": slot.end_time.strftime("%H:%M"),
-                "slot_duration_minutes": slot.slot_duration_minutes,
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error adding availability slot: {str(e)}"
+            detail="Error adding availability slot"
         )
 
 
@@ -1501,92 +1429,10 @@ async def get_auto_schedule_config(
             "notify_on_fail": config.notify_on_fail,
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching auto-schedule config: {str(e)}"
-        )
-        from datetime import time
-        
-        # Parse day of week
-        try:
-            day = DayOfWeek(request.day_of_week.lower())
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid day_of_week. Must be one of: {[d.value for d in DayOfWeek]}"
-            )
-        
-        # Parse times
-        try:
-            start_parts = request.start_time.split(":")
-            end_parts = request.end_time.split(":")
-            start_time = time(int(start_parts[0]), int(start_parts[1]))
-            end_time = time(int(end_parts[0]), int(end_parts[1]))
-        except (ValueError, IndexError):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid time format. Use HH:MM"
-            )
-        
-        if start_time >= end_time:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Start time must be before end time"
-            )
-        
-        # Check for overlapping slots
-        existing_query = select(EmployeeAvailability).filter(
-            and_(
-                EmployeeAvailability.employee_id == current_user.id,
-                EmployeeAvailability.day_of_week == day,
-                EmployeeAvailability.is_active == True
-            )
-        )
-        existing_result = await db.execute(existing_query)
-        existing_slots = existing_result.scalars().all()
-        
-        for slot in existing_slots:
-            if not (end_time <= slot.start_time or start_time >= slot.end_time):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Time slot overlaps with existing slot ({slot.start_time.strftime('%H:%M')} - {slot.end_time.strftime('%H:%M')})"
-                )
-        
-        # Create new slot
-        new_slot = EmployeeAvailability(
-            employee_id=current_user.id,
-            company_id=current_user.company_id,
-            day_of_week=day,
-            start_time=start_time,
-            end_time=end_time,
-            slot_duration_minutes=request.slot_duration_minutes,
-            max_interviews_per_slot=request.max_interviews_per_slot,
-        )
-        
-        db.add(new_slot)
-        await db.commit()
-        await db.refresh(new_slot)
-        
-        return {
-            "message": "Availability slot added successfully",
-            "slot": {
-                "id": str(new_slot.id),
-                "day_of_week": new_slot.day_of_week.value,
-                "start_time": new_slot.start_time.strftime("%H:%M"),
-                "end_time": new_slot.end_time.strftime("%H:%M"),
-                "slot_duration_minutes": new_slot.slot_duration_minutes,
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error adding availability slot: {str(e)}"
+            detail="Error fetching auto-schedule config"
         )
 
 
@@ -1625,11 +1471,10 @@ async def delete_availability_slot(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting availability slot: {str(e)}"
+            detail="Error deleting availability slot"
         )
 
 
@@ -1682,7 +1527,7 @@ async def get_candidates_ready_for_round_2(
                     CandidateStatus.REVIEW
                 ])
             )
-        )
+        ).limit(200)
         candidates_result = await db.execute(candidates_query)
         candidates = candidates_result.scalars().all()
         
@@ -1695,7 +1540,7 @@ async def get_candidates_ready_for_round_2(
                     Interview.candidate_id == candidate.id,
                     Interview.status == InterviewStatus.COMPLETED
                 )
-            ).order_by(Interview.scheduled_time.desc())
+            ).order_by(Interview.scheduled_time.desc()).limit(50)
             interviews_result = await db.execute(interviews_query)
             interviews = interviews_result.scalars().all()
             
@@ -1817,11 +1662,10 @@ async def get_candidates_ready_for_round_2(
             "message": f"Found {len(ready_candidates)} candidates ready for Round 2"
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidates ready for Round 2: {str(e)}"
+            detail="Error fetching candidates ready for Round 2"
         )
 
 
@@ -1854,7 +1698,7 @@ async def get_candidates_pending_review(
                     CandidateStatus.INTERVIEW_COMPLETED,  # Fallback: AI verdict failed
                 ])
             )
-        )
+        ).limit(200)
         candidates_result = await db.execute(candidates_query)
         candidates = candidates_result.scalars().all()
         
@@ -1936,11 +1780,10 @@ async def get_candidates_pending_review(
             "message": f"Found {len(review_candidates)} candidates pending review"
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching candidates pending review: {str(e)}"
+            detail="Error fetching candidates pending review"
         )
 
 
@@ -2008,12 +1851,11 @@ async def review_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error reviewing candidate: {str(e)}"
+            detail="Error reviewing candidate"
         )
 
 
@@ -2140,11 +1982,10 @@ async def schedule_human_conducted_round(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error scheduling human-conducted round: {str(e)}"
+            detail="Error scheduling human-conducted round"
         )
 
 
@@ -2176,18 +2017,24 @@ async def get_my_human_conducted_rounds(
             except KeyError:
                 pass  # Ignore invalid status filter
         
-        query = query.order_by(InterviewRound.scheduled_at.desc())
+        query = query.order_by(InterviewRound.scheduled_at.desc()).limit(200)
         
         result = await db.execute(query)
         rounds = result.scalars().all()
         
-        # Get candidate info for each round
+        # Batch-fetch all candidates to avoid N+1 queries
+        candidate_ids = list({round_obj.candidate_id for round_obj in rounds if round_obj.candidate_id})
+        candidates_map = {}
+        if candidate_ids:
+            candidate_result = await db.execute(
+                select(Candidate).filter(Candidate.id.in_(candidate_ids))
+            )
+            for c in candidate_result.scalars().all():
+                candidates_map[c.id] = c
+        
         rounds_data = []
         for round_obj in rounds:
-            # Get candidate
-            candidate_query = select(Candidate).filter(Candidate.id == round_obj.candidate_id)
-            candidate_result = await db.execute(candidate_query)
-            candidate = candidate_result.scalars().first()
+            candidate = candidates_map.get(round_obj.candidate_id)
             
             rounds_data.append({
                 "id": str(round_obj.id),
@@ -2212,11 +2059,10 @@ async def get_my_human_conducted_rounds(
             "total": len(rounds_data),
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching human-conducted rounds: {str(e)}"
+            detail="Error fetching human-conducted rounds"
         )
 
 
@@ -2271,10 +2117,9 @@ async def update_auto_schedule_config(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating auto-schedule config: {str(e)}"
+            detail="Error updating auto-schedule config"
         )
 

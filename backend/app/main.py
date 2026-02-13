@@ -7,10 +7,10 @@ Optimized for production with compression, connection pooling, and async pattern
 
 from contextlib import asynccontextmanager
 import logging
-import os
 
-from fastapi import FastAPI, status, Request
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import close_db, init_db, AsyncSessionLocal
+from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
@@ -76,27 +77,35 @@ def create_app() -> FastAPI:
     # === MIDDLEWARE ORDER MATTERS ===
     # Middleware is processed in REVERSE order (last added = first executed)
     
-    # 1. GZip compression (innermost - compresses responses)
+    # 1. Body size limit (innermost - reject oversized payloads early)
+    app.add_middleware(BodySizeLimitMiddleware)
+
+    # 2. GZip compression (compresses responses)
     app.add_middleware(GZipMiddleware, minimum_size=500)
     
-    # 2. Request logging (logs all requests with timing)
+    # 3. Request logging (logs all requests with timing)
     app.add_middleware(RequestLoggingMiddleware)
 
-    # 3. Security headers (add security headers to all responses)
+    # 4. Security headers (add security headers to all responses)
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # 4. Rate limiting - DISABLED for testing phase
-    # Uncomment for production deployment:
-    # if settings.environment == "production":
-    #     app.add_middleware(RateLimitMiddleware)
+    # 5. Rate limiting (Redis-backed, per-IP)
+    # Protects login, registration, password reset, bulk ops, AI endpoints
+    app.add_middleware(RateLimitMiddleware)
 
-    # 5. CORS (outermost - handles preflight requests first)
+    # 6. CORS (outermost - handles preflight requests first)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Origin",
+            "X-Requested-With",
+        ],
         max_age=86400,  # Cache preflight for 24 hours
     )
 
@@ -120,6 +129,70 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(realtime.router)
 
+    # ===================================================================
+    # GLOBAL EXCEPTION HANDLERS — prevent internal error leakage
+    # ===================================================================
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        """
+        Sanitize HTTPException responses.
+        For 5xx errors, strip internal details from client response
+        but preserve them in server logs for debugging.
+        """
+        if exc.status_code >= 500:
+            # Log the full internal error for debugging
+            logger.error(
+                f"Internal error on {request.method} {request.url.path}: {exc.detail}",
+                exc_info=True,
+            )
+            # Return generic message to client — never leak internals
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": "An internal error occurred. Please try again later."},
+            )
+        # For 4xx errors, return the detail as-is (they are intentional messages)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """
+        Sanitize validation errors — return field-level info but not
+        raw Pydantic internals or input values that may contain secrets.
+        """
+        sanitized_errors = []
+        for error in exc.errors():
+            sanitized_errors.append({
+                "field": " → ".join(str(loc) for loc in error.get("loc", [])),
+                "message": error.get("msg", "Invalid value"),
+                "type": error.get("type", "value_error"),
+            })
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": sanitized_errors},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        """
+        Catch-all for unhandled exceptions.
+        NEVER expose stack traces or internal error details to the client.
+        """
+        logger.error(
+            f"Unhandled exception on {request.method} {request.url.path}: {exc}",
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal error occurred. Please try again later."},
+        )
+
+    # In-memory health cache to avoid hammering DB/Redis on rapid probes
+    _health_cache: dict = {"data": None, "expires": 0.0}
+
     @app.get("/health")
     async def health_check():
         """
@@ -142,7 +215,15 @@ def create_app() -> FastAPI:
         - 200: Fully healthy (all services up)
         - 503: Degraded or unhealthy (one or more services down)
         """
+        import time
         from datetime import datetime, timezone
+
+        # Return cached result if still fresh (5s TTL)
+        now = time.monotonic()
+        if _health_cache["data"] is not None and now < _health_cache["expires"]:
+            cached = _health_cache["data"]
+            code = status.HTTP_200_OK if cached["status"] == "healthy" else status.HTTP_503_SERVICE_UNAVAILABLE
+            return JSONResponse(status_code=code, content=cached)
 
         db_status = "unhealthy"
         redis_status = "unhealthy"
@@ -179,6 +260,10 @@ def create_app() -> FastAPI:
             "redis": redis_status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        # Cache for 5 seconds to absorb rapid health probes
+        _health_cache["data"] = response_data
+        _health_cache["expires"] = now + 5.0
 
         # Return 503 if not fully healthy
         if overall_status != "healthy":

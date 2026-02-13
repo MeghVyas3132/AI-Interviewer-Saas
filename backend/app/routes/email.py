@@ -4,8 +4,6 @@ Requires HR role to send emails.
 """
 
 import logging
-from typing import Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +25,6 @@ from app.schemas.email_schema import (
     EmailStatusResponse,
 )
 from app.services.email_service import EmailService, EmailTemplate
-from app.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 

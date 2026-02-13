@@ -3,15 +3,17 @@ Email verification service for user registration.
 Handles token generation, verification, and resend logic.
 """
 
+import logging
 import secrets
-from datetime import datetime, timedelta
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.notification_service import NotificationService
+
+logger = logging.getLogger(__name__)
 
 
 class EmailVerificationService:
@@ -68,7 +70,7 @@ class EmailVerificationService:
             return True
         except Exception as e:
             # Log but don't fail - user can resend
-            print(f"Failed to send verification email: {e}")
+            logger.warning(f"Failed to send verification email: {e}")
             return False
 
     @staticmethod
@@ -103,7 +105,7 @@ class EmailVerificationService:
 
         # Check if token has expired
         if user.verification_token_expires and \
-           user.verification_token_expires < datetime.utcnow():
+           user.verification_token_expires < datetime.now(timezone.utc):
             raise ValueError("Verification token has expired. Please request a new one.")
 
         # Mark email as verified
@@ -153,7 +155,7 @@ class EmailVerificationService:
         # Generate new token
         new_token = EmailVerificationService.generate_verification_token()
         user.verification_token = new_token
-        user.verification_token_expires = datetime.utcnow() + timedelta(
+        user.verification_token_expires = datetime.now(timezone.utc) + timedelta(
             hours=EmailVerificationService.VERIFICATION_EXPIRY_HOURS
         )
         user.verification_attempts = (user.verification_attempts or 0) + 1
