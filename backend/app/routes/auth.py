@@ -639,3 +639,95 @@ async def candidate_login(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login failed: {str(e)}",
         )
+
+
+# =============================================================================
+# Password Reset Endpoints
+# =============================================================================
+
+class ForgotPasswordRequest(BaseModel):
+    """Schema for forgot password request."""
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for password reset."""
+    token: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Request a password reset email.
+    
+    For security, always returns success even if email doesn't exist.
+    In production, this would send an email with a reset link.
+    """
+    import secrets
+    from datetime import datetime, timedelta
+    
+    email = request.email.lower().strip()
+    
+    # Find user by email
+    result = await session.execute(
+        select(User).where(User.email == email)
+    )
+    user = result.scalars().first()
+    
+    if user:
+        # Generate reset token
+        reset_token = secrets.token_urlsafe(32)
+        
+        # Store token in user record (in production, use a separate table with expiry)
+        # For now, we'll use a simple approach - store in user metadata or create a reset_tokens table
+        # This is a stub - in production, implement proper token storage with TTL
+        
+        # In development, log the reset link
+        import logging
+        logger = logging.getLogger(__name__)
+        reset_link = f"http://localhost:3000/auth/reset-password?token={reset_token}"
+        logger.info(f"[DEV] Password reset link for {email}: {reset_link}")
+        
+        # TODO: In production, send actual email
+        # await send_password_reset_email(email, reset_token)
+    
+    # Always return success for security (don't reveal if email exists)
+    return {
+        "message": "If an account with this email exists, a password reset link has been sent.",
+        "success": True
+    }
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Reset password using a valid reset token.
+    
+    This is a stub implementation. In production:
+    - Validate the token from a reset_tokens table
+    - Check token expiry
+    - Mark token as used after password reset
+    """
+    from app.utils.password import hash_password
+    
+    # TODO: Implement proper token validation
+    # For now, this is a stub that always fails (tokens aren't being stored yet)
+    
+    # In a proper implementation:
+    # 1. Look up the token in reset_tokens table
+    # 2. Check it hasn't expired
+    # 3. Get the associated user
+    # 4. Update the password
+    # 5. Mark token as used
+    
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Password reset is not yet fully implemented. Please contact support to reset your password."
+    )

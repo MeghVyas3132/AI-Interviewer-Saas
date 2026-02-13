@@ -28,8 +28,8 @@ interface RoundData {
   round_type: string
   status: string
   interview_mode: string
-  videosdk_meeting_id: string
-  videosdk_token: string
+  videosdk_meeting_id?: string | null
+  videosdk_token?: string | null
   scheduled_at?: string
   interviewer_name?: string
   company_name?: string
@@ -64,9 +64,8 @@ export default function CandidateInterviewRoomPage() {
         // Fetch round details with video credentials for candidate
         const round = await apiClient.get<RoundData>(`/candidate-portal/interview-round/${roundId}`)
         
-        if (!round.videosdk_meeting_id || !round.videosdk_token) {
-          throw new Error('Meeting credentials not available. Please wait for the interviewer to start the meeting.')
-        }
+        // P2P WebRTC doesn't require VideoSDK credentials - roundId is sufficient
+        // The InterviewerMeeting component handles signaling via REST polling
 
         setRoundData(round)
 
@@ -135,8 +134,8 @@ export default function CandidateInterviewRoomPage() {
 
   return (
     <CandidateMeeting
-      meetingId={roundData.videosdk_meeting_id}
-      token={roundData.videosdk_token}
+      meetingId={roundId}
+      token="p2p-no-token-needed"
       participantName={user?.full_name || 'Candidate'}
       roundId={roundId}
       companyName={roundData.company_name}

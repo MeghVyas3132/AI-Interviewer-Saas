@@ -182,9 +182,10 @@ export default function EmployeeDashboardPage() {
     setShowProfileModal(true)
   }
 
-  // Check if user is EMPLOYEE
+  // Check if user can access interviews (HR, EMPLOYEE, or SYSTEM_ADMIN)
+  const allowedInterviewRoles = ['HR', 'EMPLOYEE', 'SYSTEM_ADMIN']
   useEffect(() => {
-    if (!authLoading && user?.role !== 'EMPLOYEE') {
+    if (!authLoading && !allowedInterviewRoles.includes(user?.role || '')) {
       router.push('/dashboard')
     }
   }, [authLoading, user, router])
@@ -194,7 +195,7 @@ export default function EmployeeDashboardPage() {
 
   // Core data fetcher - fetches everything for the dashboard
   const fetchAllData = useCallback(async (isBackground = false) => {
-    if (authLoading || user?.role !== 'EMPLOYEE') return
+    if (authLoading || !allowedInterviewRoles.includes(user?.role || '')) return
 
     try {
       if (!isBackground) {
@@ -282,7 +283,7 @@ export default function EmployeeDashboardPage() {
 
   // Auto-polling every 15 seconds for real-time updates
   useEffect(() => {
-    if (authLoading || user?.role !== 'EMPLOYEE') return
+    if (authLoading || !allowedInterviewRoles.includes(user?.role || '')) return
 
     pollIntervalRef.current = setInterval(() => {
       fetchAllData(true) // background fetch — no loading spinners
@@ -296,7 +297,7 @@ export default function EmployeeDashboardPage() {
   // Refresh when window regains focus (user comes back from interview tab)
   useEffect(() => {
     const onFocus = () => {
-      if (user?.role === 'EMPLOYEE' && initialLoadDone.current) {
+      if (allowedInterviewRoles.includes(user?.role || '') && initialLoadDone.current) {
         fetchAllData(true)
       }
     }
@@ -358,7 +359,7 @@ export default function EmployeeDashboardPage() {
 
   // Refresh tab-specific data when tab is selected (only if initial load is done)
   useEffect(() => {
-    if (!initialLoadDone.current || user?.role !== 'EMPLOYEE') return
+    if (!initialLoadDone.current || !allowedInterviewRoles.includes(user?.role || '')) return
     if (activeTab === 'review') {
       fetchReviewCandidates()
     } else if (activeTab === 'round2') {

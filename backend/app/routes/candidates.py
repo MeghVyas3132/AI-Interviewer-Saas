@@ -9,6 +9,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -308,6 +309,79 @@ async def update_candidate(
     except Exception as e:
         logger.error(f"Error updating candidate: {str(e)}")
         raise HTTPException(status_code=500, detail="Error updating candidate")
+
+
+class CandidateStatusUpdate(BaseModel):
+    """Schema for updating just the candidate status (used by Kanban)."""
+    status: str
+
+
+@router.patch(
+    "/{candidate_id}/status",
+    response_model=CandidateResponse,
+    summary="Update candidate status only",
+)
+async def update_candidate_status_only(
+    candidate_id: UUID,
+    update_data: CandidateStatusUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CandidateResponse:
+    """
+    Update just the candidate status.
+    Used by Kanban drag-and-drop functionality.
+    """
+    from app.utils.cache import invalidate_cache
+    
+    try:
+        candidate = await CandidateService.get_candidate_by_id(
+            session=session,
+            candidate_id=candidate_id,
+            company_id=current_user.company_id,
+        )
+        
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        # Update status and send email notification
+        try:
+            new_status = CandidateStatus(update_data.status.lower())
+        except ValueError:
+            # Try uppercase
+            try:
+                new_status = CandidateStatus(update_data.status.upper())
+            except ValueError:
+                # Try to find a matching status
+                status_value = update_data.status.lower().replace(' ', '_').replace('-', '_')
+                try:
+                    new_status = CandidateStatus(status_value)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid status: {update_data.status}. Valid values: {[s.value for s in CandidateStatus]}"
+                    )
+        
+        await CandidateService.update_candidate_status(
+            session=session,
+            candidate_id=candidate_id,
+            company_id=current_user.company_id,
+            new_status=new_status,
+            send_email=False,  # Don't send email for Kanban drag-drop
+        )
+        
+        await session.commit()
+        await session.refresh(candidate)
+        
+        # Invalidate cached candidate lists for this company
+        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
+        
+        return CandidateResponse.model_validate(candidate)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating candidate status: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error updating candidate status")
 
 
 @router.delete(

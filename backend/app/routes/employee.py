@@ -1763,8 +1763,25 @@ async def get_candidates_ready_for_round_2(
                         "summary": summary,
                     })
             
+            # If candidate was explicitly approved (eligible_round_2), include them
+            # even if AI verdict was FAIL/REJECT — the employee overrode the AI decision
             if not passed_interviews:
-                continue
+                if candidate.status == CandidateStatus.ELIGIBLE_ROUND_2 and interviews:
+                    # Use the latest interview's data for display
+                    latest = interviews[0]
+                    ai_verdict_data = {}
+                    if latest.ai_verdict:
+                        import json as json_mod
+                        ai_verdict_data = latest.ai_verdict if isinstance(latest.ai_verdict, dict) else json_mod.loads(latest.ai_verdict) if latest.ai_verdict else {}
+                    passed_interviews.append({
+                        "interview_id": str(latest.id),
+                        "scheduled_time": latest.scheduled_time.isoformat() if latest.scheduled_time else None,
+                        "score": ai_verdict_data.get("overall_score") or ai_verdict_data.get("answer_score") or latest.answer_score or 0,
+                        "verdict": "APPROVED_OVERRIDE",
+                        "summary": ai_verdict_data.get("summary", "Manually approved by employee after review"),
+                    })
+                else:
+                    continue
             
             # Check if human-conducted round already scheduled
             human_round_query = select(InterviewRound).filter(
@@ -1788,7 +1805,7 @@ async def get_candidates_ready_for_round_2(
                 "domain": candidate.domain,
                 "status": candidate.status.value if candidate.status else None,
                 "ai_interviews": passed_interviews,
-                "best_score": max([i["score"] for i in passed_interviews if i["score"]]) if passed_interviews else None,
+                "best_score": max([i["score"] for i in passed_interviews if i["score"] is not None], default=0) if passed_interviews else None,
                 "human_round_scheduled": existing_human_round is not None,
                 "human_round_id": str(existing_human_round.id) if existing_human_round else None,
                 "human_round_time": existing_human_round.scheduled_at.isoformat() if existing_human_round and existing_human_round.scheduled_at else None,

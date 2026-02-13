@@ -2,7 +2,9 @@
 
 import React from 'react'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { ToastProvider } from '@/contexts/ToastContext'
 import { BorderFrame } from '@/components/BorderFrame'
+import ErrorBoundary from '@/components/ErrorBoundary'
 import '@/app/globals.css'
 
 export default function RootLayout({
@@ -18,11 +20,15 @@ export default function RootLayout({
         <meta name="theme-color" content="#06b6d4" />
       </head>
       <body className="bg-gray-50 text-gray-900 font-sans">
-        <AuthProvider>
-          <BorderFrame>
-            {children}
-          </BorderFrame>
-        </AuthProvider>
+        <ErrorBoundary>
+          <ToastProvider>
+            <AuthProvider>
+              <BorderFrame>
+                {children}
+              </BorderFrame>
+            </AuthProvider>
+          </ToastProvider>
+        </ErrorBoundary>
       </body>
     </html>
   )

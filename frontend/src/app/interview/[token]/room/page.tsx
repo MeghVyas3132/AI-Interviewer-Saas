@@ -77,6 +77,12 @@ export default function InterviewRoomPage() {
   // Refs to hold current values for stable callbacks
   const sessionRef = useRef<InterviewSession | null>(null);
   const elapsedTimeRef = useRef(0);
+  
+  // Refs for speech recognition state (to avoid stale closures in event handlers)
+  const isListeningRef = useRef(false);
+  const showPauseModalRef = useRef(false);
+  const interviewEndedRef = useRef(false);
+  const recognitionRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resume from localStorage
   const [resumeText, setResumeText] = useState('');
@@ -250,6 +256,30 @@ export default function InterviewRoomPage() {
     };
   }, [requestMediaAccess]);
 
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup all timeouts
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
+      if (recognitionRestartTimeoutRef.current) {
+        clearTimeout(recognitionRestartTimeoutRef.current);
+      }
+      // Stop recognition
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // Ignore
+        }
+        recognitionRef.current = null;
+      }
+      // Cancel any speech synthesis
+      speechSynthesis.cancel();
+    };
+  }, []);
+
   // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -316,6 +346,19 @@ export default function InterviewRoomPage() {
   // Ref to track finalized transcript (separate from display)
   const finalizedTranscriptRef = useRef<string>('');
 
+  // Keep refs in sync with state
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+  
+  useEffect(() => {
+    showPauseModalRef.current = showPauseModal;
+  }, [showPauseModal]);
+  
+  useEffect(() => {
+    interviewEndedRef.current = interviewEnded;
+  }, [interviewEnded]);
+
   // Setup speech recognition
   const setupRecognition = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -328,6 +371,7 @@ export default function InterviewRoomPage() {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
 
     recognition.onresult = (event) => {
       let currentInterim = '';
@@ -376,70 +420,142 @@ export default function InterviewRoomPage() {
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       
-      // Handle specific errors
+      // Clear any pending restart timeout
+      if (recognitionRestartTimeoutRef.current) {
+        clearTimeout(recognitionRestartTimeoutRef.current);
+        recognitionRestartTimeoutRef.current = null;
+      }
+      
+      // Handle specific errors - use refs to get current values
       if (event.error === 'no-speech') {
-        // Don't reset transcript, just restart recognition silently
+        // No speech detected - this is normal, just restart silently
         console.log('No speech detected, continuing to listen...');
-        // Restart recognition after a brief delay
-        setTimeout(() => {
-          if (isListening && recognitionRef.current) {
+        recognitionRestartTimeoutRef.current = setTimeout(() => {
+          if (isListeningRef.current && recognitionRef.current && !interviewEndedRef.current) {
+            try {
+              recognitionRef.current.start();
+              console.log('Speech recognition restarted after no-speech');
+            } catch (e) {
+              // Already started or other error, ignore
+              console.log('Could not restart recognition:', e);
+            }
+          }
+        }, 200);
+      } else if (event.error === 'aborted') {
+        // User or system aborted - only restart if still listening
+        console.log('Speech recognition aborted');
+        if (isListeningRef.current && !interviewEndedRef.current && !showPauseModalRef.current) {
+          recognitionRestartTimeoutRef.current = setTimeout(() => {
+            if (isListeningRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (e) {
+                console.log('Could not restart after abort:', e);
+              }
+            }
+          }, 300);
+        }
+      } else if (event.error === 'network') {
+        console.log('Network error in speech recognition, will retry...');
+        recognitionRestartTimeoutRef.current = setTimeout(() => {
+          if (isListeningRef.current && recognitionRef.current && !interviewEndedRef.current) {
             try {
               recognitionRef.current.start();
             } catch (e) {
-              // Already started, ignore
+              console.log('Could not restart after network error:', e);
             }
           }
-        }, 100);
-      } else if (event.error === 'aborted') {
-        // User or system aborted, don't restart
-        console.log('Speech recognition aborted');
-      } else if (event.error === 'network') {
-        console.log('Network error in speech recognition');
+        }, 1000);
+      } else if (event.error === 'audio-capture') {
+        console.error('Audio capture failed - microphone may not be available');
+      } else if (event.error === 'not-allowed') {
+        console.error('Microphone access denied');
       }
     };
 
     recognition.onend = () => {
-      // Auto-restart if we're still supposed to be listening
-      if (isListening && !showPauseModal && !interviewEnded) {
-        try {
-          recognition.start();
-        } catch (e) {
-          // Already started, ignore
-        }
+      console.log('Speech recognition ended, checking if should restart...');
+      
+      // Clear any pending restart timeout to avoid duplicates
+      if (recognitionRestartTimeoutRef.current) {
+        clearTimeout(recognitionRestartTimeoutRef.current);
+        recognitionRestartTimeoutRef.current = null;
+      }
+      
+      // Auto-restart if we're still supposed to be listening (use refs for current values)
+      if (isListeningRef.current && !showPauseModalRef.current && !interviewEndedRef.current) {
+        recognitionRestartTimeoutRef.current = setTimeout(() => {
+          if (isListeningRef.current && recognitionRef.current && !interviewEndedRef.current) {
+            try {
+              recognitionRef.current.start();
+              console.log('Speech recognition auto-restarted');
+            } catch (e) {
+              console.log('Could not auto-restart recognition:', e);
+            }
+          }
+        }, 100);
       }
     };
 
     return recognition;
-  }, [isListening, showPauseModal, interviewEnded, transcript]);
+  }, []); // No dependencies - uses refs for all state values
 
   // Start listening
   const startListening = useCallback(() => {
+    // Clear any pending restart timeout from previous session
+    if (recognitionRestartTimeoutRef.current) {
+      clearTimeout(recognitionRestartTimeoutRef.current);
+      recognitionRestartTimeoutRef.current = null;
+    }
+    
     if (!recognitionRef.current) {
       recognitionRef.current = setupRecognition();
     }
     if (recognitionRef.current) {
+      // Reset all transcript state
       setTranscript('');
       setSavedTranscript('');
       setHasTranscriptContent(false);
       finalizedTranscriptRef.current = ''; // Reset finalized transcript
       lastSpeechTimeRef.current = Date.now();
+      
+      // Set listening state BEFORE starting recognition
+      setIsListening(true);
+      isListeningRef.current = true;
+      
       try {
         recognitionRef.current.start();
+        console.log('Speech recognition started');
       } catch (e) {
-        // Already started
+        // Already started or error
+        console.log('Recognition start error (may already be running):', e);
       }
-      setIsListening(true);
     }
   }, [setupRecognition]);
 
   // Stop listening
   const stopListening = useCallback(() => {
+    // Clear all timeouts
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
     }
+    if (recognitionRestartTimeoutRef.current) {
+      clearTimeout(recognitionRestartTimeoutRef.current);
+      recognitionRestartTimeoutRef.current = null;
+    }
+    // Set listening state to false BEFORE stopping recognition
+    // This ensures the onend handler doesn't restart
+    setIsListening(false);
+    isListeningRef.current = false;
+    
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // May already be stopped
+        console.log('Recognition stop error (can be ignored):', e);
+      }
     }
   }, []);
 
@@ -485,11 +601,16 @@ export default function InterviewRoomPage() {
       const resumeFilename = localStorage.getItem(`resume_filename_${currentToken}`) || '';
       
       console.log(`[Interview Complete] Saving results for token: ${currentToken}, messages: ${allMessages.length}, elapsed: ${currentElapsed}s, attempt: ${retryCount + 1}`);
+      console.log(`[Interview Complete] Using same-origin API route: /api/interview/complete/${currentToken}`);
       
-      const response = await fetch(`${API_BASE_URL}/hr/interviews/ai-complete/${currentToken}`, {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      
+      // Use the Next.js API route (same-origin) to avoid cross-origin issues
+      const response = await fetch(`/api/interview/complete/${currentToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
+        signal: controller.signal,
         body: JSON.stringify({
           transcript: transcriptData,
           duration_seconds: currentElapsed,
@@ -498,6 +619,8 @@ export default function InterviewRoomPage() {
           pre_calculated_scores: null
         })
       });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -529,16 +652,22 @@ export default function InterviewRoomPage() {
         }));
         const savedResume = localStorage.getItem(`resume_${currentToken}`) || '';
         
-        const fallbackResp = await fetch(`${API_BASE_URL}/hr/interviews/${currentSession?.id}/transcript`, {
+        const fallbackController = new AbortController();
+        const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), 30000);
+        
+        // Use same-origin API route for fallback too
+        const fallbackResp = await fetch(`/api/interview/transcript/${currentSession?.id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
+          signal: fallbackController.signal,
           body: JSON.stringify({
             transcript: transcriptData,
             duration_seconds: currentElapsed,
             resume_text: savedResume
           })
         });
+        
+        clearTimeout(fallbackTimeoutId);
         
         if (fallbackResp.ok) {
           console.log('[Interview Complete] Fallback transcript save succeeded');

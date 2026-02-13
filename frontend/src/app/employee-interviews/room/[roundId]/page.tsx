@@ -9,6 +9,7 @@ import { useSocket } from '@/hooks/useSocket'
 import { useInsights } from '@/hooks/useInsights'
 import { useAIMetricsStore } from '@/store/realtime'
 import type { AIMetrics, LiveInsight, Recommendation } from '@/types'
+import Cookies from 'js-cookie'
 
 // Dynamically import VideoSDK component to avoid SSR issues
 const InterviewerMeeting = dynamic(
@@ -33,8 +34,8 @@ interface RoundData {
   round_number: number
   status: string
   interview_mode: string
-  videosdk_meeting_id: string
-  videosdk_token: string
+  videosdk_meeting_id?: string | null
+  videosdk_token?: string | null
   candidate_name?: string
   scheduled_at?: string
 }
@@ -51,7 +52,7 @@ export default function HumanAssistedInterviewPage() {
   const [resumeUrl, setResumeUrl] = useState<string | undefined>(undefined)
 
   // Get auth token for socket connection
-  const authToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const authToken = typeof window !== 'undefined' ? Cookies.get('access_token') || null : null
 
   // Socket connection for real-time insights
   const { isConnected: socketConnected, error: socketError } = useSocket({
@@ -75,9 +76,10 @@ export default function HumanAssistedInterviewPage() {
   // Zustand store for metrics
   const { metrics: storeMetrics, setInsights, setRecommendations } = useAIMetricsStore()
 
-  // Auth check
+  // Auth check - HR, EMPLOYEE, and SYSTEM_ADMIN can conduct interviews
   useEffect(() => {
-    if (!authLoading && user?.role !== 'EMPLOYEE') {
+    const allowedRoles = ['HR', 'EMPLOYEE', 'SYSTEM_ADMIN']
+    if (!authLoading && !allowedRoles.includes(user?.role || '')) {
       router.push('/dashboard')
     }
   }, [authLoading, user, router])
@@ -98,7 +100,8 @@ export default function HumanAssistedInterviewPage() {
   // Fetch round data
   useEffect(() => {
     const fetchRound = async () => {
-      if (!roundId || authLoading || user?.role !== 'EMPLOYEE') return
+      const allowedRoles = ['HR', 'EMPLOYEE', 'SYSTEM_ADMIN']
+      if (!roundId || authLoading || !allowedRoles.includes(user?.role || '')) return
 
       try {
         setLoading(true)
@@ -107,9 +110,8 @@ export default function HumanAssistedInterviewPage() {
         // Fetch round details with video credentials
         const round = await apiClient.get<RoundData>(`/realtime/rounds/${roundId}/token`)
         
-        if (!round.videosdk_meeting_id || !round.videosdk_token) {
-          throw new Error('Meeting credentials not available. Please ensure the interview is set up correctly.')
-        }
+        // P2P WebRTC doesn't require VideoSDK credentials - roundId is sufficient
+        // videosdk_meeting_id check removed for P2P mode
 
         // Verify this is a human-AI-assisted interview
         if (round.interview_mode !== 'HUMAN_AI_ASSISTED') {
@@ -249,8 +251,8 @@ export default function HumanAssistedInterviewPage() {
 
       {/* Main Meeting Component */}
       <InterviewerMeeting
-        meetingId={roundData.videosdk_meeting_id}
-        token={roundData.videosdk_token}
+        meetingId={roundId}
+        token="p2p-no-token-needed"
         participantName={user?.full_name || 'Interviewer'}
         roundId={roundId}
         insights={liveInsights as unknown as LiveInsight[]}

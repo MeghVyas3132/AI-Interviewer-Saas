@@ -11,6 +11,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import and_, func, select, not_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,6 +105,110 @@ async def get_hr_metrics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching metrics: {str(e)}"
+        )
+
+
+@router.get("/candidates")
+async def get_hr_candidates(
+    current_user: User = Depends(require_hr),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    status_filter: Optional[str] = Query(None, description="Filter by status"),
+    assigned_to: Optional[str] = Query(None, description="Filter by assigned employee ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of candidates in the company (HR view).
+    Returns: All candidates with their assignment status and interview information.
+    """
+    try:
+        company_id = current_user.company_id
+        
+        # Base query for candidates in company
+        query = select(Candidate).filter(Candidate.company_id == company_id)
+        
+        # Apply filters
+        if status_filter:
+            try:
+                status_enum = CandidateStatus(status_filter.lower())
+                query = query.filter(Candidate.status == status_enum)
+            except ValueError:
+                pass  # Invalid status, ignore filter
+        
+        if assigned_to:
+            from uuid import UUID as PyUUID
+            try:
+                employee_uuid = PyUUID(assigned_to)
+                query = query.filter(Candidate.assigned_to == employee_uuid)
+            except ValueError:
+                pass  # Invalid UUID, ignore filter
+        
+        # Order by created_at descending and apply pagination
+        query = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit)
+        
+        result = await db.execute(query)
+        candidates = result.scalars().all()
+        
+        # Get total count
+        count_query = select(func.count()).select_from(Candidate).filter(
+            Candidate.company_id == company_id
+        )
+        if status_filter:
+            try:
+                status_enum = CandidateStatus(status_filter.lower())
+                count_query = count_query.filter(Candidate.status == status_enum)
+            except ValueError:
+                pass
+        if assigned_to:
+            try:
+                employee_uuid = PyUUID(assigned_to)
+                count_query = count_query.filter(Candidate.assigned_to == employee_uuid)
+            except ValueError:
+                pass
+        
+        count_result = await db.execute(count_query)
+        total = count_result.scalar() or 0
+        
+        # Build response
+        candidates_data = []
+        for cand in candidates:
+            # Get assigned employee name if assigned
+            assigned_employee_name = None
+            if cand.assigned_to:
+                emp_result = await db.execute(
+                    select(User).filter(User.id == cand.assigned_to)
+                )
+                emp = emp_result.scalars().first()
+                if emp:
+                    assigned_employee_name = emp.name
+            
+            candidates_data.append({
+                "id": str(cand.id),
+                "name": cand.name,
+                "email": cand.email,
+                "phone": cand.phone,
+                "status": cand.status.value if cand.status else None,
+                "assigned_to": str(cand.assigned_to) if cand.assigned_to else None,
+                "assigned_employee_name": assigned_employee_name,
+                "job_template_id": str(cand.job_template_id) if cand.job_template_id else None,
+                "created_at": cand.created_at.isoformat() if cand.created_at else None,
+                "updated_at": cand.updated_at.isoformat() if cand.updated_at else None,
+            })
+        
+        return {
+            "candidates": candidates_data,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidates: {str(e)}"
         )
 
 
@@ -322,6 +427,131 @@ async def revoke_candidate_assignment(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error revoking assignment: {str(e)}"
+        )
+
+
+# Alias for revoke endpoint to support DELETE method from frontend
+@router.delete("/candidates/{candidate_id}/assign")
+async def unassign_candidate(
+    candidate_id: UUID,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unassign candidate from employee (HR only).
+    This is an alias for the revoke endpoint to support DELETE method.
+    """
+    return await revoke_candidate_assignment(candidate_id, current_user, db)
+
+
+class GenerateAITokenRequest(BaseModel):
+    """Request to generate AI interview token for a candidate."""
+    job_id: Optional[UUID] = None
+
+
+@router.post("/interviews/generate-ai-token/{candidate_id}")
+async def generate_ai_interview_token(
+    candidate_id: UUID,
+    request: Optional[GenerateAITokenRequest] = None,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate an AI interview token for a candidate.
+    This creates an interview record with a token that the candidate can use to start their AI interview.
+    """
+    import secrets
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    
+    try:
+        company_id = current_user.company_id
+        
+        # Verify candidate exists and belongs to company
+        candidate_query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == company_id
+            )
+        )
+        result = await db.execute(candidate_query)
+        candidate = result.scalars().first()
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+        
+        # If job_id is provided, assign it to candidate
+        if request and request.job_id:
+            candidate.job_template_id = request.job_id
+        
+        # Check for existing scheduled interview
+        existing_query = select(Interview).filter(
+            and_(
+                Interview.candidate_id == candidate_id,
+                Interview.status == InterviewStatus.SCHEDULED
+            )
+        )
+        existing_result = await db.execute(existing_query)
+        existing_interview = existing_result.scalars().first()
+        
+        # Generate secure token
+        token = secrets.token_urlsafe(32)
+        
+        # Default scheduled time is now (immediate availability)
+        scheduled_time = datetime.now(ZoneInfo('UTC'))
+        
+        if existing_interview:
+            # Update existing interview with new token
+            existing_interview.ai_interview_token = token
+            existing_interview.scheduled_time = scheduled_time
+            interview = existing_interview
+        else:
+            # Create new interview
+            from app.models.candidate import InterviewRound
+            interview = Interview(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                interviewer_id=current_user.id,
+                created_by=current_user.id,
+                round=InterviewRound.SCREENING,
+                scheduled_time=scheduled_time,
+                timezone="UTC",
+                status=InterviewStatus.SCHEDULED,
+                ai_interview_token=token,
+            )
+            db.add(interview)
+        
+        # Update candidate status to interview
+        from sqlalchemy import text
+        await db.execute(
+            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
+            {"status": "interview_scheduled", "id": str(candidate_id)}
+        )
+        
+        await db.commit()
+        await db.refresh(interview)
+        
+        return {
+            "message": "AI interview created successfully",
+            "interview": {
+                "id": str(interview.id),
+                "candidate_id": str(candidate_id),
+                "ai_interview_token": token,
+                "interview_url": f"http://localhost:3000/interview/{token}",
+                "scheduled_time": scheduled_time.isoformat(),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating AI interview: {str(e)}"
         )
 
 
@@ -594,6 +824,13 @@ async def save_interview_transcript(
         duration_seconds = data.get("duration_seconds", 0)
         resume_text = data.get("resume_text", "")
         
+        # Sanitize resume_text: strip null bytes and detect raw PDF binary
+        if resume_text:
+            resume_text = resume_text.replace("\x00", "")
+            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
+                print(f"[Transcript] Resume text appears to be raw PDF binary, discarding")
+                resume_text = ""
+        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
         interview.resume_text = resume_text if resume_text else interview.resume_text
@@ -754,6 +991,15 @@ async def ai_complete_interview(
         resume_text = data.get("resume_text", "")
         pre_calculated_scores = data.get("pre_calculated_scores", {})
         
+        # Sanitize resume_text: strip null bytes and detect raw PDF binary
+        if resume_text:
+            # Remove null bytes that PostgreSQL VARCHAR can't store
+            resume_text = resume_text.replace("\x00", "")
+            # If it's raw PDF binary (not extracted text), discard it
+            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
+                print(f"[AI-Complete] Resume text appears to be raw PDF binary, discarding")
+                resume_text = ""
+        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
         interview.resume_text = resume_text if resume_text else interview.resume_text
@@ -788,10 +1034,10 @@ async def ai_complete_interview(
                 "weaknesses": pre_calculated_scores.get("weaknesses", []),
             }
         
-        # If no pre-calculated scores and we have transcript, generate verdict using AI
+        # If no pre-calculated scores and we have sufficient transcript, generate verdict using AI
         if not ai_verdict and transcript_data and len(transcript_data) > 2:
             try:
-                print(f"[AI-Complete] Generating AI verdict from transcript...")
+                print(f"[AI-Complete] Generating AI verdict from transcript ({len(transcript_data)} messages)...")
                 ai_verdict = await generate_interview_verdict(
                     transcript=transcript_data,
                     resume_text=resume_text or (candidate.resume_text if candidate else ""),
@@ -801,6 +1047,51 @@ async def ai_complete_interview(
                 print(f"[AI-Complete] AI verdict generated: recommendation={ai_verdict.get('recommendation')}")
             except Exception as ai_error:
                 print(f"[AI-Complete] AI verdict generation failed (non-critical): {ai_error}")
+                # FALLBACK: Generate basic result so UI never breaks
+                ai_verdict = {
+                    "recommendation": "NEUTRAL",
+                    "behavior_score": 70,
+                    "confidence_score": 70,
+                    "answer_score": 70,
+                    "overall_score": 70,
+                    "summary": "Interview completed successfully. AI analysis unavailable - manual review recommended.",
+                    "strengths": ["Completed interview"],
+                    "weaknesses": [],
+                    "ai_fallback": True,  # Flag indicating this is a fallback
+                }
+                print(f"[AI-Complete] Using fallback verdict due to AI error")
+        
+        # FALLBACK: If transcript too short, still generate a basic verdict for stability
+        if not ai_verdict and transcript_data and len(transcript_data) <= 2:
+            print(f"[AI-Complete] Transcript too short ({len(transcript_data)} messages) for AI analysis, using default verdict")
+            ai_verdict = {
+                "recommendation": "NEUTRAL",
+                "behavior_score": 60,
+                "confidence_score": 60,
+                "answer_score": 60,
+                "overall_score": 60,
+                "summary": "Interview completed but transcript was too short for full AI analysis. Manual review recommended.",
+                "strengths": [],
+                "weaknesses": ["Insufficient conversation data for analysis"],
+                "ai_fallback": True,
+                "short_transcript": True,
+            }
+        
+        # FALLBACK: If NO transcript at all, still provide a basic verdict
+        if not ai_verdict and (not transcript_data or len(transcript_data) == 0):
+            print(f"[AI-Complete] No transcript data provided, using empty transcript fallback")
+            ai_verdict = {
+                "recommendation": "NEUTRAL",
+                "behavior_score": 50,
+                "confidence_score": 50,
+                "answer_score": 50,
+                "overall_score": 50,
+                "summary": "Interview completed but no transcript data was received. Manual review required.",
+                "strengths": [],
+                "weaknesses": ["No interview transcript available"],
+                "ai_fallback": True,
+                "no_transcript": True,
+            }
         
         # Update interview with AI scores if we have verdict
         if ai_verdict:

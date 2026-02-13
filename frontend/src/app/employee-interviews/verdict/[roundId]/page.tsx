@@ -45,9 +45,10 @@ export default function VerdictPage() {
   const [strengthInput, setStrengthInput] = useState('')
   const [improvementInput, setImprovementInput] = useState('')
 
-  // Auth check
+  // Auth check - HR, EMPLOYEE, and SYSTEM_ADMIN can submit verdicts
+  const allowedRoles = ['HR', 'EMPLOYEE', 'SYSTEM_ADMIN']
   useEffect(() => {
-    if (!authLoading && user?.role !== 'EMPLOYEE') {
+    if (!authLoading && !allowedRoles.includes(user?.role || '')) {
       router.push('/dashboard')
     }
   }, [authLoading, user, router])

@@ -139,6 +139,31 @@ class APIClient {
     }
   }
 
+  async candidateLogin(email: string): Promise<LoginResponse & { companies?: any[], interviews?: any[] }> {
+    console.log('[APIClient] Candidate login request:', { email })
+    
+    // Clear any stale tokens before login
+    Cookies.remove('access_token')
+    Cookies.remove('refresh_token')
+    
+    try {
+      const response = await this.client.post<LoginResponse & { companies?: any[], interviews?: any[] }>('/auth/candidate-login', { email })
+      console.log('[APIClient] Candidate login success:', response.status)
+      const { access_token, user } = response.data
+
+      // Store tokens
+      Cookies.set('access_token', access_token, {
+        sameSite: 'strict',
+        expires: 1 / 24 / 60 * 15, // 15 minutes
+      })
+
+      return response.data
+    } catch (error: any) {
+      console.error('[APIClient] Candidate login error:', error.response?.status, error.response?.data)
+      throw error
+    }
+  }
+
   async logout(): Promise<void> {
     try {
       await this.client.post('/auth/logout')

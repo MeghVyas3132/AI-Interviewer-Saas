@@ -15,8 +15,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download Whisper model (base size for fallback)
-RUN python -c "import whisper; whisper.load_model('base')"
+# NOTE: downloading the Whisper model at build time is heavy and can cause
+# build failures and unnecessarily large images. Defer model download to
+# runtime or a separate setup step. If you need to pre-download the model,
+# uncomment the line below.
+# RUN python -c "import whisper; whisper.load_model('base')"
 
 # Copy source code
 COPY src/ ./src/
