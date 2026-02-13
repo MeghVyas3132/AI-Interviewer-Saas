@@ -154,6 +154,8 @@ services:
     environment:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: your-super-secret-256bit-key-for-prod-deployment-12345678
+      ALGORITHM: HS256
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
       # Groq API for question generation
