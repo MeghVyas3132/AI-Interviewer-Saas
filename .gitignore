@@ -58,6 +58,7 @@ env/
 # Database
 *.db
 *.sqlite
+dump.rdb
 *.sqlite3
 
 # Logs
