@@ -617,9 +617,15 @@ async def save_interview_transcript(
         duration_seconds = data.get("duration_seconds", 0)
         resume_text = data.get("resume_text", "")
         
+        # Sanitize resume_text - skip raw PDF binary data (contains null bytes that break PostgreSQL)
+        if resume_text and (resume_text.startswith('%PDF') or '\x00' in resume_text):
+            print(f"[Transcript Save] Skipping raw PDF binary in resume_text for interview {interview_id}")
+            resume_text = ""  # Fall back to candidate's existing resume_text
+        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
-        interview.resume_text = resume_text if resume_text else interview.resume_text
+        if resume_text:
+            interview.resume_text = resume_text
         
         # Mark interview as completed using raw SQL to handle enum properly
         await db.execute(
