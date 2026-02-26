@@ -49,8 +49,8 @@ class Settings(BaseSettings):
         "http://localhost:9004",
         "http://127.0.0.1:9004",
         # Railway production URLs
-        "https://adorable-insight-production.up.railway.app",
-        "https://ai-interviewer-saas-production.up.railway.app",
+        "https://frontend-production-a2d9.up.railway.app",
+        "https://backend-production-7466.up.railway.app",
     ]
 
     @field_validator('cors_origins', mode='before')
@@ -60,9 +60,11 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             import json
             try:
-                return json.loads(v)
+                parsed = json.loads(v)
+                logger.info(f"Parsed CORS_ORIGINS from env: {parsed}")
+                return parsed
             except json.JSONDecodeError:
-                logger.warning(f"Failed to parse CORS_ORIGINS as JSON, using defaults")
+                logger.warning(f"Failed to parse CORS_ORIGINS as JSON: {v!r}, using defaults")
                 return [
                     "http://localhost:3000",
                     "http://127.0.0.1:3000",
@@ -70,8 +72,8 @@ class Settings(BaseSettings):
                     "http://127.0.0.1:9002",
                     "http://localhost:9004",
                     "http://127.0.0.1:9004",
-                    "https://adorable-insight-production.up.railway.app",
-                    "https://ai-interviewer-saas-production.up.railway.app",
+                    "https://frontend-production-a2d9.up.railway.app",
+                    "https://backend-production-7466.up.railway.app",
                 ]
         return v
 
