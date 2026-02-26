@@ -207,13 +207,6 @@ export default function HRDashboard() {
         scheduled_at: scheduleMap.get(c.id)
       }))
       
-      // Debug: Log assigned_to values
-      console.log('Candidates with assigned_to:', enrichedCandidates.map(c => ({
-        name: c.name,
-        assigned_to: c.assigned_to,
-        assigned_employee_name: (c as any).assigned_employee_name
-      })))
-      
       setCandidates(enrichedCandidates)
 
 

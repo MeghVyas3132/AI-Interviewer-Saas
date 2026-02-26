@@ -9,17 +9,32 @@ const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 const PROXY_PORT = 9003;
 
 if (!ASSEMBLYAI_API_KEY) {
-  console.error('❌ ERROR: ASSEMBLYAI_API_KEY environment variable is not set!');
-  console.error('Please set it in your .env file: ASSEMBLYAI_API_KEY=your_key_here');
-  process.exit(1);
+  console.warn('⚠️ WARNING: ASSEMBLYAI_API_KEY environment variable is not set!');
+  console.warn('WebSocket proxy will start but will reject client connections until key is provided.');
 }
 
-const server = http.createServer();
+const server = http.createServer((req, res) => {
+  // Health check endpoint for Docker healthchecks
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'healthy', service: 'ws-proxy' }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (clientWs, req) => {
   console.log('Client connected from:', req.socket.remoteAddress);
   console.log('Client WebSocket readyState:', clientWs.readyState);
+
+  if (!ASSEMBLYAI_API_KEY) {
+    console.error('❌ Rejecting client connection: ASSEMBLYAI_API_KEY not set');
+    clientWs.send(JSON.stringify({ type: 'error', message: 'Server misconfigured: missing API key' }));
+    clientWs.close(1008, 'Missing API key');
+    return;
+  }
 
   // Extract sample_rate from query string (handle trailing slash)
   const urlPath = req.url.split('?')[0];

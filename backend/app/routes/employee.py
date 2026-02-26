@@ -43,12 +43,9 @@ async def get_my_candidates(
 ):
     """
     Get all candidates assigned to the current employee.
+    Includes latest scheduled interview info for each candidate.
     """
     try:
-        print(f"DEBUG: current_user.id = {current_user.id}")
-        print(f"DEBUG: current_user.company_id = {current_user.company_id}")
-        print(f"DEBUG: current_user.email = {current_user.email}")
-        
         query = select(Candidate).filter(
             and_(
                 Candidate.company_id == current_user.company_id,
@@ -57,8 +54,22 @@ async def get_my_candidates(
         )
         result = await db.execute(query)
         candidates = result.scalars().all()
-        
-        print(f"DEBUG: Found {len(candidates)} candidates")
+
+        # Batch-fetch the latest SCHEDULED interview for each candidate
+        candidate_ids = [c.id for c in candidates]
+        scheduled_interviews = {}
+        if candidate_ids:
+            interviews_query = select(Interview).filter(
+                and_(
+                    Interview.candidate_id.in_(candidate_ids),
+                    Interview.status == InterviewStatus.SCHEDULED,
+                )
+            ).order_by(Interview.scheduled_time.desc())
+            interviews_result = await db.execute(interviews_query)
+            for interview in interviews_result.scalars().all():
+                # Keep the first (latest) scheduled interview per candidate
+                if interview.candidate_id not in scheduled_interviews:
+                    scheduled_interviews[interview.candidate_id] = interview
 
         return [
             {
@@ -74,6 +85,14 @@ async def get_my_candidates(
                 "status": c.status.value if c.status else None,
                 "job_role_id": str(c.job_template_id) if c.job_template_id else None,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
+                # Include scheduled interview info so the UI knows immediately
+                "scheduled_at": scheduled_interviews[c.id].scheduled_time.isoformat()
+                    if c.id in scheduled_interviews and scheduled_interviews[c.id].scheduled_time
+                    else None,
+                "interview_id": str(scheduled_interviews[c.id].id)
+                    if c.id in scheduled_interviews else None,
+                "interview_token": scheduled_interviews[c.id].ai_interview_token
+                    if c.id in scheduled_interviews else None,
             }
             for c in candidates
         ]
@@ -242,21 +261,51 @@ async def get_candidate_detailed_profile(
                 else:
                     verdict = "FAIL"
             
+            # Fallback: derive verdict from interview's ai_recommendation
+            if not verdict and interview.ai_recommendation:
+                rec = interview.ai_recommendation.upper()
+                if rec in ("HIRE", "PASS"):
+                    verdict = "PASS"
+                elif rec in ("REJECT", "FAIL"):
+                    verdict = "FAIL"
+                else:
+                    verdict = "REVIEW"
+            
+            # Parse ai_verdict JSON from interview table if available
+            interview_ai_data = {}
+            if interview.ai_verdict:
+                try:
+                    import json as _json
+                    interview_ai_data = _json.loads(interview.ai_verdict) if isinstance(interview.ai_verdict, str) else interview.ai_verdict
+                except:
+                    pass
+            
+            # Build scores with fallback: AIReport → interview table → ai_verdict JSON
+            overall = (report.score if report else None) or interview_ai_data.get("overall_score")
+            behavior = (provider_response.get("behavior_score") if report else None) or interview.behavior_score
+            confidence = (provider_response.get("confidence_score") if report else None) or interview.confidence_score
+            answer = (provider_response.get("answer_score") if report else None) or interview.answer_score
+            
+            # Compute overall_score from component scores if still missing
+            if overall is None and any(s is not None for s in [behavior, confidence, answer]):
+                scores = [s for s in [behavior, confidence, answer] if s is not None]
+                overall = round(sum(scores) / len(scores)) if scores else None
+            
             interview_details.append({
                 "interview_id": str(interview.id),
                 "round": interview.round.value if interview.round else "unknown",
                 "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
                 "status": interview.status.value if interview.status else None,
                 "verdict": verdict,
-                "overall_score": report.score if report else None,
-                "behavior_score": provider_response.get("behavior_score") if report else None,
-                "confidence_score": provider_response.get("confidence_score") if report else None,
-                "answer_score": provider_response.get("answer_score") if report else None,
-                "strengths": provider_response.get("strengths", []) if report else [],
-                "weaknesses": provider_response.get("weaknesses", []) if report else [],
-                "detailed_feedback": provider_response.get("detailed_feedback", "") if report else "",
+                "overall_score": overall,
+                "behavior_score": behavior,
+                "confidence_score": confidence,
+                "answer_score": answer,
+                "strengths": (provider_response.get("strengths", []) if report else []) or interview_ai_data.get("strengths", []),
+                "weaknesses": (provider_response.get("weaknesses", []) if report else []) or interview_ai_data.get("weaknesses", []),
+                "detailed_feedback": (provider_response.get("detailed_feedback", "") if report else "") or interview_ai_data.get("detailed_feedback", ""),
                 "key_answers": provider_response.get("key_answers", []) if report else [],
-                "summary": report.summary if report else None,
+                "summary": (report.summary if report else None) or interview_ai_data.get("summary"),
                 "duration_seconds": provider_response.get("duration_seconds"),
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
@@ -1216,10 +1265,14 @@ async def create_ai_interview_for_candidate(
         
         await db.commit()
         
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        interview_page_url = f"{frontend_url}/interview/{token}"
+        
         return {
             "success": True,
             "token": token,
-            "interview_url": f"http://localhost:3000/interview/{token}",  # Use main frontend URL
+            "interview_url": interview_page_url,
+            "ai_service_url": interview_page_url,  # Frontend reads this key
             "message": "AI Interview created successfully. Candidate can start immediately.",
             "interview_id": str(new_interview.id),
             "questions_count": len(questions)
@@ -1674,8 +1727,8 @@ async def get_candidates_ready_for_round_2(
                 Candidate.assigned_to == current_user.id,
                 Candidate.status.in_([
                     # New multi-round statuses
-                    CandidateStatus.AI_INTERVIEW_PASSED,
-                    CandidateStatus.ELIGIBLE_FOR_ROUND_2,
+                    CandidateStatus.AI_PASSED,
+                    CandidateStatus.ELIGIBLE_ROUND_2,
                     # Legacy statuses for backwards compatibility
                     CandidateStatus.INTERVIEW_COMPLETED,
                     CandidateStatus.PASSED,
@@ -1801,8 +1854,8 @@ async def get_candidates_pending_review(
                 Candidate.company_id == current_user.company_id,
                 Candidate.assigned_to == current_user.id,
                 Candidate.status.in_([
-                    CandidateStatus.AI_INTERVIEW_REVIEW,  # AI unsure, needs review
-                    CandidateStatus.AI_INTERVIEW_FAILED,  # AI rejected, can override
+                    CandidateStatus.AI_REVIEW,  # AI unsure, needs review
+                    CandidateStatus.AI_REJECTED,  # AI rejected, can override
                 ])
             )
         )
@@ -1878,7 +1931,7 @@ async def get_candidates_pending_review(
                 "ai_score": score,
                 "ai_recommendation": recommendation,
                 "ai_summary": summary,
-                "can_override": candidate.status == CandidateStatus.AI_INTERVIEW_FAILED,  # Employee can override AI rejection
+                "can_override": candidate.status == CandidateStatus.AI_REJECTED,  # Employee can override AI rejection
             })
         
         return {
@@ -1928,7 +1981,7 @@ async def review_candidate(
             )
         
         # Validate candidate is in reviewable status
-        if candidate.status not in [CandidateStatus.AI_INTERVIEW_REVIEW, CandidateStatus.AI_INTERVIEW_FAILED]:
+        if candidate.status not in [CandidateStatus.AI_REVIEW, CandidateStatus.AI_REJECTED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Candidate is not pending review. Current status: {candidate.status.value}"
@@ -1936,7 +1989,7 @@ async def review_candidate(
         
         decision = decision.upper()
         if decision == "APPROVE":
-            candidate.status = CandidateStatus.ELIGIBLE_FOR_ROUND_2
+            candidate.status = CandidateStatus.ELIGIBLE_ROUND_2
             message = f"Candidate approved for Round 2 by {current_user.email}"
         elif decision == "REJECT":
             candidate.status = CandidateStatus.REJECTED

@@ -16,6 +16,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -30,6 +31,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -69,6 +71,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -85,8 +89,17 @@ services:
       NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:3001
       # For server-side API proxies (container-to-container communication)
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
+      # Bind to all interfaces so healthcheck and external access works
+      HOSTNAME: 0.0.0.0
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -117,6 +130,13 @@ services:
       - ./AI/Aigenthix_AI_Interviewer:/app
       - /app/node_modules
       - /app/.next
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -133,6 +153,13 @@ services:
       AI_SERVICE_URL: ${AI_SERVICE_URL}
     ports:
       - "9003:9003"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -156,6 +183,13 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_API_KEYS: ${GROQ_API_KEYS:-}
     command: ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_config.celery_app inspect ping --timeout 10 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 

@@ -33,8 +33,9 @@ ENV NODE_ENV production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy public folder
-COPY --from=builder /app/public ./public
+# Copy public folder and fix permissions (source files may have restrictive modes)
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+RUN chmod -R a+r ./public && find ./public -type d -exec chmod a+rx {} +
 
 # Copy standalone build
 # Note: If standalone build is not enabled, we would copy .next and node_modules

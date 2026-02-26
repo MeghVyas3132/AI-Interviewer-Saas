@@ -12,7 +12,13 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for caching
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install setuptools first (needed by openai-whisper) and upgrade pip
+RUN pip install --no-cache-dir --upgrade pip "setuptools<81.0.0" wheel
+
+# Install openai-whisper with its build deps pre-installed
+RUN pip install --no-cache-dir --no-build-isolation openai-whisper==20231117
+
+# Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download Whisper model (base size for fallback)
