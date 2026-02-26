@@ -4,9 +4,9 @@ services:
     image: postgres:15-alpine
     container_name: ai_interviewer_db
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ai_interviewer_user
+      POSTGRES_PASSWORD: ai_interviewer_password
+      POSTGRES_DB: ai_interviewer_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -16,6 +16,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -30,6 +31,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -45,14 +47,14 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
+      REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:9002","http://localhost:9004"]'
-      SECRET_KEY: ${SECRET_KEY}
-      ALGORITHM: ${ALGORITHM:-HS256}
-      AI_SERVICE_URL: ${AI_SERVICE_URL:-}
-      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:-}
-      AI_SERVICE_MODEL: ${AI_SERVICE_MODEL:-}
+      SECRET_KEY: your-super-secret-256bit-key-for-prod-deployment-12345678
+      ALGORITHM: HS256
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
+      AI_SERVICE_MODEL: ${AI_SERVICE_MODEL}
       # Groq API for ATS analysis
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_API_KEYS: ${GROQ_API_KEYS:-}
@@ -61,12 +63,7 @@ services:
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       # AI Interview Coach Service integration
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
-      SYNC_API_KEY: ${SYNC_API_KEY}
-      # Admin security
-      ADMIN_DELETE_CODE: ${ADMIN_DELETE_CODE}
-      # VideoSDK Configuration (for Round 2 real-time interviews)
-      VIDEOSDK_API_KEY: ${VIDEOSDK_API_KEY:-}
-      VIDEOSDK_SECRET: ${VIDEOSDK_SECRET:-}
+      SYNC_API_KEY: ai-interviewer-sync-key-2024
     ports:
       - "8000:8000"
     healthcheck:
@@ -74,6 +71,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -90,9 +89,17 @@ services:
       NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:3001
       # For server-side API proxies (container-to-container communication)
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
-      BACKEND_URL: http://backend:8000
+      # Bind to all interfaces so healthcheck and external access works
+      HOSTNAME: 0.0.0.0
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -109,10 +116,10 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
       NEXT_PUBLIC_WS_PROXY_URL: ws://localhost:9003
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       PORT: 3000
       # Google Gemini API Key - required for AI interview agent
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-your_gemini_api_key_here}
       # Backend URL for AI service to notify on interview completion
       BACKEND_URL: http://backend:8000/api/v1
       NEXT_PUBLIC_BACKEND_URL: http://backend:8000/api/v1
@@ -123,6 +130,13 @@ services:
       - ./AI/Aigenthix_AI_Interviewer:/app
       - /app/node_modules
       - /app/.next
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -134,11 +148,18 @@ services:
     container_name: ai_interviewer_ws_proxy
     command: node ws-proxy-server.js
     environment:
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-8579e234fc6147ba8be07d23c0b153ec}
       # Allow WS proxy to know AI service URL if it needs to call backend
-      AI_SERVICE_URL: ${AI_SERVICE_URL:-}
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
     ports:
       - "9003:9003"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -154,16 +175,21 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      SECRET_KEY: ${SECRET_KEY}
-      ALGORITHM: ${ALGORITHM:-HS256}
-      AI_SERVICE_URL: ${AI_SERVICE_URL:-}
-      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:-}
+      DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
+      REDIS_URL: redis://redis:6379/0
+      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
       # Groq API for question generation
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_API_KEYS: ${GROQ_API_KEYS:-}
     command: ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_config.celery_app inspect ping --timeout 10 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -180,7 +206,7 @@ services:
     environment:
       - PORT=8001
       - REDIS_URL=redis://redis:6379
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-key-change-in-prod}
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
     ports:
@@ -211,7 +237,7 @@ services:
     environment:
       - PORT=8002
       - REDIS_URL=redis://redis:6379
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-key-change-in-prod}
     ports:
       - "8002:8002"
     depends_on:
@@ -240,7 +266,7 @@ services:
     environment:
       - PORT=8003
       - REDIS_URL=redis://redis:6379
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-key-change-in-prod}
     ports:
       - "8003:8003"
     depends_on:
@@ -269,8 +295,8 @@ services:
     environment:
       - PORT=8004
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL}
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - DATABASE_URL=postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-key-change-in-prod}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
     ports:
@@ -303,8 +329,8 @@ services:
     environment:
       - PORT=8005
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=${DATABASE_URL}
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - DATABASE_URL=postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-key-change-in-prod}
     ports:
       - "8005:8005"
     depends_on:

@@ -3,19 +3,19 @@ name: Split Services to Branches
 on:
   push:
     branches:
-      - main
+      - monolith
 
 jobs:
-  sync-backend:
-    name: Sync Backend to backend branch
+  sync-main:
+    name: Sync Backend to main branch
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout main branch
+      - name: Checkout monolith branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: monolith
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -24,40 +24,38 @@ jobs:
           git config user.name "MeghVyas3132"
           git config user.email "megh.vyas@yahoo.com"
 
-      - name: Sync to backend branch
+      - name: Sync to main branch
         run: |
-          # Fetch all branches
           git fetch origin
 
-          # Check if backend branch exists, create if not
-          if git ls-remote --heads origin backend | grep -q backend; then
-            git checkout backend
-            git pull origin backend
+          if git ls-remote --heads origin main | grep -q main; then
+            git checkout main
+            git pull origin main
           else
-            git checkout --orphan backend
+            git checkout --orphan main
             git rm -rf . || true
-            git commit --allow-empty -m "Initialize backend branch"
-            git push origin backend
-            git checkout backend
+            git commit --allow-empty -m "Initialize main branch"
+            git push origin main
+            git checkout main
           fi
 
-          # Remove all current files (this handles deletions)
           git rm -rf . || true
 
-          # Checkout backend files from main
-          git checkout main -- backend/
-          git checkout main -- services/
-          git checkout main -- .gitignore || true
+          git checkout monolith -- backend/
+          git checkout monolith -- services/
+          git checkout monolith -- Dockerfile.backend || true
+          git checkout monolith -- Dockerfile.celery || true
+          git checkout monolith -- railway.json || true
+          git checkout monolith -- railway.celery.json || true
+          git checkout monolith -- .gitignore || true
 
-          # Stage all changes
           git add -A
 
-          # Commit and push if there are changes
           if git diff --cached --quiet; then
-            echo "No changes to commit for backend branch"
+            echo "No changes to commit for main branch"
           else
-            git commit -m "Sync backend and services from main"
-            git push origin backend
+            git commit -m "Sync backend and services from monolith"
+            git push origin main
           fi
 
   sync-frontend:
@@ -66,10 +64,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main branch
+      - name: Checkout monolith branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: monolith
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -80,10 +78,8 @@ jobs:
 
       - name: Sync to frontend branch
         run: |
-          # Fetch all branches
           git fetch origin
 
-          # Check if frontend branch exists, create if not
           if git ls-remote --heads origin frontend | grep -q frontend; then
             git checkout frontend
             git pull origin frontend
@@ -95,21 +91,19 @@ jobs:
             git checkout frontend
           fi
 
-          # Remove all current files (this handles deletions)
           git rm -rf . || true
 
-          # Checkout only frontend from main
-          git checkout main -- frontend/
-          git checkout main -- .gitignore || true
+          git checkout monolith -- frontend/
+          git checkout monolith -- Dockerfile.frontend || true
+          git checkout monolith -- railway.frontend.json || true
+          git checkout monolith -- .gitignore || true
 
-          # Stage all changes
           git add -A
 
-          # Commit and push if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit for frontend branch"
           else
-            git commit -m "Sync frontend from main"
+            git commit -m "Sync frontend from monolith"
             git push origin frontend
           fi
 
@@ -119,10 +113,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main branch
+      - name: Checkout monolith branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: monolith
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -133,10 +127,8 @@ jobs:
 
       - name: Sync to ai branch
         run: |
-          # Fetch all branches
           git fetch origin
 
-          # Check if ai branch exists, create if not
           if git ls-remote --heads origin ai | grep -q ai; then
             git checkout ai
             git pull origin ai
@@ -148,21 +140,20 @@ jobs:
             git checkout ai
           fi
 
-          # Remove all current files (this handles deletions)
           git rm -rf . || true
 
-          # Checkout only AI from main
-          git checkout main -- AI/
-          git checkout main -- .gitignore || true
+          git checkout monolith -- AI/
+          git checkout monolith -- Dockerfile.ai-service || true
+          git checkout monolith -- railway.ai-service.json || true
+          git checkout monolith -- railway.ws-proxy.json || true
+          git checkout monolith -- .gitignore || true
 
-          # Stage all changes
           git add -A
 
-          # Commit and push if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit for ai branch"
           else
-            git commit -m "Sync AI service from main"
+            git commit -m "Sync AI service from monolith"
             git push origin ai
           fi
 
@@ -172,10 +163,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main branch
+      - name: Checkout monolith branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: monolith
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -186,10 +177,8 @@ jobs:
 
       - name: Sync to new-flow branch
         run: |
-          # Fetch all branches
           git fetch origin
 
-          # Check if new-flow branch exists, create if not
           if git ls-remote --heads origin new-flow | grep -q new-flow; then
             git checkout new-flow
             git pull origin new-flow
@@ -201,21 +190,17 @@ jobs:
             git checkout new-flow
           fi
 
-          # Remove all current files (this handles deletions)
           git rm -rf . || true
 
-          # Checkout only new-flow-repo from main
-          git checkout main -- new-flow-repo/
-          git checkout main -- .gitignore || true
+          git checkout monolith -- new-flow-repo/
+          git checkout monolith -- .gitignore || true
 
-          # Stage all changes
           git add -A
 
-          # Commit and push if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit for new-flow branch"
           else
-            git commit -m "Sync new-flow-repo from main"
+            git commit -m "Sync new-flow-repo from monolith"
             git push origin new-flow
           fi
 
@@ -225,10 +210,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout main branch
+      - name: Checkout monolith branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: monolith
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -239,10 +224,8 @@ jobs:
 
       - name: Sync to infra branch
         run: |
-          # Fetch all branches
           git fetch origin
 
-          # Check if infra branch exists, create if not
           if git ls-remote --heads origin infra | grep -q infra; then
             git checkout infra
             git pull origin infra
@@ -254,38 +237,34 @@ jobs:
             git checkout infra
           fi
 
-          # Remove all current files (this handles deletions)
           git rm -rf . || true
 
-          # Checkout infrastructure files from main
-          git checkout main -- docker-compose.yml || true
-          git checkout main -- docker-compose.prod.yml || true
-          git checkout main -- Dockerfile.backend || true
-          git checkout main -- Dockerfile.celery || true
-          git checkout main -- Dockerfile.ai-service || true
-          git checkout main -- Dockerfile.frontend || true
-          git checkout main -- railway.json || true
-          git checkout main -- railway.celery.json || true
-          git checkout main -- railway.ai-service.json || true
-          git checkout main -- railway.frontend.json || true
-          git checkout main -- railway.ws-proxy.json || true
-          git checkout main -- render.yaml || true
-          git checkout main -- integration_test.sh || true
-          git checkout main -- .env.production.template || true
-          git checkout main -- .gitignore || true
-          git checkout main -- .github/ || true
-          git checkout main -- README.md || true
-          git checkout main -- PRD.md || true
-          git checkout main -- TRD.md || true
-          git checkout main -- BRANCHING_STRATEGY.md || true
+          git checkout monolith -- docker-compose.yml || true
+          git checkout monolith -- docker-compose.prod.yml || true
+          git checkout monolith -- Dockerfile.backend || true
+          git checkout monolith -- Dockerfile.celery || true
+          git checkout monolith -- Dockerfile.ai-service || true
+          git checkout monolith -- Dockerfile.frontend || true
+          git checkout monolith -- railway.json || true
+          git checkout monolith -- railway.celery.json || true
+          git checkout monolith -- railway.ai-service.json || true
+          git checkout monolith -- railway.frontend.json || true
+          git checkout monolith -- railway.ws-proxy.json || true
+          git checkout monolith -- render.yaml || true
+          git checkout monolith -- integration_test.sh || true
+          git checkout monolith -- .env.production.template || true
+          git checkout monolith -- .gitignore || true
+          git checkout monolith -- .github/ || true
+          git checkout monolith -- README.md || true
+          git checkout monolith -- PRD.md || true
+          git checkout monolith -- TRD.md || true
+          git checkout monolith -- BRANCHING_STRATEGY.md || true
 
-          # Stage all changes
           git add -A
 
-          # Commit and push if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit for infra branch"
           else
-            git commit -m "Sync infrastructure files from main"
+            git commit -m "Sync infrastructure files from monolith"
             git push origin infra
           fi
