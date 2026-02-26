@@ -19,8 +19,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 
 # Build-time arguments for Next.js public env vars
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_AI_SERVICE_URL
+# Defaults point to Railway production URLs (override with --build-arg for other envs)
+ARG NEXT_PUBLIC_API_URL=https://backend-production-7466.up.railway.app/api/v1
+ARG NEXT_PUBLIC_AI_SERVICE_URL=https://backend-production-7466.up.railway.app
 
 # Set as environment variables for the build
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
