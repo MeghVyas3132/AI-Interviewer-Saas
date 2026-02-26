@@ -82,7 +82,7 @@ class CandidateResponse(CandidateBase):
     assigned_to: Optional[UUID] = Field(None, description="Assigned employee ID")
     assigned_employee_name: Optional[str] = Field(None, description="Assigned employee name")
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -158,7 +158,7 @@ class InterviewResponse(InterviewBase):
     transcription_url: Optional[str]
     created_by: Optional[UUID]
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -190,7 +190,7 @@ class EmailQueueResponse(BaseModel):
     retry_count: int
     created_at: datetime
     sent_at: Optional[datetime]
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -263,7 +263,7 @@ class CandidateFeedbackResponse(BaseModel):
     feedback: str
     recommendation: Optional[str]
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

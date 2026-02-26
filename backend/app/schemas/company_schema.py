@@ -89,7 +89,7 @@ class CompanyResponse(CompanyBase):
     join_code: str  # Short code like ABCD-EFGH for users to join
     is_active: bool
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         """Pydantic config."""

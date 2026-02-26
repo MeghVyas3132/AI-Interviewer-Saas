@@ -103,7 +103,7 @@ class InterviewRoundResponse(BaseModel):
     notes: Optional[str]
     created_by: UUID
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         """Pydantic config."""

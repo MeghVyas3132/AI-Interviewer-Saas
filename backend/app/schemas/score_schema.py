@@ -42,7 +42,7 @@ class ScoreResponse(ScoreBase):
     overall: Optional[float] = None
     pass_recommendation: Optional[bool] = None
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         """Pydantic config."""

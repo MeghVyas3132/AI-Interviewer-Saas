@@ -51,7 +51,7 @@ class InterviewResponse(InterviewBase):
     meeting_link: Optional[str] = None
     ai_interview_token: Optional[str] = None
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         """Pydantic config."""
