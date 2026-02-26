@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'ax
 import Cookies from 'js-cookie'
 import { LoginRequest, LoginResponse, RefreshTokenRequest, ApiError } from '@/types'
 
-// Use environment variable with localhost fallback for development
+// Use env var for API URL, fallback to localhost for local development
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 class APIClient {

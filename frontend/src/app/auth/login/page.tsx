@@ -4,6 +4,7 @@ import React, { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
+import { API_BASE_URL } from '@/lib/constants'
 import Cookies from 'js-cookie'
 
 type LoginTab = 'employee' | 'candidate'
@@ -49,9 +50,7 @@ export default function LoginPage() {
     setCandidateLoading(true)
 
     try {
-      // Use environment variable for API URL
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const res = await fetch(`${apiUrl}/candidate-portal/login`, {
+      const res = await fetch(`${API_BASE_URL}/candidate-portal/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,10 +73,9 @@ export default function LoginPage() {
       localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
       localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
 
-      // Use window.location for a full page redirect
+      // Redirect to candidate portal
       window.location.href = '/candidate-portal'
     } catch (err: any) {
-      console.error('Candidate login error:', err)
       setError(err.message || 'Login failed. No candidate found with this email.')
       setCandidateLoading(false)
     }
@@ -284,8 +282,8 @@ export default function LoginPage() {
             {activeTab === 'candidate' && (
               <>
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
-                  <p className="font-medium mb-1">📧 Email-only Login</p>
-                  <p>Enter the email address that was used when a company added you as a candidate. No password required.</p>
+                  <p className="font-medium mb-1">Email-only Login</p>
+                  <p>Enter the email address that was used when a company added you as a candidate.</p>
                 </div>
 
                 <form onSubmit={handleCandidateLogin} className="space-y-6">
@@ -323,11 +321,6 @@ export default function LoginPage() {
                     )}
                   </button>
                 </form>
-
-                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm">
-                  <p className="font-semibold text-gray-700 mb-2">🔐 Test Candidate:</p>
-                  <p className="text-xs text-gray-600">alex.smith@example.com</p>
-                </div>
               </>
             )}
           </div>
@@ -336,7 +329,7 @@ export default function LoginPage() {
         {/* Footer */}
         <footer className="bg-gray-50 px-8 py-6 border-t border-gray-100">
           <p className="text-center text-gray-400 text-sm">
-            Copyright © 2025 Aigenthix - All Rights Reserved.
+            Copyright © 2026 Aigenthix - All Rights Reserved.
           </p>
         </footer>
       </div>

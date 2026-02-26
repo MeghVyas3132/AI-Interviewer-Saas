@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiClient } from '@/lib/api'
 import { Card } from '@/components/Card'
@@ -59,6 +60,86 @@ interface Job {
   status: string
 }
 
+// Round 2 candidate - passed AI interview
+interface Round2Candidate {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  full_name: string
+  phone: string
+  position: string
+  domain: string
+  status: string
+  ai_interviews: {
+    interview_id: string
+    scheduled_time: string | null
+    score: number | null
+    verdict: string
+    summary: string | null
+  }[]
+  best_score: number | null
+  human_round_scheduled: boolean
+  human_round_id: string | null
+  human_round_time: string | null
+}
+
+// Human-conducted interview round
+interface HumanRound {
+  id: string
+  candidate_id: string
+  candidate_name: string
+  candidate_email: string | null
+  position: string | null
+  round_type: string
+  interview_mode: string
+  scheduled_at: string | null
+  timezone: string
+  duration_minutes: number
+  status: string
+  started_at: string | null
+  ended_at: string | null
+  videosdk_meeting_id: string | null
+  notes: string | null
+}
+
+// Candidate needing manual review
+interface ParsedAIVerdict {
+  recommendation?: string
+  behavior_score?: number
+  confidence_score?: number
+  answer_score?: number
+  overall_score?: number
+  summary?: string
+  strengths?: string[]
+  weaknesses?: string[]
+  detailed_feedback?: string
+  technical_assessment?: string
+  hiring_risk?: string
+  key_answers?: { question: string; answer_summary: string; rating: string }[]
+}
+
+interface ReviewCandidate {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  full_name: string
+  phone: string
+  position: string
+  domain: string
+  status: string
+  interview_id: string
+  interview_date: string | null
+  ai_verdict: string | null
+  ai_score: number | null
+  ai_recommendation: string | null
+  ai_summary: string | null
+  can_override: boolean
+  // Parsed from ai_verdict JSON
+  parsed_verdict?: ParsedAIVerdict
+}
+
 export default function EmployeeDashboardPage() {
   const router = useRouter()
   const { user, isLoading: authLoading, logout } = useAuth()
@@ -69,7 +150,7 @@ export default function EmployeeDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'pipeline' | 'jobs' | 'settings'>('candidates')
+  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'review' | 'round2' | 'pipeline' | 'jobs' | 'settings'>('candidates')
 
   // Schedule interview modal
   const [showScheduleModal, setShowScheduleModal] = useState(false)
@@ -90,6 +171,25 @@ export default function EmployeeDashboardPage() {
   // Candidate profile modal
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [selectedProfileCandidateId, setSelectedProfileCandidateId] = useState<string | null>(null)
+
+  // Review candidates (AI unsure/failed)
+  const [reviewCandidates, setReviewCandidates] = useState<ReviewCandidate[]>([])
+  const [loadingReview, setLoadingReview] = useState(false)
+  const [reviewingCandidate, setReviewingCandidate] = useState<string | null>(null)
+
+  // Round 2 scheduling
+  const [round2Candidates, setRound2Candidates] = useState<Round2Candidate[]>([])
+  const [humanRounds, setHumanRounds] = useState<HumanRound[]>([])
+  const [loadingRound2, setLoadingRound2] = useState(false)
+  const [showHumanRoundModal, setShowHumanRoundModal] = useState(false)
+  const [selectedRound2Candidate, setSelectedRound2Candidate] = useState<Round2Candidate | null>(null)
+  const [humanRoundForm, setHumanRoundForm] = useState({
+    round_type: 'TECHNICAL',
+    scheduled_at: '',
+    duration_minutes: 60,
+    notes: ''
+  })
+  const [schedulingHumanRound, setSchedulingHumanRound] = useState(false)
 
   const handleOpenCandidateProfile = (candidateId: string) => {
     setSelectedProfileCandidateId(candidateId)
@@ -132,13 +232,13 @@ export default function EmployeeDashboardPage() {
 
         // Map schedules and normalize name
         const candidatesList = rawCandidatesList.map(c => {
-          const upcoming = interviewsList.find(i => i.candidate_id === c.id && i.status === 'scheduled');
+          const upcoming = interviewsList.find(i => i.candidate_id === c.id && i.status?.toUpperCase() === 'SCHEDULED');
           return {
             ...c,
             name: `${c.first_name} ${c.last_name}`,
-            scheduled_at: upcoming?.scheduled_time,
-            interview_token: upcoming?.interview_token,
-            interview_id: upcoming?.id
+            scheduled_at: (c as any).scheduled_at || upcoming?.scheduled_time,
+            interview_token: (c as any).interview_token || upcoming?.interview_token,
+            interview_id: (c as any).interview_id || upcoming?.id
           }
         });
         setCandidates(candidatesList)
@@ -148,17 +248,25 @@ export default function EmployeeDashboardPage() {
           const metricsRes = await apiClient.get<any>('/employee/dashboard')
           setMetrics({
             total_assigned: metricsRes.total_assigned_candidates || candidatesList.length,
-            pending_interviews: metricsRes.scheduled_interviews || interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
-            completed_interviews: metricsRes.completed_interviews || interviewsList.filter((i: Interview) => i.status === 'completed').length,
+            pending_interviews: metricsRes.scheduled_interviews || interviewsList.filter((i: Interview) => i.status?.toUpperCase() === 'SCHEDULED').length,
+            completed_interviews: metricsRes.completed_interviews || interviewsList.filter((i: Interview) => i.status?.toUpperCase() === 'COMPLETED').length,
             status_breakdown: {}
           })
         } catch {
           setMetrics({
             total_assigned: candidatesList.length,
-            pending_interviews: interviewsList.filter((i: Interview) => i.status === 'scheduled').length,
-            completed_interviews: interviewsList.filter((i: Interview) => i.status === 'completed').length,
+            pending_interviews: interviewsList.filter((i: Interview) => i.status?.toUpperCase() === 'SCHEDULED').length,
+            completed_interviews: interviewsList.filter((i: Interview) => i.status?.toUpperCase() === 'COMPLETED').length,
             status_breakdown: {}
           })
+        }
+
+        // Fetch candidates pending review (for tab count)
+        try {
+          const reviewRes = await apiClient.get<{ candidates: ReviewCandidate[], total: number }>('/employee/pending-review')
+          setReviewCandidates(reviewRes.candidates || [])
+        } catch {
+          // Silent fail - will show 0 in tab
         }
       } catch (err: any) {
         console.error('Error fetching data:', err)
@@ -170,6 +278,132 @@ export default function EmployeeDashboardPage() {
 
     fetchData()
   }, [authLoading, user])
+
+  // Fetch Round 2 candidates and human rounds
+  const fetchRound2Data = async () => {
+    try {
+      setLoadingRound2(true)
+      
+      // Fetch candidates ready for Round 2
+      const round2Res = await apiClient.get<{ candidates: Round2Candidate[], total: number }>('/employee/ready-for-round-2')
+      setRound2Candidates(round2Res.candidates || [])
+      
+      // Fetch existing human-conducted rounds
+      const humanRoundsRes = await apiClient.get<{ rounds: HumanRound[], total: number }>('/employee/my-human-rounds')
+      setHumanRounds(humanRoundsRes.rounds || [])
+    } catch (err: any) {
+      console.error('Error fetching Round 2 data:', err)
+      // Don't set error - allow partial data loading
+    } finally {
+      setLoadingRound2(false)
+    }
+  }
+
+  // Fetch candidates pending review (AI unsure/rejected)
+  const fetchReviewCandidates = async () => {
+    try {
+      setLoadingReview(true)
+      const res = await apiClient.get<{ candidates: ReviewCandidate[], total: number }>('/employee/pending-review')
+      // Parse ai_verdict JSON string into structured object
+      const parsed = (res.candidates || []).map((c: ReviewCandidate) => {
+        let parsed_verdict: ParsedAIVerdict | undefined
+        if (c.ai_verdict) {
+          try {
+            parsed_verdict = typeof c.ai_verdict === 'string' ? JSON.parse(c.ai_verdict) : c.ai_verdict
+          } catch {
+            parsed_verdict = undefined
+          }
+        }
+        return { ...c, parsed_verdict }
+      })
+      setReviewCandidates(parsed)
+    } catch (err: any) {
+      console.error('Error fetching review candidates:', err)
+    } finally {
+      setLoadingReview(false)
+    }
+  }
+
+  // Handle review decision (approve/reject)
+  const handleReviewDecision = async (candidateId: string, decision: 'APPROVE' | 'REJECT') => {
+    try {
+      setReviewingCandidate(candidateId)
+      await apiClient.post(`/employee/review-candidate/${candidateId}?decision=${decision}`, {})
+      setSuccess(`Candidate ${decision === 'APPROVE' ? 'approved for Round 2' : 'rejected'}`)
+      setTimeout(() => setSuccess(''), 3000)
+      
+      // Refresh review candidates list
+      await fetchReviewCandidates()
+      
+      // Also refresh Round 2 list if approving
+      if (decision === 'APPROVE') {
+        await fetchRound2Data()
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to process review')
+    } finally {
+      setReviewingCandidate(null)
+    }
+  }
+
+  // Fetch review candidates when tab is selected
+  useEffect(() => {
+    if (activeTab === 'review' && user?.role === 'EMPLOYEE') {
+      fetchReviewCandidates()
+    }
+  }, [activeTab, user])
+
+  // Fetch Round 2 data when tab is selected
+  useEffect(() => {
+    if (activeTab === 'round2' && user?.role === 'EMPLOYEE') {
+      fetchRound2Data()
+    }
+  }, [activeTab, user])
+
+  // Schedule human-conducted round
+  const handleScheduleHumanRound = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRound2Candidate) return
+
+    try {
+      setSchedulingHumanRound(true)
+      setError('')
+
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+      await apiClient.post('/employee/schedule-human-round', {
+        candidate_id: selectedRound2Candidate.id,
+        round_type: humanRoundForm.round_type,
+        scheduled_at: humanRoundForm.scheduled_at,
+        timezone: timezone,
+        duration_minutes: humanRoundForm.duration_minutes,
+        notes: humanRoundForm.notes || null
+      })
+
+      setShowHumanRoundModal(false)
+      setSelectedRound2Candidate(null)
+      setHumanRoundForm({
+        round_type: 'TECHNICAL',
+        scheduled_at: '',
+        duration_minutes: 60,
+        notes: ''
+      })
+      setSuccess('Human-conducted interview scheduled successfully!')
+      setTimeout(() => setSuccess(''), 3000)
+
+      // Refresh Round 2 data
+      await fetchRound2Data()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to schedule human-conducted interview')
+    } finally {
+      setSchedulingHumanRound(false)
+    }
+  }
+
+  // Start human-conducted interview
+  const handleStartHumanInterview = (roundId: string) => {
+    router.push(`/employee-interviews/room/${roundId}`)
+  }
 
   // Assign job role to candidate
   const handleAssignJobRole = async (candidateId: string, jobId: string) => {
@@ -235,17 +469,50 @@ export default function EmployeeDashboardPage() {
 
     // Check if candidate has a job role assigned - required for AI interview
     if (!selectedCandidate.job_role_id) {
-      setError('Please assign a job role to this candidate before scheduling an interview. The AI interviewer needs a job role to ask relevant questions.')
+      toast.error('Please assign a job role to this candidate before scheduling an interview. The AI interviewer needs a job role to ask relevant questions.')
       return
     }
 
     // Check if candidate already has a scheduled interview
     if (selectedCandidate.scheduled_at) {
-      const confirmed = window.confirm(
-        `This candidate already has an interview scheduled for ${new Date(selectedCandidate.scheduled_at).toLocaleString()}. Do you want to schedule another?`
-      )
-      if (!confirmed) return
+      toast((t) => (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 text-lg mt-0.5">⚠️</span>
+            <p className="text-sm leading-relaxed">
+              This candidate already has an interview scheduled for{' '}
+              <strong className="text-white">
+                {new Date(selectedCandidate.scheduled_at!).toLocaleString()}
+              </strong>. Do you want to schedule another?
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-600 hover:bg-gray-500 text-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                executeScheduleInterview()
+              }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors"
+            >
+              Yes, Schedule
+            </button>
+          </div>
+        </div>
+      ), { duration: 15000, style: { background: '#1e293b', color: '#f1f5f9', borderRadius: '12px', padding: '16px 20px', maxWidth: '440px' } })
+      return
     }
+
+    executeScheduleInterview()
+  }
+
+  const executeScheduleInterview = async () => {
+    if (!selectedCandidate) return
 
     try {
       setScheduling(true)
@@ -289,10 +556,9 @@ export default function EmployeeDashboardPage() {
       setShowScheduleModal(false)
       setSelectedCandidate(null)
       setScheduleForm({ round: 'screening', scheduled_time: '', notes: '' })
-      setSuccess('Interview scheduled successfully')
-      setTimeout(() => setSuccess(''), 3000)
+      toast.success('Interview scheduled successfully')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to schedule interview')
+      toast.error(err.response?.data?.detail || 'Failed to schedule interview')
     } finally {
       setScheduling(false)
     }
@@ -300,10 +566,36 @@ export default function EmployeeDashboardPage() {
 
   // Cancel interview
   const handleCancelInterview = async (candidateId: string, interviewId: string) => {
-    if (!window.confirm('Are you sure you want to cancel this interview?')) {
-      return
-    }
+    toast((t) => (
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start gap-2">
+          <span className="text-red-400 text-lg mt-0.5">🗑️</span>
+          <p className="text-sm leading-relaxed">
+            Are you sure you want to cancel this interview?
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-600 hover:bg-gray-500 text-gray-200 transition-colors"
+          >
+            No, Keep It
+          </button>
+          <button
+            onClick={() => {
+              toast.dismiss(t.id)
+              executeCancelInterview(candidateId, interviewId)
+            }}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+          >
+            Yes, Cancel
+          </button>
+        </div>
+      </div>
+    ), { duration: 15000, style: { background: '#1e293b', color: '#f1f5f9', borderRadius: '12px', padding: '16px 20px', maxWidth: '400px' } })
+  }
 
+  const executeCancelInterview = async (candidateId: string, interviewId: string) => {
     try {
       setError('')
       await apiClient.delete(`/employee/my-candidates/${candidateId}/interviews/${interviewId}`)
@@ -326,10 +618,9 @@ export default function EmployeeDashboardPage() {
       const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
       setInterviews(interviewsList)
 
-      setSuccess('Interview cancelled successfully')
-      setTimeout(() => setSuccess(''), 3000)
+      toast.success('Interview cancelled successfully')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to cancel interview')
+      toast.error(err.response?.data?.detail || 'Failed to cancel interview')
     }
   }
 
@@ -505,6 +796,35 @@ export default function EmployeeDashboardPage() {
                 }`}
             >
               Interviews ({interviews.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('review')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'review'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              <span className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Needs Review ({reviewCandidates.length})
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('round2')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'round2'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              <span className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Round 2+ ({round2Candidates.length + humanRounds.filter(r => r.status === 'SCHEDULED').length})
+              </span>
             </button>
             <button
               onClick={() => setActiveTab('pipeline')}
@@ -804,6 +1124,530 @@ export default function EmployeeDashboardPage() {
               )}
             </div>
           </Card>
+        )}
+
+        {/* Needs Review Tab - AI unsure/failed candidates */}
+        {activeTab === 'review' && (
+          <div className="space-y-6">
+            {/* Info Banner */}
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-amber-900">Candidates Needing Review</h3>
+                  <p className="text-sm text-amber-700 mt-1">
+                    These candidates require your manual review. The AI was either unsure about the verdict or rejected them, but you can override the decision.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Review Candidates List */}
+            <Card>
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Candidates Pending Review</h2>
+                  <button
+                    onClick={fetchReviewCandidates}
+                    disabled={loadingReview}
+                    className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2"
+                  >
+                    <svg className={`w-4 h-4 ${loadingReview ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+
+                {loadingReview ? (
+                  <div className="py-12 text-center">
+                    <div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full mx-auto"></div>
+                    <p className="text-gray-500 mt-4">Loading candidates...</p>
+                  </div>
+                ) : reviewCandidates.length === 0 ? (
+                  <div className="py-12 text-center text-gray-500">
+                    <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-lg font-medium">No candidates pending review</p>
+                    <p className="text-sm mt-2">All AI interviews have clear verdicts</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {reviewCandidates.map((candidate) => {
+                      const v = candidate.parsed_verdict
+                      const overallScore = v?.overall_score ?? candidate.ai_score
+                      const recommendation = v?.recommendation || candidate.ai_recommendation || 'N/A'
+
+                      return (
+                      <div key={candidate.id} className="border border-gray-200 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow bg-white">
+                        {/* Card Header */}
+                        <div className={`px-6 py-4 ${
+                          recommendation === 'REJECT' || recommendation === 'FAIL'
+                            ? 'bg-gradient-to-r from-red-50 to-red-100 border-b border-red-200'
+                            : recommendation === 'HIRE' || recommendation === 'PASS'
+                            ? 'bg-gradient-to-r from-green-50 to-green-100 border-b border-green-200'
+                            : 'bg-gradient-to-r from-amber-50 to-yellow-100 border-b border-amber-200'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                                recommendation === 'REJECT' || recommendation === 'FAIL'
+                                  ? 'bg-red-500' : recommendation === 'HIRE' || recommendation === 'PASS'
+                                  ? 'bg-green-500' : 'bg-amber-500'
+                              }`}>
+                                {(candidate.first_name?.[0] || '').toUpperCase()}{(candidate.last_name?.[0] || '').toUpperCase()}
+                              </div>
+                              <div>
+                                <button
+                                  onClick={() => handleOpenCandidateProfile(candidate.id)}
+                                  className="text-lg font-bold text-gray-900 hover:text-primary-600 hover:underline"
+                                >
+                                  {candidate.full_name}
+                                </button>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-sm text-gray-500">{candidate.email}</span>
+                                  <span className="text-gray-300">•</span>
+                                  <span className="text-sm font-medium text-gray-700">{candidate.position}</span>
+                                  {candidate.domain && (
+                                    <>
+                                      <span className="text-gray-300">•</span>
+                                      <span className="text-sm text-gray-500">{candidate.domain}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide ${
+                                candidate.status === 'ai_review' ? 'bg-amber-200 text-amber-900' :
+                                candidate.status === 'ai_rejected' ? 'bg-red-200 text-red-900' :
+                                'bg-gray-200 text-gray-800'
+                              }`}>
+                                {candidate.status === 'ai_review' ? '⚠ Needs Review' : 
+                                 candidate.status === 'ai_rejected' ? '✗ AI Rejected' : candidate.status?.replace(/_/g, ' ')}
+                              </span>
+                              {candidate.interview_date && (
+                                <span className="text-xs text-gray-500">
+                                  {new Date(candidate.interview_date).toLocaleDateString('en-US', { 
+                                    month: 'short', day: 'numeric', year: 'numeric' 
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Body */}
+                        <div className="px-6 py-5">
+                          {/* Score Cards Row */}
+                          {v && (
+                            <div className="grid grid-cols-4 gap-3 mb-5">
+                              <div className={`rounded-xl p-3 text-center border ${
+                                (overallScore ?? 0) >= 70 ? 'bg-green-50 border-green-200' :
+                                (overallScore ?? 0) >= 50 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+                              }`}>
+                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Overall</span>
+                                <span className={`text-2xl font-bold ${
+                                  (overallScore ?? 0) >= 70 ? 'text-green-600' :
+                                  (overallScore ?? 0) >= 50 ? 'text-amber-600' : 'text-red-600'
+                                }`}>{overallScore ?? '—'}%</span>
+                              </div>
+                              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Behavior</span>
+                                <span className="text-2xl font-bold text-blue-600">{v.behavior_score ?? '—'}%</span>
+                              </div>
+                              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-center">
+                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Confidence</span>
+                                <span className="text-2xl font-bold text-purple-600">{v.confidence_score ?? '—'}%</span>
+                              </div>
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Answers</span>
+                                <span className="text-2xl font-bold text-emerald-600">{v.answer_score ?? '—'}%</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Recommendation Badge + Risk */}
+                          <div className="flex items-center gap-3 mb-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${
+                              recommendation === 'REJECT' || recommendation === 'FAIL'
+                                ? 'bg-red-100 text-red-800'
+                                : recommendation === 'HIRE' || recommendation === 'PASS'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {recommendation === 'REJECT' || recommendation === 'FAIL' ? (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              ) : recommendation === 'HIRE' || recommendation === 'PASS' ? (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              )}
+                              AI Recommendation: {recommendation}
+                            </span>
+                            {v?.hiring_risk && (
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                                v.hiring_risk === 'HIGH' ? 'bg-red-100 text-red-700' :
+                                v.hiring_risk === 'MEDIUM' ? 'bg-amber-100 text-amber-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                Risk: {v.hiring_risk}
+                              </span>
+                            )}
+                            {v?.technical_assessment && (
+                              <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold">
+                                Technical: {v.technical_assessment}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Summary */}
+                          {v?.summary && (
+                            <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                              <h4 className="text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+                                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                AI Summary
+                              </h4>
+                              <p className="text-sm text-gray-600 leading-relaxed">{v.summary}</p>
+                            </div>
+                          )}
+
+                          {/* Strengths & Weaknesses */}
+                          {((v?.strengths && v.strengths.length > 0) || (v?.weaknesses && v.weaknesses.length > 0)) && (
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                              {/* Strengths */}
+                              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                                <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                  Strengths
+                                </h4>
+                                {v?.strengths && v.strengths.length > 0 ? (
+                                  <ul className="space-y-1.5">
+                                    {v.strengths.map((s: string, i: number) => (
+                                      <li key={i} className="text-sm text-green-700 flex items-start gap-1.5">
+                                        <span className="text-green-400 mt-1">✓</span>
+                                        {s}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-sm text-green-500 italic">No notable strengths identified</p>
+                                )}
+                              </div>
+                              {/* Weaknesses */}
+                              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                                <h4 className="text-sm font-semibold text-red-800 mb-2 flex items-center gap-1.5">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                  Weaknesses
+                                </h4>
+                                {v?.weaknesses && v.weaknesses.length > 0 ? (
+                                  <ul className="space-y-1.5">
+                                    {v.weaknesses.map((w: string, i: number) => (
+                                      <li key={i} className="text-sm text-red-700 flex items-start gap-1.5">
+                                        <span className="text-red-400 mt-1">✗</span>
+                                        {w}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-sm text-red-500 italic">No weaknesses identified</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Detailed Feedback */}
+                          {v?.detailed_feedback && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                              <h4 className="text-sm font-semibold text-blue-800 mb-1.5 flex items-center gap-1.5">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                                Detailed Feedback
+                              </h4>
+                              <p className="text-sm text-blue-700 leading-relaxed">{v.detailed_feedback}</p>
+                            </div>
+                          )}
+
+                          {/* Key Answers */}
+                          {v?.key_answers && v.key_answers.length > 0 && (
+                            <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                              <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
+                                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Key Interview Answers
+                              </h4>
+                              <div className="space-y-2">
+                                {v.key_answers.map((ka, i) => (
+                                  <div key={i} className="flex items-start gap-3 bg-white rounded-lg p-3 border border-gray-200">
+                                    <div className="flex-1">
+                                      <p className="text-sm font-medium text-gray-800">{ka.question}</p>
+                                      <p className="text-xs text-gray-500 mt-1">{ka.answer_summary}</p>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold flex-shrink-0 ${
+                                      ka.rating === 'GOOD' || ka.rating === 'EXCELLENT' ? 'bg-green-100 text-green-700' :
+                                      ka.rating === 'AVERAGE' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                    }`}>{ka.rating}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer - Actions */}
+                        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                          {candidate.can_override && (
+                            <p className="text-xs text-amber-600 mb-3 flex items-center gap-1.5">
+                              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              AI rejected this candidate, but you can override and approve for Round 2
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleReviewDecision(candidate.id, 'APPROVE')}
+                              disabled={reviewingCandidate === candidate.id}
+                              className="flex-1 py-2.5 px-4 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm"
+                            >
+                              {reviewingCandidate === candidate.id ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                              Approve for Round 2
+                            </button>
+                            <button
+                              onClick={() => handleReviewDecision(candidate.id, 'REJECT')}
+                              disabled={reviewingCandidate === candidate.id}
+                              className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm"
+                            >
+                              {reviewingCandidate === candidate.id ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              )}
+                              Reject Candidate
+                            </button>
+                            <button
+                              onClick={() => handleOpenCandidateProfile(candidate.id)}
+                              className="py-2.5 px-5 bg-white hover:bg-gray-100 text-gray-700 rounded-xl font-semibold transition-colors border border-gray-300 shadow-sm"
+                            >
+                              View Profile
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Round 2+ Tab - Human-Conducted Interviews */}
+        {activeTab === 'round2' && (
+          <div className="space-y-6">
+            {/* Info Banner */}
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-purple-900">Human-Conducted Interviews with AI Assistance</h3>
+                  <p className="text-sm text-purple-700 mt-1">
+                    Schedule and conduct Round 2+ interviews with real-time AI insights. Candidates who passed the AI interview will appear here.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {loadingRound2 ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Candidates Ready for Round 2 */}
+                <Card>
+                  <div className="p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                      Ready for Round 2 ({round2Candidates.filter(c => !c.human_round_scheduled).length})
+                    </h2>
+                    {round2Candidates.filter(c => !c.human_round_scheduled).length === 0 ? (
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-500">No candidates ready for Round 2 yet.</p>
+                        <p className="text-sm text-gray-400 mt-1">Candidates who pass AI interviews will appear here.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {round2Candidates.filter(c => !c.human_round_scheduled).map(candidate => (
+                          <div key={candidate.id} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-medium">
+                                  {candidate.first_name?.[0]}{candidate.last_name?.[0]}
+                                </div>
+                                <div>
+                                  <button
+                                    onClick={() => handleOpenCandidateProfile(candidate.id)}
+                                    className="font-medium text-gray-900 hover:text-primary-600 hover:underline"
+                                  >
+                                    {candidate.full_name}
+                                  </button>
+                                  <p className="text-sm text-gray-500">{candidate.position || 'No position'}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                                  Score: {candidate.best_score || 'N/A'}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between">
+                              <p className="text-xs text-gray-400">
+                                AI Interview: {candidate.ai_interviews[0]?.verdict || 'PASS'}
+                              </p>
+                              <button
+                                onClick={() => {
+                                  setSelectedRound2Candidate(candidate)
+                                  setShowHumanRoundModal(true)
+                                }}
+                                className="px-3 py-1.5 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 transition-colors"
+                              >
+                                Schedule Round 2
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Scheduled Human Rounds */}
+                <Card>
+                  <div className="p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                      Scheduled Human Interviews ({humanRounds.filter(r => r.status === 'SCHEDULED').length})
+                    </h2>
+                    {humanRounds.filter(r => r.status === 'SCHEDULED').length === 0 ? (
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-500">No human interviews scheduled.</p>
+                        <p className="text-sm text-gray-400 mt-1">Schedule Round 2+ interviews for candidates who passed AI.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {humanRounds.filter(r => r.status === 'SCHEDULED').map(round => (
+                          <div key={round.id} className="border border-blue-200 bg-blue-50/50 rounded-lg p-4">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <p className="font-medium text-gray-900">{round.candidate_name}</p>
+                                <p className="text-sm text-gray-500">{round.position || 'No position'}</p>
+                              </div>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                                {round.round_type}
+                              </span>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between">
+                              <div className="text-sm text-gray-600">
+                                <p>{round.scheduled_at ? new Date(round.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'TBD'}</p>
+                                <p className="text-xs text-gray-400">{round.scheduled_at ? new Date(round.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                              </div>
+                              <button
+                                onClick={() => handleStartHumanInterview(round.id)}
+                                className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                Start Interview
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </div>
+            )}
+
+            {/* Completed Human Rounds */}
+            {humanRounds.filter(r => r.status === 'COMPLETED').length > 0 && (
+              <Card>
+                <div className="p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Completed Human Interviews ({humanRounds.filter(r => r.status === 'COMPLETED').length})
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Candidate</th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Round Type</th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Duration</th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {humanRounds.filter(r => r.status === 'COMPLETED').map(round => (
+                          <tr key={round.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-4 text-sm">
+                              <button
+                                onClick={() => handleOpenCandidateProfile(round.candidate_id)}
+                                className="font-medium text-primary-600 hover:underline"
+                              >
+                                {round.candidate_name}
+                              </button>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-600">{round.round_type}</td>
+                            <td className="px-4 py-4 text-sm text-gray-600">
+                              {round.ended_at ? new Date(round.ended_at).toLocaleDateString() : 'N/A'}
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-600">{round.duration_minutes} min</td>
+                            <td className="px-4 py-4">
+                              <button
+                                onClick={() => router.push(`/employee-interviews/verdict/${round.id}`)}
+                                className="text-sm text-primary-600 hover:underline"
+                              >
+                                View Verdict
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Card>
+            )}
+          </div>
         )}
 
         {/* Pipeline Tab */}
@@ -1122,6 +1966,171 @@ export default function EmployeeDashboardPage() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Human Round Modal */}
+      {showHumanRoundModal && selectedRound2Candidate && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-700 px-6 py-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-white">Schedule Human Interview</h3>
+                  <p className="text-purple-100 text-sm mt-1">Round 2+ with AI Assistance</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowHumanRoundModal(false)
+                    setSelectedRound2Candidate(null)
+                  }}
+                  className="text-white/80 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Candidate Info */}
+            <div className="px-6 py-4 bg-purple-50 border-b border-purple-100">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-medium text-lg">
+                  {selectedRound2Candidate.first_name?.[0]}{selectedRound2Candidate.last_name?.[0]}
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900">{selectedRound2Candidate.full_name}</p>
+                  <p className="text-sm text-gray-500">{selectedRound2Candidate.email}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                  AI Score: {selectedRound2Candidate.best_score || 'N/A'}%
+                </span>
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                  {selectedRound2Candidate.position || 'No position'}
+                </span>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleScheduleHumanRound} className="p-6">
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div className="space-y-5">
+                {/* Round Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Interview Round Type</label>
+                  <select
+                    value={humanRoundForm.round_type}
+                    onChange={(e) => setHumanRoundForm({ ...humanRoundForm, round_type: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  >
+                    <option value="TECHNICAL">Technical Interview</option>
+                    <option value="BEHAVIORAL">Behavioral Interview</option>
+                    <option value="HR">HR Interview</option>
+                    <option value="FINAL">Final Round</option>
+                    <option value="CUSTOM">Custom</option>
+                  </select>
+                </div>
+
+                {/* Date & Time */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    value={humanRoundForm.scheduled_at}
+                    onChange={(e) => setHumanRoundForm({ ...humanRoundForm, scheduled_at: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    required
+                  />
+                </div>
+
+                {/* Duration */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes)</label>
+                  <select
+                    value={humanRoundForm.duration_minutes}
+                    onChange={(e) => setHumanRoundForm({ ...humanRoundForm, duration_minutes: parseInt(e.target.value) })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  >
+                    <option value={30}>30 minutes</option>
+                    <option value={45}>45 minutes</option>
+                    <option value={60}>60 minutes</option>
+                    <option value={90}>90 minutes</option>
+                  </select>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Notes (optional)</label>
+                  <textarea
+                    value={humanRoundForm.notes}
+                    onChange={(e) => setHumanRoundForm({ ...humanRoundForm, notes: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 resize-none"
+                    placeholder="Interview focus areas, topics to cover..."
+                  />
+                </div>
+
+                {/* AI Assistance Info */}
+                <div className="p-4 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl">
+                  <div className="flex items-center gap-2 text-purple-900 font-medium mb-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    AI Assistance Enabled
+                  </div>
+                  <p className="text-sm text-purple-700">
+                    During this interview, you'll have access to real-time AI insights including speech analysis, 
+                    engagement metrics, fraud detection, and suggested follow-up questions.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowHumanRoundModal(false)
+                    setSelectedRound2Candidate(null)
+                  }}
+                  className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={schedulingHumanRound || !humanRoundForm.scheduled_at}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-700 text-white rounded-xl font-medium hover:from-purple-700 hover:to-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/25"
+                >
+                  {schedulingHumanRound ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Scheduling...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Schedule Interview
+                    </span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

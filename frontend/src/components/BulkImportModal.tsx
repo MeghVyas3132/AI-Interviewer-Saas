@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react'
 import Cookies from 'js-cookie'
 
-// Use environment variable with localhost fallback for development
+// Backend API URL - use env var, fallback to localhost for local development
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 interface BulkImportModalProps {

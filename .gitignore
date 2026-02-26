@@ -50,14 +50,10 @@ env/
 *.swo
 *~
 
-# Environment variables - NEVER COMMIT SECRETS
+# Environment variables
 .env
 .env.local
 .env.*.local
-.env.development
-.env.production
-!.env.example
-!.env.production.template
 
 # Database
 *.db

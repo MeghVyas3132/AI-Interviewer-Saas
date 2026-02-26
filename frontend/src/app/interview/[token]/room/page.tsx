@@ -62,6 +62,8 @@ export default function InterviewRoomPage() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const elapsedTimeRef = useRef(0);
 
   // Resume from localStorage
   const [resumeText, setResumeText] = useState('');
@@ -125,10 +127,15 @@ export default function InterviewRoomPage() {
     };
   }, []);
 
-  // Auto-scroll messages
+  // Auto-scroll messages and keep refs in sync
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    elapsedTimeRef.current = elapsedTime;
+  }, [elapsedTime]);
 
   // Select female voice
   const getFemaleVoice = useCallback(() => {
@@ -331,6 +338,55 @@ export default function InterviewRoomPage() {
     // Recognition should auto-restart
   }, []);
 
+  // Save transcript to backend (use ref pattern to avoid stale closure)
+  const saveTranscriptRef = useRef<() => Promise<void>>();
+  saveTranscriptRef.current = async () => {
+    try {
+      // Use ref to get latest messages (avoids stale closure)
+      const currentMessages = messagesRef.current;
+      if (!currentMessages || currentMessages.length === 0) {
+        console.error('No messages to save');
+        return;
+      }
+
+      const transcriptData = currentMessages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp.toISOString()
+      }));
+      
+      // Get resume from localStorage
+      const savedResume = localStorage.getItem(`resume_${token}`) || '';
+      const savedFilename = localStorage.getItem(`resume_filename_${token}`) || '';
+      
+      console.log(`Saving transcript: ${transcriptData.length} messages to interview ${session?.id}`);
+      
+      const response = await fetch(`${API_BASE_URL}/hr/interviews/${session?.id}/transcript`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: transcriptData,
+          duration_seconds: elapsedTimeRef.current,
+          resume_text: savedResume,
+          resume_filename: savedFilename
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Failed to save transcript: ${response.status} ${errorText}`);
+      } else {
+        console.log('Transcript saved successfully');
+      }
+    } catch (err) {
+      console.error('Failed to save transcript:', err);
+    }
+  };
+
+  const saveTranscript = useCallback(() => {
+    return saveTranscriptRef.current?.() || Promise.resolve();
+  }, []);
+
   // Ask question
   const askQuestion = useCallback(async (questionIndex: number) => {
     if (!session?.questions_generated || questionIndex >= session.questions_generated.length) {
@@ -340,8 +396,8 @@ export default function InterviewRoomPage() {
       await speakText(closingMessage);
       setInterviewEnded(true);
       
-      // Save transcript
-      saveTranscript();
+      // Save transcript (uses ref so always calls latest version)
+      await saveTranscript();
       return;
     }
 
@@ -351,35 +407,7 @@ export default function InterviewRoomPage() {
     
     // Start listening for answer
     startListening();
-  }, [session, addMessage, speakText, startListening]);
-
-  // Save transcript to backend
-  const saveTranscript = async () => {
-    try {
-      const transcriptData = messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp.toISOString()
-      }));
-      
-      // Get resume from localStorage
-      const resumeText = localStorage.getItem(`resume_${token}`) || '';
-      const resumeFilename = localStorage.getItem(`resume_filename_${token}`) || '';
-      
-      await fetch(`${API_BASE_URL}/hr/interviews/${session?.id}/transcript`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: transcriptData,
-          duration_seconds: elapsedTime,
-          resume_text: resumeText,
-          resume_filename: resumeFilename
-        })
-      });
-    } catch {
-      console.error('Failed to save transcript');
-    }
-  };
+  }, [session, addMessage, speakText, startListening, saveTranscript]);
 
   // Submit answer
   const submitAnswer = useCallback(async () => {

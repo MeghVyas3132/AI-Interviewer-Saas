@@ -6,8 +6,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
+# Copy package files from frontend folder
+COPY frontend/package.json frontend/package-lock.json* ./
 
 # Install dependencies
 RUN npm install
@@ -16,10 +16,18 @@ RUN npm install
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY frontend/ .
+
+# Build-time arguments for Next.js public env vars
+# Defaults point to Railway production URLs (override with --build-arg for other envs)
+ARG NEXT_PUBLIC_API_URL=https://backend-production-7466.up.railway.app/api/v1
+ARG NEXT_PUBLIC_AI_SERVICE_URL=https://backend-production-7466.up.railway.app
+
+# Set as environment variables for the build
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_AI_SERVICE_URL=$NEXT_PUBLIC_AI_SERVICE_URL
 
 # Build the application
-# Note: Ensure 'output: "standalone"' is in next.config.js
 RUN npm run build
 
 # Production image, copy all the files and run next
@@ -27,8 +35,6 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
-# Uncomment the following line in case you want to disable telemetry during runtime.
-# ENV NEXT_TELEMETRY_DISABLED 1
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
@@ -38,7 +44,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 RUN chmod -R a+r ./public && find ./public -type d -exec chmod a+rx {} +
 
 # Copy standalone build
-# Note: If standalone build is not enabled, we would copy .next and node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
