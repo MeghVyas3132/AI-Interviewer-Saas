@@ -399,8 +399,6 @@ async def submit_employee_verdict(
                     text("""
                         UPDATE candidates 
                         SET status = :status, 
-                            current_round = 2,
-                            promoted_at = NOW(),
                             updated_at = NOW()
                         WHERE id = :id
                     """),
@@ -429,12 +427,11 @@ async def submit_employee_verdict(
             await db.execute(
                 text("""
                     UPDATE interviews 
-                    SET reviewed_by = :reviewed_by,
-                        reviewed_at = NOW(),
+                    SET employee_verdict = :verdict,
                         updated_at = NOW()
                     WHERE id = :interview_id
                 """),
-                {"reviewed_by": str(current_user.id), "interview_id": str(interview_id)}
+                {"verdict": verdict_upper, "interview_id": str(interview_id)}
             )
         
         await db.commit()
