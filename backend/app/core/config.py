@@ -195,7 +195,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-        extra = "forbid"  # Reject unknown environment variables
+        extra = "ignore"  # Allow Railway-injected env vars (RAILWAY_*, etc.)
 
 
 # Lazy initialization with validation
