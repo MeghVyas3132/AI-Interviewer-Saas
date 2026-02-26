@@ -27,7 +27,7 @@ class ImportJobStatusResponse(BaseModel):
     error_message: Optional[str] = None
     detailed_errors: Optional[list] = None
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

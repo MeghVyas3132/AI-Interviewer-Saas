@@ -11,6 +11,7 @@ import os
 
 from fastapi import FastAPI, status, Request
 from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.exceptions import ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -99,6 +100,24 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         max_age=86400,  # Cache preflight for 24 hours
     )
+
+    # 6. Global exception handler to ensure errors return JSON (not plain text)
+    # This prevents CORS headers from being lost on unhandled exceptions
+    @app.exception_handler(ResponseValidationError)
+    async def response_validation_error_handler(request: Request, exc: ResponseValidationError):
+        logger.error(f"Response validation error on {request.method} {request.url.path}: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Response validation error - data format mismatch"},
+        )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     # Include routers with tags for better organization
     app.include_router(admin.router)

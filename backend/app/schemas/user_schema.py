@@ -76,7 +76,7 @@ class UserResponse(UserBase):
     is_active: bool
     email_verified: bool = False
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         """Pydantic config."""
