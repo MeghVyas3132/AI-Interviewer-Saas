@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.middleware.auth import (
     get_current_user,
+    require_employee,
     require_hr,
     require_hr_or_admin,
     require_hr_or_employee,

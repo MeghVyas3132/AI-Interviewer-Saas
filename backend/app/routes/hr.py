@@ -7,23 +7,19 @@ HR capabilities:
 - Access company-specific data
 """
 
-import logging
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, not_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
-logger = logging.getLogger(__name__)
 
 
 def require_hr(current_user: User = Depends(get_current_user)) -> User:
@@ -103,113 +99,11 @@ async def get_hr_metrics(
             "pending_interviews": pending_interviews,
         }
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching metrics"
-        )
-
-
-@router.get("/candidates")
-async def get_hr_candidates(
-    current_user: User = Depends(require_hr),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    status_filter: Optional[str] = Query(None, description="Filter by status"),
-    assigned_to: Optional[str] = Query(None, description="Filter by assigned employee ID"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get list of candidates in the company (HR view).
-    Returns: All candidates with their assignment status and interview information.
-    """
-    try:
-        company_id = current_user.company_id
-        
-        # Base query for candidates in company
-        query = select(Candidate).filter(Candidate.company_id == company_id)
-        
-        # Apply filters
-        if status_filter:
-            try:
-                status_enum = CandidateStatus(status_filter.lower())
-                query = query.filter(Candidate.status == status_enum)
-            except ValueError:
-                pass  # Invalid status, ignore filter
-        
-        if assigned_to:
-            from uuid import UUID as PyUUID
-            try:
-                employee_uuid = PyUUID(assigned_to)
-                query = query.filter(Candidate.assigned_to == employee_uuid)
-            except ValueError:
-                pass  # Invalid UUID, ignore filter
-        
-        # Order by created_at descending and apply pagination
-        query = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit)
-        
-        result = await db.execute(query)
-        candidates = result.scalars().all()
-        
-        # Get total count
-        count_query = select(func.count()).select_from(Candidate).filter(
-            Candidate.company_id == company_id
-        )
-        if status_filter:
-            try:
-                status_enum = CandidateStatus(status_filter.lower())
-                count_query = count_query.filter(Candidate.status == status_enum)
-            except ValueError:
-                pass
-        if assigned_to:
-            try:
-                employee_uuid = PyUUID(assigned_to)
-                count_query = count_query.filter(Candidate.assigned_to == employee_uuid)
-            except ValueError:
-                pass
-        
-        count_result = await db.execute(count_query)
-        total = count_result.scalar() or 0
-        
-        # Build response
-        candidates_data = []
-        for cand in candidates:
-            # Get assigned employee name if assigned
-            assigned_employee_name = None
-            if cand.assigned_to:
-                emp_result = await db.execute(
-                    select(User).filter(User.id == cand.assigned_to)
-                )
-                emp = emp_result.scalars().first()
-                if emp:
-                    assigned_employee_name = emp.name
-            
-            candidates_data.append({
-                "id": str(cand.id),
-                "name": cand.name,
-                "email": cand.email,
-                "phone": cand.phone,
-                "status": cand.status.value if cand.status else None,
-                "assigned_to": str(cand.assigned_to) if cand.assigned_to else None,
-                "assigned_employee_name": assigned_employee_name,
-                "job_template_id": str(cand.job_template_id) if cand.job_template_id else None,
-                "created_at": cand.created_at.isoformat() if cand.created_at else None,
-                "updated_at": cand.updated_at.isoformat() if cand.updated_at else None,
-            })
-        
-        return {
-            "candidates": candidates_data,
-            "total": total,
-            "skip": skip,
-            "limit": limit
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching candidates"
+            detail=f"Error fetching metrics: {str(e)}"
         )
 
 
@@ -266,146 +160,11 @@ async def get_employees(
 
         return employee_data
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching employees"
-        )
-
-
-@router.get("/candidate-profile/{candidate_id}")
-async def get_candidate_profile_hr(
-    candidate_id: UUID,
-    current_user: User = Depends(require_hr),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get detailed candidate profile for HR view.
-    Includes interview transcript, Q&A breakdown, scores, verdict, and resume.
-    """
-    from app.models.ai_report import AIReport
-
-    try:
-        # Get candidate (must belong to same company as HR)
-        query = select(Candidate).filter(
-            and_(
-                Candidate.id == candidate_id,
-                Candidate.company_id == current_user.company_id
-            )
-        )
-        result = await db.execute(query)
-        candidate = result.scalars().first()
-
-        if not candidate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Candidate not found"
-            )
-
-        # Get all interviews for this candidate
-        interviews_query = select(Interview).filter(
-            Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.desc()).limit(50)
-        interviews_result = await db.execute(interviews_query)
-        interviews = interviews_result.scalars().all()
-
-        # Get AI reports for these interviews
-        interview_ids = [i.id for i in interviews]
-        reports = []
-
-        if interview_ids:
-            reports_query = select(AIReport).filter(
-                and_(
-                    AIReport.interview_id.in_(interview_ids),
-                    AIReport.report_type == "interview_verdict"
-                )
-            )
-            reports_result = await db.execute(reports_query)
-            reports = reports_result.scalars().all()
-
-        # Map reports to interviews
-        reports_by_interview = {r.interview_id: r for r in reports}
-
-        # Build detailed interview data
-        interview_details = []
-        for interview in interviews:
-            report = reports_by_interview.get(interview.id)
-            provider_response = report.provider_response if report else {}
-            transcript = provider_response.get("transcript", [])
-
-            # Extract Q&A pairs
-            qa_pairs = []
-            current_question = None
-            for msg in transcript:
-                if msg.get("role") == "ai":
-                    current_question = msg.get("content", "")
-                elif msg.get("role") == "user" and current_question:
-                    qa_pairs.append({
-                        "question": current_question,
-                        "answer": msg.get("content", ""),
-                        "timestamp": msg.get("timestamp", "")
-                    })
-                    current_question = None
-
-            verdict = provider_response.get("verdict") if report else None
-            if not verdict and report and report.score is not None:
-                if report.score >= 70:
-                    verdict = "PASS"
-                elif report.score >= 50:
-                    verdict = "REVIEW"
-                else:
-                    verdict = "FAIL"
-
-            interview_details.append({
-                "interview_id": str(interview.id),
-                "round": interview.round.value if interview.round else "unknown",
-                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
-                "status": interview.status.value if interview.status else None,
-                "verdict": verdict,
-                "overall_score": report.score if report else None,
-                "behavior_score": provider_response.get("behavior_score") if report else None,
-                "confidence_score": provider_response.get("confidence_score") if report else None,
-                "answer_score": provider_response.get("answer_score") if report else None,
-                "strengths": provider_response.get("strengths", []) if report else [],
-                "weaknesses": provider_response.get("weaknesses", []) if report else [],
-                "detailed_feedback": provider_response.get("detailed_feedback", "") if report else "",
-                "key_answers": provider_response.get("key_answers", []) if report else [],
-                "summary": report.summary if report else None,
-                "duration_seconds": provider_response.get("duration_seconds"),
-                "total_questions": provider_response.get("total_questions"),
-                "total_answers": provider_response.get("total_answers"),
-                "qa_pairs": qa_pairs,
-                "resume_text": provider_response.get("resume_text", "") or getattr(candidate, 'resume_text', "") or "",
-                "resume_filename": provider_response.get("resume_filename", ""),
-                "ats_score": getattr(interview, 'ats_score', None),
-                "employee_verdict": getattr(interview, 'employee_verdict', None),
-            })
-
-        return {
-            "candidate": {
-                "id": str(candidate.id),
-                "email": candidate.email,
-                "first_name": candidate.first_name,
-                "last_name": candidate.last_name,
-                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
-                "phone": candidate.phone,
-                "position": candidate.position,
-                "domain": candidate.domain,
-                "status": candidate.status.value if candidate.status else None,
-                "experience_years": candidate.experience_years,
-                "qualifications": candidate.qualifications,
-            },
-            "interviews": interview_details,
-            "total_interviews": len(interviews),
-            "completed_interviews": len([i for i in interviews if i.status == InterviewStatus.COMPLETED]),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching candidate profile"
+            detail=f"Error fetching employees: {str(e)}"
         )
 
 
@@ -420,6 +179,9 @@ async def assign_candidate_to_employee(
     Assign a candidate to an employee (HR only).
     Max 10 candidates per employee at a time.
     """
+    from sqlalchemy import text
+    from app.utils.cache import invalidate_cache
+
     try:
         company_id = current_user.company_id
 
@@ -473,16 +235,18 @@ async def assign_candidate_to_employee(
                 detail=f"Employee already has maximum 10 candidates assigned"
             )
 
-        # Assign candidate and update status to 'assigned' (new pipeline status)
-        candidate.assigned_to = employee_id
-        # Update status to reflect assignment in pipeline
-        # Use 'assigned' for new pipeline stages or SCREENING for legacy compatibility
-        from sqlalchemy import text
+        # Expunge the ORM object so it won't be auto-flushed with stale state
+        db.expunge(candidate)
+
+        # Update via raw SQL to avoid ORM/enum conflicts
         await db.execute(
             text("UPDATE candidates SET status = :status, assigned_to = :emp_id, updated_at = now() WHERE id = :id"),
             {"status": "assigned", "emp_id": str(employee_id), "id": str(candidate_id)}
         )
         await db.commit()
+
+        # Invalidate candidates list cache so next fetch gets fresh data
+        await invalidate_cache(f"candidates:list:{company_id}:*")
 
         return {
             "message": f"Candidate assigned to {employee.name} successfully",
@@ -493,10 +257,11 @@ async def assign_candidate_to_employee(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error assigning candidate"
+            detail=f"Error assigning candidate: {str(e)}"
         )
 
 
@@ -509,6 +274,9 @@ async def revoke_candidate_assignment(
     """
     Revoke candidate assignment from employee (HR only).
     """
+    from sqlalchemy import text
+    from app.utils.cache import invalidate_cache
+
     try:
         company_id = current_user.company_id
 
@@ -534,11 +302,14 @@ async def revoke_candidate_assignment(
                 detail="Candidate is not assigned to any employee"
             )
 
-        # Revoke assignment and revert status to 'uploaded' (new pipeline status)
-        candidate.assigned_to = None
+        # Capture status before expunging
+        candidate_status = candidate.status
+
+        # Expunge the ORM object so it won't be auto-flushed with stale state
+        db.expunge(candidate)
+
         # Revert status if it was at assigned/SCREENING stage
-        from sqlalchemy import text
-        if candidate.status in [CandidateStatus.SCREENING, CandidateStatus.ASSIGNED]:
+        if candidate_status in [CandidateStatus.SCREENING, CandidateStatus.ASSIGNED]:
             await db.execute(
                 text("UPDATE candidates SET status = :status, assigned_to = NULL, updated_at = now() WHERE id = :id"),
                 {"status": "uploaded", "id": str(candidate_id)}
@@ -550,6 +321,9 @@ async def revoke_candidate_assignment(
             )
         await db.commit()
 
+        # Invalidate candidates list cache so next fetch gets fresh data
+        await invalidate_cache(f"candidates:list:{company_id}:*")
+
         return {
             "message": "Candidate assignment revoked successfully",
             "candidate_id": str(candidate_id)
@@ -557,134 +331,11 @@ async def revoke_candidate_assignment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error revoking assignment"
-        )
-
-
-# Alias for revoke endpoint to support DELETE method from frontend
-@router.delete("/candidates/{candidate_id}/assign")
-async def unassign_candidate(
-    candidate_id: UUID,
-    current_user: User = Depends(require_hr),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Unassign candidate from employee (HR only).
-    This is an alias for the revoke endpoint to support DELETE method.
-    """
-    return await revoke_candidate_assignment(candidate_id, current_user, db)
-
-
-class GenerateAITokenRequest(BaseModel):
-    """Request to generate AI interview token for a candidate."""
-    job_id: Optional[UUID] = None
-
-
-@router.post("/interviews/generate-ai-token/{candidate_id}")
-async def generate_ai_interview_token(
-    candidate_id: UUID,
-    request: Optional[GenerateAITokenRequest] = None,
-    current_user: User = Depends(require_hr),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Generate an AI interview token for a candidate.
-    This creates an interview record with a token that the candidate can use to start their AI interview.
-    """
-    import secrets
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-    
-    try:
-        company_id = current_user.company_id
-        
-        # Verify candidate exists and belongs to company
-        candidate_query = select(Candidate).filter(
-            and_(
-                Candidate.id == candidate_id,
-                Candidate.company_id == company_id
-            )
-        )
-        result = await db.execute(candidate_query)
-        candidate = result.scalars().first()
-        
-        if not candidate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Candidate not found"
-            )
-        
-        # If job_id is provided, assign it to candidate
-        if request and request.job_id:
-            candidate.job_template_id = request.job_id
-        
-        # Check for existing scheduled interview
-        existing_query = select(Interview).filter(
-            and_(
-                Interview.candidate_id == candidate_id,
-                Interview.status == InterviewStatus.SCHEDULED
-            )
-        )
-        existing_result = await db.execute(existing_query)
-        existing_interview = existing_result.scalars().first()
-        
-        # Generate secure token
-        token = secrets.token_urlsafe(32)
-        
-        # Default scheduled time is now (immediate availability)
-        scheduled_time = datetime.now(ZoneInfo('UTC'))
-        
-        if existing_interview:
-            # Update existing interview with new token
-            existing_interview.ai_interview_token = token
-            existing_interview.scheduled_time = scheduled_time
-            interview = existing_interview
-        else:
-            # Create new interview
-            from app.models.candidate import InterviewRound
-            interview = Interview(
-                company_id=company_id,
-                candidate_id=candidate_id,
-                interviewer_id=current_user.id,
-                created_by=current_user.id,
-                round=InterviewRound.SCREENING,
-                scheduled_time=scheduled_time,
-                timezone="UTC",
-                status=InterviewStatus.SCHEDULED,
-                ai_interview_token=token,
-            )
-            db.add(interview)
-        
-        # Update candidate status to interview
-        from sqlalchemy import text
-        await db.execute(
-            text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :id"),
-            {"status": "interview_scheduled", "id": str(candidate_id)}
-        )
-        
-        await db.commit()
-        await db.refresh(interview)
-        
-        return {
-            "message": "AI interview created successfully",
-            "interview": {
-                "id": str(interview.id),
-                "candidate_id": str(candidate_id),
-                "ai_interview_token": token,
-                "interview_url": f"{settings.frontend_url}/interview/{token}",
-                "scheduled_time": scheduled_time.isoformat(),
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creating AI interview"
+            detail=f"Error revoking assignment: {str(e)}"
         )
 
 
@@ -699,6 +350,9 @@ async def assign_candidates_bulk(
     Assign multiple candidates to an employee (HR only).
     Max 10 candidates per employee at a time.
     """
+    from sqlalchemy import text
+    from app.utils.cache import invalidate_cache
+
     try:
         company_id = current_user.company_id
 
@@ -758,15 +412,21 @@ async def assign_candidates_bulk(
                 detail="One or more candidates not found"
             )
 
-        # Assign all candidates and update status using raw SQL for correct enum handling
-        from sqlalchemy import text
+        # Expunge ORM objects to avoid flush conflicts with raw SQL
         for candidate in candidates:
+            db.expunge(candidate)
+
+        # Assign all candidates and update status using raw SQL for correct enum handling
+        for cid in candidate_ids:
             await db.execute(
                 text("UPDATE candidates SET status = :status, assigned_to = :emp_id, updated_at = now() WHERE id = :id"),
-                {"status": "assigned", "emp_id": str(employee_id), "id": str(candidate.id)}
+                {"status": "assigned", "emp_id": str(employee_id), "id": str(cid)}
             )
         
         await db.commit()
+
+        # Invalidate candidates list cache so next fetch gets fresh data
+        await invalidate_cache(f"candidates:list:{company_id}:*")
 
         return {
             "message": f"{len(candidates)} candidates assigned to {employee.name} successfully",
@@ -777,10 +437,11 @@ async def assign_candidates_bulk(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error assigning candidates"
+            detail=f"Error assigning candidates: {str(e)}"
         )
 
 
@@ -818,7 +479,7 @@ async def get_employee_assigned_candidates(
                 Candidate.company_id == company_id,
                 Candidate.assigned_to == employee_id
             )
-        ).limit(500)
+        )
         result = await db.execute(candidates_query)
         candidates = result.scalars().all()
 
@@ -845,10 +506,11 @@ async def get_employee_assigned_candidates(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching assigned candidates"
+            detail=f"Error fetching assigned candidates: {str(e)}"
         )
 
 
@@ -955,13 +617,6 @@ async def save_interview_transcript(
         duration_seconds = data.get("duration_seconds", 0)
         resume_text = data.get("resume_text", "")
         
-        # Sanitize resume_text: strip null bytes and detect raw PDF binary
-        if resume_text:
-            resume_text = resume_text.replace("\x00", "")
-            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
-                logger.info(f"[Transcript] Resume text appears to be raw PDF binary, discarding")
-                resume_text = ""
-        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
         interview.resume_text = resume_text if resume_text else interview.resume_text
@@ -1013,28 +668,42 @@ async def save_interview_transcript(
                             "ai_recommendation": ai_verdict.get("recommendation"),
                         }
                     )
-                    
-                    # Update candidate status based on AI recommendation
-                    if interview.candidate_id:
-                        recommendation = ai_verdict.get("recommendation", "").upper()
-                        if recommendation in ("PASS", "PASSED", "ADVANCE", "HIRE"):
-                            candidate_status = "ai_passed"
-                        elif recommendation in ("FAIL", "FAILED", "REJECT", "REJECTED"):
-                            candidate_status = "ai_rejected"
-                        else:
-                            # NEUTRAL or unclear verdicts go to review
-                            candidate_status = "ai_review"
-                        
-                        await db.execute(
-                            text("UPDATE candidates SET status = :status WHERE id = :candidate_id"),
-                            {"status": candidate_status, "candidate_id": str(interview.candidate_id)}
-                        )
-                        logger.info(f"[Transcript] Updated candidate {interview.candidate_id} status to {candidate_status} (recommendation: {recommendation})")
-                    
                     await db.commit()
+                    
+                    # AUTO-PROMOTE CANDIDATE BASED ON AI VERDICT
+                    # Same logic as ai-complete endpoint
+                    recommendation = ai_verdict.get("recommendation", "NEUTRAL")
+                    if recommendation in ["PASS", "HIRE"]:
+                        new_candidate_status = "ai_passed"
+                        print(f"[Transcript] Candidate PASSED - promoting to ai_passed")
+                    elif recommendation in ["FAIL", "REJECT"]:
+                        new_candidate_status = "ai_rejected"
+                        print(f"[Transcript] Candidate FAILED - marking as ai_rejected")
+                    else:
+                        new_candidate_status = "ai_review"
+                        print(f"[Transcript] Candidate needs REVIEW - marking as ai_review")
+                    
+                    if interview.candidate_id:
+                        await db.execute(
+                            text("""
+                                UPDATE candidates 
+                                SET status = :status,
+                                    current_round = CASE WHEN :status = 'ai_passed' THEN 2 ELSE current_round END,
+                                    promoted_at = CASE WHEN :status = 'ai_passed' THEN NOW() ELSE promoted_at END,
+                                    updated_at = NOW()
+                                WHERE id = :candidate_id
+                            """),
+                            {
+                                "status": new_candidate_status,
+                                "candidate_id": str(interview.candidate_id),
+                            }
+                        )
+                        await db.commit()
+                        print(f"[Transcript] Updated candidate status to {new_candidate_status}")
+                    
             except Exception as ai_error:
                 # Don't fail the whole request if AI analysis fails
-                logger.warning(f"AI analysis error (non-critical): {ai_error}")
+                print(f"AI analysis error (non-critical): {ai_error}")
         
         return {
             "success": True,
@@ -1046,11 +715,12 @@ async def save_interview_transcript(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error saving transcript"
+            detail=f"Error saving transcript: {str(e)}"
         )
 
 
@@ -1079,8 +749,8 @@ async def ai_complete_interview(
         from sqlalchemy import text
         from app.services.ai_service import generate_interview_verdict
         
-        logger.info(f"[AI-Complete] Received callback for token: {token}")
-        logger.info(f"[AI-Complete] Data: {json.dumps(data, default=str)[:500]}...")
+        print(f"[AI-Complete] Received callback for token: {token}")
+        print(f"[AI-Complete] Data: {json.dumps(data, default=str)[:500]}...")
         
         # Find interview by ai_interview_token
         interview_query = select(Interview).filter(Interview.ai_interview_token == token)
@@ -1088,17 +758,17 @@ async def ai_complete_interview(
         interview = result.scalars().first()
         
         if not interview:
-            logger.info(f"[AI-Complete] Interview not found for token: {token}")
+            print(f"[AI-Complete] Interview not found for token: {token}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Interview not found for this token"
             )
         
-        logger.info(f"[AI-Complete] Found interview: {interview.id}, current status: {interview.status}")
+        print(f"[AI-Complete] Found interview: {interview.id}, current status: {interview.status}")
         
         # Check if already completed
         if interview.status == InterviewStatus.COMPLETED:
-            logger.info(f"[AI-Complete] Interview already completed, returning success")
+            print(f"[AI-Complete] Interview already completed, returning success")
             return {
                 "success": True,
                 "message": "Interview already completed",
@@ -1121,15 +791,6 @@ async def ai_complete_interview(
         resume_text = data.get("resume_text", "")
         pre_calculated_scores = data.get("pre_calculated_scores", {})
         
-        # Sanitize resume_text: strip null bytes and detect raw PDF binary
-        if resume_text:
-            # Remove null bytes that PostgreSQL VARCHAR can't store
-            resume_text = resume_text.replace("\x00", "")
-            # If it's raw PDF binary (not extracted text), discard it
-            if resume_text.startswith("%PDF") or "\ufffd" in resume_text[:100]:
-                logger.info(f"[AI-Complete] Resume text appears to be raw PDF binary, discarding")
-                resume_text = ""
-        
         # Update interview with transcript
         interview.transcript = json.dumps(transcript_data) if transcript_data else None
         interview.resume_text = resume_text if resume_text else interview.resume_text
@@ -1140,19 +801,22 @@ async def ai_complete_interview(
             {"interview_id": str(interview.id)}
         )
         
-        # NOTE: Don't update candidate status here - we'll set the final status
-        # (ai_passed/ai_rejected/ai_review) after generating the AI verdict.
-        # This prevents candidates from getting stuck at 'interview_completed'.
+        # Update candidate status to interview_completed
+        if interview.candidate_id:
+            await db.execute(
+                text("UPDATE candidates SET status = 'interview_completed' WHERE id = :candidate_id"),
+                {"candidate_id": str(interview.candidate_id)}
+            )
         
         await db.commit()
-        logger.info(f"[AI-Complete] Marked interview as COMPLETED")
+        print(f"[AI-Complete] Marked interview as COMPLETED and updated candidate status")
         
         # Generate AI verdict
         ai_verdict = None
         
         # First try to use pre-calculated scores from AI service
         if pre_calculated_scores:
-            logger.info(f"[AI-Complete] Using pre-calculated scores from AI service")
+            print(f"[AI-Complete] Using pre-calculated scores from AI service")
             ai_verdict = {
                 "recommendation": pre_calculated_scores.get("verdict", "NEUTRAL"),
                 "behavior_score": pre_calculated_scores.get("behavioral_score", 50),
@@ -1164,64 +828,19 @@ async def ai_complete_interview(
                 "weaknesses": pre_calculated_scores.get("weaknesses", []),
             }
         
-        # If no pre-calculated scores and we have sufficient transcript, generate verdict using AI
+        # If no pre-calculated scores and we have transcript, generate verdict using AI
         if not ai_verdict and transcript_data and len(transcript_data) > 2:
             try:
-                logger.info(f"[AI-Complete] Generating AI verdict from transcript ({len(transcript_data)} messages)...")
+                print(f"[AI-Complete] Generating AI verdict from transcript...")
                 ai_verdict = await generate_interview_verdict(
                     transcript=transcript_data,
                     resume_text=resume_text or (candidate.resume_text if candidate else ""),
                     ats_score=interview.ats_score,
                     position=position
                 )
-                logger.info(f"[AI-Complete] AI verdict generated: recommendation={ai_verdict.get('recommendation')}")
+                print(f"[AI-Complete] AI verdict generated: recommendation={ai_verdict.get('recommendation')}")
             except Exception as ai_error:
-                logger.info(f"[AI-Complete] AI verdict generation failed (non-critical): {ai_error}")
-                # FALLBACK: Generate basic result so UI never breaks
-                ai_verdict = {
-                    "recommendation": "NEUTRAL",
-                    "behavior_score": 70,
-                    "confidence_score": 70,
-                    "answer_score": 70,
-                    "overall_score": 70,
-                    "summary": "Interview completed successfully. AI analysis unavailable - manual review recommended.",
-                    "strengths": ["Completed interview"],
-                    "weaknesses": [],
-                    "ai_fallback": True,  # Flag indicating this is a fallback
-                }
-                logger.info(f"[AI-Complete] Using fallback verdict due to AI error")
-        
-        # FALLBACK: If transcript too short, still generate a basic verdict for stability
-        if not ai_verdict and transcript_data and len(transcript_data) <= 2:
-            logger.info(f"[AI-Complete] Transcript too short ({len(transcript_data)} messages) for AI analysis, using default verdict")
-            ai_verdict = {
-                "recommendation": "NEUTRAL",
-                "behavior_score": 60,
-                "confidence_score": 60,
-                "answer_score": 60,
-                "overall_score": 60,
-                "summary": "Interview completed but transcript was too short for full AI analysis. Manual review recommended.",
-                "strengths": [],
-                "weaknesses": ["Insufficient conversation data for analysis"],
-                "ai_fallback": True,
-                "short_transcript": True,
-            }
-        
-        # FALLBACK: If NO transcript at all, still provide a basic verdict
-        if not ai_verdict and (not transcript_data or len(transcript_data) == 0):
-            logger.info(f"[AI-Complete] No transcript data provided, using empty transcript fallback")
-            ai_verdict = {
-                "recommendation": "NEUTRAL",
-                "behavior_score": 50,
-                "confidence_score": 50,
-                "answer_score": 50,
-                "overall_score": 50,
-                "summary": "Interview completed but no transcript data was received. Manual review required.",
-                "strengths": [],
-                "weaknesses": ["No interview transcript available"],
-                "ai_fallback": True,
-                "no_transcript": True,
-            }
+                print(f"[AI-Complete] AI verdict generation failed (non-critical): {ai_error}")
         
         # Update interview with AI scores if we have verdict
         if ai_verdict:
@@ -1254,7 +873,7 @@ async def ai_complete_interview(
                 }
             )
             await db.commit()
-            logger.info(f"[AI-Complete] Updated interview with AI scores and verdict")
+            print(f"[AI-Complete] Updated interview with AI scores and verdict")
             
             # AUTO-PROMOTE CANDIDATE BASED ON VERDICT
             # This is the key logic for multi-round interview flow
@@ -1262,45 +881,30 @@ async def ai_complete_interview(
             if ai_recommendation == "HIRE":
                 # PASS - Auto-promote to eligible for Round 2
                 new_candidate_status = "ai_passed"
-                logger.info(f"[AI-Complete] Candidate PASSED - promoting to ai_passed (eligible for Round 2)")
+                print(f"[AI-Complete] Candidate PASSED - promoting to ai_passed (eligible for Round 2)")
             elif ai_recommendation == "REJECT":
                 # FAIL - Mark as AI rejected (employee can still override)
                 new_candidate_status = "ai_rejected"
-                logger.info(f"[AI-Complete] Candidate FAILED - marking as ai_rejected")
+                print(f"[AI-Complete] Candidate FAILED - marking as ai_rejected")
             else:
                 # NEUTRAL/REVIEW - Needs employee review
                 new_candidate_status = "ai_review"
-                logger.info(f"[AI-Complete] Candidate needs REVIEW - marking as ai_review")
+                print(f"[AI-Complete] Candidate needs REVIEW - marking as ai_review")
             
             if new_candidate_status and interview.candidate_id:
                 await db.execute(
                     text("""
                         UPDATE candidates 
                         SET status = :status, 
+                            current_round = CASE WHEN :status = 'ai_passed' THEN 2 ELSE current_round END,
+                            promoted_at = CASE WHEN :status = 'ai_passed' THEN NOW() ELSE promoted_at END,
                             updated_at = NOW()
                         WHERE id = :candidate_id
                     """),
                     {"status": new_candidate_status, "candidate_id": str(interview.candidate_id)}
                 )
                 await db.commit()
-                logger.info(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
-        
-        # FALLBACK: If no ai_verdict was generated, still update candidate status
-        # This ensures candidate doesn't get stuck at 'interview_completed'
-        if not ai_verdict and interview.candidate_id:
-            new_candidate_status = "ai_review"  # Default to review when no verdict
-            logger.info(f"[AI-Complete] No AI verdict generated, defaulting to ai_review")
-            await db.execute(
-                text("""
-                    UPDATE candidates 
-                    SET status = :status, 
-                        updated_at = NOW()
-                    WHERE id = :candidate_id
-                """),
-                {"status": new_candidate_status, "candidate_id": str(interview.candidate_id)}
-            )
-            await db.commit()
-            logger.info(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
+                print(f"[AI-Complete] Updated candidate status to: {new_candidate_status}")
         
         # Get final status for response
         final_verdict = "REVIEW"
@@ -1326,9 +930,200 @@ async def ai_complete_interview(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error completing interview"
+            detail=f"Error completing interview: {str(e)}"
+        )
+
+
+@router.get("/candidate-profile/{candidate_id}")
+async def get_candidate_detailed_profile(
+    candidate_id: UUID,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed candidate profile including interview transcript, Q&A breakdown,
+    scores, verdict, and resume. HR version – accessible by HR and SYSTEM_ADMIN.
+    """
+    from app.models.ai_report import AIReport
+
+    try:
+        # Candidate must belong to the same company
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id,
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found",
+            )
+
+        # Get all interviews for this candidate
+        interviews_query = (
+            select(Interview)
+            .filter(Interview.candidate_id == candidate.id)
+            .order_by(Interview.scheduled_time.desc())
+        )
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+
+        # Get AI reports for these interviews
+        interview_ids = [i.id for i in interviews]
+        reports = []
+
+        if interview_ids:
+            reports_query = select(AIReport).filter(
+                and_(
+                    AIReport.interview_id.in_(interview_ids),
+                    AIReport.report_type == "interview_verdict",
+                )
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+
+        # Map reports to interviews
+        reports_by_interview = {r.interview_id: r for r in reports}
+
+        # Build detailed interview data with Q&A breakdown
+        interview_details = []
+        for interview in interviews:
+            report = reports_by_interview.get(interview.id)
+            provider_response = report.provider_response if report else {}
+            transcript = provider_response.get("transcript", [])
+
+            # Extract Q&A pairs from transcript
+            qa_pairs = []
+            current_question = None
+            for msg in transcript:
+                if msg.get("role") == "ai":
+                    current_question = msg.get("content", "")
+                elif msg.get("role") == "user" and current_question:
+                    qa_pairs.append(
+                        {
+                            "question": current_question,
+                            "answer": msg.get("content", ""),
+                            "timestamp": msg.get("timestamp", ""),
+                        }
+                    )
+                    current_question = None
+
+            # Calculate verdict from score if not present
+            verdict = provider_response.get("verdict") if report else None
+            if not verdict and report and report.score is not None:
+                if report.score >= 70:
+                    verdict = "PASS"
+                elif report.score >= 50:
+                    verdict = "REVIEW"
+                else:
+                    verdict = "FAIL"
+
+            # Fallback: derive verdict from interview's ai_recommendation
+            if not verdict and interview.ai_recommendation:
+                rec = interview.ai_recommendation.upper()
+                if rec in ("HIRE", "PASS"):
+                    verdict = "PASS"
+                elif rec in ("REJECT", "FAIL"):
+                    verdict = "FAIL"
+                else:
+                    verdict = "REVIEW"
+
+            # Parse ai_verdict JSON from interview table if available
+            interview_ai_data = {}
+            if interview.ai_verdict:
+                try:
+                    import json as _json
+                    interview_ai_data = _json.loads(interview.ai_verdict) if isinstance(interview.ai_verdict, str) else interview.ai_verdict
+                except:
+                    pass
+
+            # Build scores with fallback: AIReport → interview table → ai_verdict JSON
+            overall = (report.score if report else None) or interview_ai_data.get("overall_score")
+            behavior = (provider_response.get("behavior_score") if report else None) or interview.behavior_score
+            confidence = (provider_response.get("confidence_score") if report else None) or interview.confidence_score
+            answer = (provider_response.get("answer_score") if report else None) or interview.answer_score
+
+            # Compute overall_score from component scores if still missing
+            if overall is None and any(s is not None for s in [behavior, confidence, answer]):
+                scores = [s for s in [behavior, confidence, answer] if s is not None]
+                overall = round(sum(scores) / len(scores)) if scores else None
+
+            interview_details.append(
+                {
+                    "interview_id": str(interview.id),
+                    "round": interview.round.value if interview.round else "unknown",
+                    "scheduled_time": interview.scheduled_time.isoformat()
+                    if interview.scheduled_time
+                    else None,
+                    "status": interview.status.value if interview.status else None,
+                    "verdict": verdict,
+                    "overall_score": overall,
+                    "behavior_score": behavior,
+                    "confidence_score": confidence,
+                    "answer_score": answer,
+                    "strengths": (provider_response.get("strengths", [])
+                    if report
+                    else []) or interview_ai_data.get("strengths", []),
+                    "weaknesses": (provider_response.get("weaknesses", [])
+                    if report
+                    else []) or interview_ai_data.get("weaknesses", []),
+                    "detailed_feedback": (provider_response.get("detailed_feedback", "")
+                    if report
+                    else "") or interview_ai_data.get("detailed_feedback", ""),
+                    "key_answers": provider_response.get("key_answers", [])
+                    if report
+                    else [],
+                    "summary": (report.summary if report else None) or interview_ai_data.get("summary"),
+                    "duration_seconds": provider_response.get("duration_seconds"),
+                    "total_questions": provider_response.get("total_questions"),
+                    "total_answers": provider_response.get("total_answers"),
+                    "qa_pairs": qa_pairs,
+                    "resume_text": provider_response.get("resume_text", "")
+                    or getattr(candidate, "resume_text", "")
+                    or "",
+                    "resume_filename": provider_response.get("resume_filename", ""),
+                    "ats_score": getattr(interview, "ats_score", None),
+                    "employee_verdict": getattr(interview, "employee_verdict", None),
+                }
+            )
+
+        return {
+            "candidate": {
+                "id": str(candidate.id),
+                "email": candidate.email,
+                "first_name": candidate.first_name,
+                "last_name": candidate.last_name,
+                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip()
+                or candidate.email,
+                "phone": candidate.phone,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "status": candidate.status.value if candidate.status else None,
+                "experience_years": candidate.experience_years,
+                "qualifications": candidate.qualifications,
+            },
+            "interviews": interview_details,
+            "total_interviews": len(interviews),
+            "completed_interviews": len(
+                [i for i in interviews if i.status == InterviewStatus.COMPLETED]
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidate profile: {str(e)}",
         )

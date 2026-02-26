@@ -58,7 +58,6 @@ env/
 # Database
 *.db
 *.sqlite
-dump.rdb
 *.sqlite3
 
 # Logs
@@ -72,10 +71,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Test files with secrets (DO NOT COMMIT)
-backend/test_env_loading.py
-backend/test_groq_api.py
 
 # Misc
 .mypy_cache/

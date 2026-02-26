@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements and build wheels
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
 # Final stage
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y \
 # Copy wheels and install
 COPY --from=builder /app/wheels /wheels
 COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache /wheels/*
+RUN pip install --no-cache-dir --upgrade pip setuptools && pip install --no-cache /wheels/*
 
 # Copy application code
 COPY . .

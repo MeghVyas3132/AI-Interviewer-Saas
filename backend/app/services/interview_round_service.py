@@ -2,10 +2,11 @@
 Interview round service with timezone-aware scheduling.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
-from zoneinfo import ZoneInfo
+
+import pytz
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.sql import and_
@@ -32,15 +33,15 @@ class InterviewRoundService:
         try:
             # If dt is naive, localize it to the given timezone first
             if dt.tzinfo is None:
-                tz = ZoneInfo(timezone_str)
-                dt = dt.replace(tzinfo=tz)
+                tz = pytz.timezone(timezone_str)
+                dt = tz.localize(dt)
             else:
                 # If dt is already aware, convert to specified timezone first, then to UTC
-                tz = ZoneInfo(timezone_str)
+                tz = pytz.timezone(timezone_str)
                 dt = dt.astimezone(tz)
 
             # Convert to UTC
-            return dt.astimezone(timezone.utc)
+            return dt.astimezone(pytz.UTC)
         except Exception as e:
             raise ValueError(f"Invalid timezone: {timezone_str}. Error: {str(e)}")
 
@@ -57,9 +58,9 @@ class InterviewRoundService:
             Datetime in specified timezone
         """
         try:
-            tz = ZoneInfo(timezone_str)
+            tz = pytz.timezone(timezone_str)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = pytz.UTC.localize(dt)
             return dt.astimezone(tz)
         except Exception as e:
             raise ValueError(f"Invalid timezone: {timezone_str}. Error: {str(e)}")
@@ -225,7 +226,7 @@ class InterviewRoundService:
         Returns:
             List of upcoming interview rounds
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         future = now + timedelta(days=days_ahead)
 
         query = select(InterviewRound).where(

@@ -7,8 +7,8 @@ Candidate capabilities (read-only):
 - View company name and role applied for
 """
 
+from uuid import UUID
 
-import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,10 +18,8 @@ from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, Interview
 from app.models.user import User, UserRole
 from app.models.company import Company
-from app.models.interview_round import InterviewRound, RoundStatus
 
 router = APIRouter(prefix="/api/v1/candidate-portal", tags=["candidate-portal"])
-logger = logging.getLogger(__name__)
 
 
 def require_candidate(current_user: User = Depends(get_current_user)) -> User:
@@ -101,10 +99,11 @@ async def get_my_info(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching candidate info"
+            detail=f"Error fetching candidate info: {str(e)}"
         )
 
 
@@ -115,7 +114,6 @@ async def get_my_interviews(
 ):
     """
     Get all interviews scheduled for the candidate.
-    Includes both legacy interviews and new interview_rounds.
     """
     try:
         # Get candidate record by email
@@ -134,25 +132,12 @@ async def get_my_interviews(
                 detail="Candidate profile not found"
             )
 
-        # Get legacy interviews from interviews table
+        # Get interviews
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.asc()).limit(50)
+        ).order_by(Interview.scheduled_time.asc())
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
-
-        # Get interview_rounds (new multi-round system)
-        # interview_rounds.candidate_id can reference users.id
-        from sqlalchemy import or_
-        rounds_query = select(InterviewRound).filter(
-            or_(
-                InterviewRound.candidate_id == candidate.id,
-                InterviewRound.candidate_id == current_user.id
-            ),
-            InterviewRound.status.in_([RoundStatus.SCHEDULED, RoundStatus.IN_PROGRESS])
-        ).order_by(InterviewRound.scheduled_at.asc()).limit(50)
-        rounds_result = await db.execute(rounds_query)
-        interview_rounds = rounds_result.scalars().all()
 
         # Get mentor info if assigned
         mentor_info = None
@@ -173,43 +158,20 @@ async def get_my_interviews(
         company = company_result.scalars().first()
         company_name = company.name if company else "Unknown Company"
 
-        # Build interviews list from both sources
-        all_interviews = []
-        
-        # Add legacy interviews
-        for i in interviews:
-            all_interviews.append({
-                "id": str(i.id),
-                "company_name": company_name,
-                "round": i.round.value if i.round else None,
-                "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
-                "timezone": i.timezone,
-                "status": i.status.value if i.status else None,
-                "meeting_link": i.meeting_link,
-                "ai_interview_token": i.ai_interview_token,
-                "interview_mode": "AI_CONDUCTED",
-            })
-        
-        # Add interview_rounds (new format)
-        for r in interview_rounds:
-            all_interviews.append({
-                "id": str(r.id),
-                "company_name": company_name,
-                "round": r.round_type.value if r.round_type else "TECHNICAL",
-                "scheduled_time": r.scheduled_at.isoformat() if r.scheduled_at else None,
-                "timezone": r.timezone or "UTC",
-                "status": r.status.value if r.status else None,
-                "meeting_link": f"/candidate-portal/interview-room/{r.id}",
-                "ai_interview_token": None,
-                "interview_mode": r.interview_mode.value if r.interview_mode else "HUMAN_AI_ASSISTED",
-                "videosdk_meeting_id": r.videosdk_meeting_id,
-            })
-        
-        # Sort by scheduled time
-        all_interviews.sort(key=lambda x: x.get("scheduled_time") or "")
-
         return {
-            "interviews": all_interviews,
+            "interviews": [
+                {
+                    "id": str(i.id),
+                    "company_name": company_name,
+                    "round": i.round.value if i.round else None,
+                    "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
+                    "timezone": i.timezone,
+                    "status": i.status.value if i.status else None,
+                    "meeting_link": i.meeting_link,
+                    "ai_interview_token": i.ai_interview_token,
+                }
+                for i in interviews
+            ],
             "mentor": mentor_info,
             "company": {
                 "name": company_name,
@@ -219,121 +181,11 @@ async def get_my_interviews(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interviews"
-        )
-
-
-@router.get("/interview-round/{round_id}")
-async def get_interview_round_for_candidate(
-    round_id: str,
-    current_user: User = Depends(require_candidate),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get interview round details with video credentials for candidate.
-    """
-    try:
-        from uuid import UUID as PyUUID
-        from sqlalchemy import or_
-        from datetime import datetime, timedelta, timezone
-        from app.core.config import settings
-        import jwt
-        
-        # Get candidate record
-        candidate_query = select(Candidate).filter(
-            and_(
-                Candidate.email == current_user.email,
-                Candidate.company_id == current_user.company_id
-            )
-        )
-        result = await db.execute(candidate_query)
-        candidate = result.scalars().first()
-        
-        if not candidate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Candidate profile not found"
-            )
-        
-        # Get the interview round - check both candidate.id and user.id
-        round_query = select(InterviewRound).filter(
-            and_(
-                InterviewRound.id == PyUUID(round_id),
-                or_(
-                    InterviewRound.candidate_id == candidate.id,
-                    InterviewRound.candidate_id == current_user.id
-                )
-            )
-        )
-        round_result = await db.execute(round_query)
-        interview_round = round_result.scalars().first()
-        
-        if not interview_round:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Interview round not found"
-            )
-        
-        # Check if interview is ready (has meeting ID)
-        if not interview_round.videosdk_meeting_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Interview has not started yet. Please wait for the interviewer."
-            )
-        
-        # Generate VideoSDK token for candidate
-        videosdk_api_key = getattr(settings, 'videosdk_api_key', None)
-        videosdk_secret = getattr(settings, 'videosdk_secret', None)
-        
-        if not videosdk_api_key or not videosdk_secret:
-            # Return mock token for development
-            token = f"dev-token-{str(current_user.id)[:8]}"
-        else:
-            # Generate proper VideoSDK token
-            payload = {
-                "apikey": videosdk_api_key,
-                "permissions": ["allow_join"],  # Candidate has limited permissions
-                "iat": datetime.now(timezone.utc),
-                "exp": datetime.now(timezone.utc) + timedelta(hours=2),
-            }
-            token = jwt.encode(payload, videosdk_secret, algorithm="HS256")
-        
-        # Get company name
-        company_query = select(Company).filter(Company.id == current_user.company_id)
-        company_result = await db.execute(company_query)
-        company = company_result.scalars().first()
-        company_name = company.name if company else "Unknown Company"
-        
-        # Get interviewer name if assigned
-        interviewer_name = None
-        if interview_round.interviewer_id:
-            interviewer_query = select(User).filter(User.id == interview_round.interviewer_id)
-            interviewer_result = await db.execute(interviewer_query)
-            interviewer = interviewer_result.scalars().first()
-            if interviewer:
-                interviewer_name = interviewer.name
-        
-        return {
-            "id": str(interview_round.id),
-            "round_type": interview_round.round_type.value if interview_round.round_type else "TECHNICAL",
-            "status": interview_round.status.value if interview_round.status else None,
-            "interview_mode": interview_round.interview_mode.value if interview_round.interview_mode else "HUMAN_AI_ASSISTED",
-            "scheduled_at": interview_round.scheduled_at.isoformat() if interview_round.scheduled_at else None,
-            "videosdk_meeting_id": interview_round.videosdk_meeting_id,
-            "videosdk_token": token,
-            "company_name": company_name,
-            "interviewer_name": interviewer_name,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Unexpected error")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interview round"
+            detail=f"Error fetching interviews: {str(e)}"
         )
 
 
@@ -370,7 +222,7 @@ async def get_candidate_dashboard(
         # Get interviews
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.asc()).limit(50)
+        ).order_by(Interview.scheduled_time.asc())
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -410,10 +262,11 @@ async def get_candidate_dashboard(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching dashboard"
+            detail=f"Error fetching dashboard: {str(e)}"
         )
 
 
@@ -440,7 +293,7 @@ async def candidate_login(
         )
     
     # Find candidate by email
-    candidate_query = select(Candidate).filter(Candidate.email == email).limit(10)
+    candidate_query = select(Candidate).filter(Candidate.email == email)
     result = await db.execute(candidate_query)
     candidates = result.scalars().all()
     
@@ -516,7 +369,7 @@ async def candidate_login(
     # Get interviews for this candidate
     interviews_list = []
     for c in candidates:
-        interviews_query = select(Interview).filter(Interview.candidate_id == c.id).limit(50)
+        interviews_query = select(Interview).filter(Interview.candidate_id == c.id)
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
         for i in interviews:
@@ -585,7 +438,7 @@ async def get_my_results(
         # Get all interviews (completed ones will have results)
         interviews_query = select(Interview).filter(
             Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.desc()).limit(50)
+        ).order_by(Interview.scheduled_time.desc())
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
@@ -601,7 +454,7 @@ async def get_my_results(
                     try:
                         import json
                         verdict_data = json.loads(interview.ai_verdict)
-                    except Exception:
+                    except:
                         pass
                 
                 results.append({
@@ -630,8 +483,9 @@ async def get_my_results(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching results"
+            detail=f"Error fetching results: {str(e)}"
         )

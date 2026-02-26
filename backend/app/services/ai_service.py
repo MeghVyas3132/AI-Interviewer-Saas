@@ -1,7 +1,8 @@
 import httpx
 import json
 import asyncio
-from typing import Optional, Dict, Any
+import random
+from typing import Optional, Dict, Any, List
 import logging
 from app.core.config import settings
 from app.models.candidate import Candidate
@@ -101,33 +102,33 @@ async def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", max
     last_exc: Exception = Exception("Unknown error during Groq API call")
     for attempt in range(3):
         try:
-            client = await get_http_client()
-            resp = await client.post(endpoint, json=body, headers=headers, timeout=90)
-            
-            if resp.status_code == 429:
-                wait_time = min(30, 5 * (attempt + 1))
-                logger.warning(f"Groq rate limited (429). Waiting {wait_time}s before retry {attempt+1}")
-                last_exc = Exception(f"Groq rate limited after {attempt+1} attempts")
-                await asyncio.sleep(wait_time)
-                # Try with a different key on next attempt
-                api_key = get_groq_api_key()
-                headers["Authorization"] = f"Bearer {api_key}"
-                continue
-            
-            if resp.status_code >= 400:
-                error_body = resp.text
-                logger.error(f"Groq API error {resp.status_code}: {error_body}")
-                last_exc = Exception(f"Groq API error {resp.status_code}: {error_body}")
+            async with httpx.AsyncClient(timeout=90) as client:
+                resp = await client.post(endpoint, json=body, headers=headers)
                 
-            resp.raise_for_status()
-            data = resp.json()
-            
-            # Extract content from OpenAI-compatible response
-            text_output = ""
-            if "choices" in data and len(data["choices"]) > 0:
-                text_output = data["choices"][0].get("message", {}).get("content", "")
-            
-            return {"text": text_output, "raw": data}
+                if resp.status_code == 429:
+                    wait_time = min(30, 5 * (attempt + 1))
+                    logger.warning(f"Groq rate limited (429). Waiting {wait_time}s before retry {attempt+1}")
+                    last_exc = Exception(f"Groq rate limited after {attempt+1} attempts")
+                    await asyncio.sleep(wait_time)
+                    # Try with a different key on next attempt
+                    api_key = get_groq_api_key()
+                    headers["Authorization"] = f"Bearer {api_key}"
+                    continue
+                
+                if resp.status_code >= 400:
+                    error_body = resp.text
+                    logger.error(f"Groq API error {resp.status_code}: {error_body}")
+                    last_exc = Exception(f"Groq API error {resp.status_code}: {error_body}")
+                    
+                resp.raise_for_status()
+                data = resp.json()
+                
+                # Extract content from OpenAI-compatible response
+                text_output = ""
+                if "choices" in data and len(data["choices"]) > 0:
+                    text_output = data["choices"][0].get("message", {}).get("content", "")
+                
+                return {"text": text_output, "raw": data}
                 
         except httpx.HTTPStatusError as e:
             last_exc = e
@@ -167,9 +168,8 @@ async def close_http_client():
 class AIService:
     def __init__(self):
         self.base_url = settings.ai_service_url.rstrip('/')
-        self.api_key = settings.ai_service_api_key
-        if not self.api_key:
-            logger.warning("AI_SERVICE_API_KEY not set — AI service calls will fail auth")
+        # Use a fallback key for development if not set in env
+        self.api_key = settings.ai_service_api_key or "ai-interviewer-secret-key"
         self.headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key

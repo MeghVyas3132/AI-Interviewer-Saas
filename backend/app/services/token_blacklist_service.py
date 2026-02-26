@@ -9,7 +9,6 @@ from typing import Optional
 
 from app.utils.redis_client import redis_client
 from app.utils.jwt_helper import verify_token
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -36,27 +35,11 @@ class TokenBlacklistService:
                 logger.warning("Attempt to blacklist invalid token")
                 return False
             
-            # Use jti if available (preferred). If not present, fall back to sub:iat
-            token_id = payload.get("jti")
-            if not token_id:
-                sub = payload.get("sub", "unknown")
-                iat = payload.get("iat", 0)
-                token_id = f"{sub}:{iat}"
+            token_id = payload.get("jti", token[:20])  # Use jti if available, else token prefix
             key = f"token_blacklist:{token_id}"
-
-            # Determine TTL: prefer using token exp claim to set precise TTL
-            exp = payload.get("exp")
-            ttl = None
-            if isinstance(exp, (int, float)):
-                now_ts = int(time.time())
-                ttl_seconds = int(exp) - now_ts
-                if ttl_seconds > 0:
-                    ttl = ttl_seconds
-
-            # Fall back to supplied expires_in_minutes if exp not available or in the past
-            if not ttl or ttl <= 0:
-                ttl = expires_in_minutes * 60
-
+            
+            # Add to blacklist with TTL
+            ttl = expires_in_minutes * 60
             await redis_client.setex(key, ttl, "1")
             
             logger.info(f"Token added to blacklist, expires in {ttl}s")
@@ -81,14 +64,9 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            # Use jti if available, else create unique ID from sub + iat
-            token_id = payload.get("jti")
-            if not token_id:
-                sub = payload.get("sub", "unknown")
-                iat = payload.get("iat", 0)
-                token_id = f"{sub}:{iat}"
+            token_id = payload.get("jti", token[:20])
             key = f"token_blacklist:{token_id}"
-
+            
             exists = await redis_client.exists(key)
             return bool(exists)
         except Exception as e:
@@ -112,12 +90,7 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            # Use jti if available, else create unique ID from sub + iat
-            token_id = payload.get("jti")
-            if not token_id:
-                sub = payload.get("sub", "unknown")
-                iat = payload.get("iat", 0)
-                token_id = f"{sub}:{iat}"
+            token_id = payload.get("jti", token[:20])
             key = f"token_blacklist:{token_id}"
             
             await redis_client.delete(key)

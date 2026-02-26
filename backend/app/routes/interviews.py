@@ -4,7 +4,7 @@ Interview management routes for the AI Interviewer platform.
 Handles interview creation, scheduling, status updates, and candidate feedback.
 """
 
-import logging
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -26,7 +26,6 @@ from app.schemas.interview_schema import (
 )
 
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
-logger = logging.getLogger(__name__)
 
 
 @router.get("/by-token/{token}")
@@ -123,10 +122,11 @@ async def get_interview_by_token(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unexpected error")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interview"
+            detail=f"Error fetching interview: {str(e)}"
         )
 
 
@@ -204,7 +204,7 @@ async def create_interview(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creating interview",
+            detail=f"Error creating interview: {str(e)}",
         )
 
 
@@ -229,7 +229,7 @@ async def get_interviews(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interviews",
+            detail=f"Error fetching interviews: {str(e)}",
         )
 
 
@@ -290,7 +290,7 @@ async def get_assigned_interviews(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interviews"
+            detail=f"Error fetching interviews: {str(e)}"
         )
 
 
@@ -324,7 +324,7 @@ async def get_interview(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching interview",
+            detail=f"Error fetching interview: {str(e)}",
         )
 
 
@@ -375,7 +375,7 @@ async def update_interview(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error updating interview",
+            detail=f"Error updating interview: {str(e)}",
         )
 
 
@@ -414,7 +414,7 @@ async def cancel_interview(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error cancelling interview",
+            detail=f"Error cancelling interview: {str(e)}",
         )
 
 
@@ -453,7 +453,7 @@ async def start_interview(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error starting interview",
+            detail=f"Error starting interview: {str(e)}",
         )
 
 
@@ -500,5 +500,5 @@ async def complete_interview(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error completing interview",
+            detail=f"Error completing interview: {str(e)}",
         )

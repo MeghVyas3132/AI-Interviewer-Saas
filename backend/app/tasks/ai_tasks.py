@@ -99,32 +99,15 @@ def generate_questions_task(self, job_template_id: str, max_questions: int = 10)
 def generate_verdict_task(interview_id: str, transcript_text: str, resume_text: str | None = None):
     """Generate verdict for an interview transcript and persist ai_report via services."""
     async def _run():
-        from app.models.ai_report import AIReport
-        from app.models.candidate import Interview
-
         # call generate_ats_report combining resume and transcript
         input_text = (resume_text or "") + "\n\nTranscript:\n" + transcript_text
         report = await generate_ats_report(input_text)
-
         # persist via direct DB insert into ai_reports table
+        from app.models.ai_report import AIReport
         async_session, engine = get_fresh_async_session()
         async with async_session() as session:
             try:
-                # Fetch interview to get company_id and candidate_id (company_id is NOT NULL)
-                interview = await session.get(Interview, interview_id)
-                if not interview:
-                    logger.error(f"Interview {interview_id} not found — cannot persist verdict")
-                    return
-
-                ar = AIReport(
-                    company_id=interview.company_id,
-                    candidate_id=interview.candidate_id,
-                    interview_id=interview_id,
-                    report_type="transcript_verdict",
-                    score=report.get("score"),
-                    summary=report.get("summary"),
-                    provider_response=report.get("raw"),
-                )
+                ar = AIReport(company_id=None, candidate_id=None, interview_id=interview_id, report_type="transcript_verdict", score=report.get("score"), summary=report.get("summary"), provider_response=report.get("raw"))
                 session.add(ar)
                 await session.commit()
                 logger.info(f"Persisted ai_report for interview {interview_id}")

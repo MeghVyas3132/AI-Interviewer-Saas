@@ -9,6 +9,7 @@ from uuid import UUID
 
 from app.core.celery_config import celery_app
 from app.core.config import settings
+from app.core.database import get_db
 from app.models.candidate import EmailQueue, EmailStatus, EmailType, EmailPriority
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,8 +231,8 @@ def send_email_task(self, email_id: str):
                     email_queue.status = EmailStatus.SENT
                     email_queue.email_provider_id = provider_id
                     email_queue.retry_count = 0
-                    from datetime import datetime, timezone
-                    email_queue.sent_at = datetime.now(timezone.utc)
+                    from datetime import datetime
+                    email_queue.sent_at = datetime.utcnow()
                     await session.commit()
                     
                     logger.info(f"Email sent successfully: {email_id} (Provider ID: {provider_id})")

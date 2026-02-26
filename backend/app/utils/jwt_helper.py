@@ -3,8 +3,6 @@ JWT token generation and validation utilities.
 """
 
 from datetime import datetime, timedelta, timezone
-import time
-import uuid
 from typing import Any, Dict, Optional
 
 from jose import JWTError, jwt
@@ -28,19 +26,14 @@ def create_access_token(
     """
     to_encode = data.copy()
 
-    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = now + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = now + timedelta(minutes=settings.access_token_expire_minutes)
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.access_token_expire_minutes
+        )
 
-    # Add issued-at and unique id (jti) to avoid blacklist collisions
-    to_encode.update({
-        "exp": int(expire.timestamp()),
-        "iat": int(now.timestamp()),
-        "jti": str(uuid.uuid4()),
-    })
-
+    to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
         to_encode,
         settings.secret_key,
@@ -60,15 +53,10 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
         Encoded JWT refresh token
     """
     to_encode = data.copy()
-    now = datetime.now(timezone.utc)
-    expire = now + timedelta(days=settings.refresh_token_expire_days)
-
-    to_encode.update({
-        "exp": int(expire.timestamp()),
-        "iat": int(now.timestamp()),
-        "jti": str(uuid.uuid4()),
-    })
-
+    expire = datetime.now(timezone.utc) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
+    to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
         to_encode,
         settings.secret_key,

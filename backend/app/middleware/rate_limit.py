@@ -32,7 +32,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     RATE_LIMITS = {
         "login": {"max_requests": 5, "window": 60},  # 5 per minute
         "register": {"max_requests": 3, "window": 3600},  # 3 per hour
-        "password_reset": {"max_requests": 3, "window": 300},  # 3 per 5 minutes
         "api_general": {"max_requests": 1000, "window": 60},  # 1000 per minute
         "bulk_operations": {"max_requests": 10, "window": 60},  # 10 per minute
         "ai_operations": {"max_requests": 50, "window": 60},  # 50 per minute
@@ -47,11 +46,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if request.url.path in ["/health", "/", "/docs", "/openapi.json"]:
                 return await call_next(request)
             
-            # Check login endpoint rate limit (includes candidate-login)
-            if request.method == "POST" and (
-                "/auth/login" in request.url.path
-                or "/auth/candidate-login" in request.url.path
-            ):
+            # Check login endpoint rate limit
+            if request.method == "POST" and "/auth/login" in request.url.path:
                 config = self.RATE_LIMITS["login"]
                 is_rate_limited = await self._check_rate_limit(
                     client_ip, "login", config["max_requests"], config["window"]
@@ -61,22 +57,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     return JSONResponse(
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                         content={"detail": "Too many login attempts. Try again in 1 minute."},
-                    )
-
-            # Check password reset / forgot-password rate limit
-            elif request.method == "POST" and (
-                "/auth/forgot-password" in request.url.path
-                or "/auth/reset-password" in request.url.path
-            ):
-                config = self.RATE_LIMITS["password_reset"]
-                is_rate_limited = await self._check_rate_limit(
-                    client_ip, "password_reset", config["max_requests"], config["window"]
-                )
-                if is_rate_limited:
-                    logger.warning(f"Password reset rate limit exceeded for IP: {client_ip}")
-                    return JSONResponse(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        content={"detail": "Too many password reset attempts. Try again in 5 minutes."},
                     )
             
             # Check registration endpoint rate limit

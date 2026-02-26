@@ -6,14 +6,16 @@ These endpoints forward requests to the AI service (Node.js/Genkit) and return r
 import os
 import logging
 import httpx
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, status, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from app.models.ai_report import AIReport
+from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai_report_service import AIReportService
+import httpx
 import base64
 from fastapi import UploadFile, File, Form
 
@@ -60,7 +62,6 @@ async def resume_analysis(request: Request, user=Depends(get_current_user)):
 @router.post("/ats")
 async def ats_for_interview(
     request: Request,
-    user=Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """ATS check for interview flow - saves score to interview record and creates AI report.
@@ -119,7 +120,7 @@ async def ats_for_interview(
                         if candidate.ats_report:
                             try:
                                 cached_report = json_lib.loads(candidate.ats_report)
-                            except Exception:
+                            except:
                                 pass
                         
                         return {
@@ -278,7 +279,7 @@ async def ats_check(
                 # Try to decode as text
                 try:
                     resume_text = content.decode('utf-8', errors='ignore')
-                except Exception:
+                except:
                     raise HTTPException(status_code=400, detail="Unsupported file format. Please upload PDF, DOCX, or TXT.")
         
         if not resume_text.strip():

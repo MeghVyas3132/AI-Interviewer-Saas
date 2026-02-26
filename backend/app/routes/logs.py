@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import (
+    get_current_user,
     require_hr_or_employee,
 )
 from app.models.user import User
@@ -70,11 +71,9 @@ async def get_user_logs(
         List of audit logs
     """
     # Verify user belongs to the company
-    from sqlalchemy import text
-
     user_check = await session.execute(
-        text("SELECT id FROM users WHERE id = :uid AND company_id = :cid"),
-        {"uid": str(user_id), "cid": str(current_user.company_id)},
+        "SELECT id FROM users WHERE id = %s AND company_id = %s",
+        [user_id, current_user.company_id],
     )
     if not user_check.fetchone():
         raise HTTPException(

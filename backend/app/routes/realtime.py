@@ -10,13 +10,13 @@ Provides:
 import asyncio
 import jwt
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -24,13 +24,14 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user, require_employee
 from app.models.user import User, UserRole
 from app.models.interview_round import InterviewRound, RoundStatus
-from app.models.candidate import Candidate, CandidateStatus
 from app.models.realtime_insights import (
     LiveInsight,
     FraudAlert,
     InterviewTranscript,
     HumanVerdict,
     InterviewSummary,
+    CandidateResume,
+    VerdictDecision,
 )
 from app.websocket.realtime_handler import (
     manager,
@@ -52,11 +53,6 @@ class VideoSDKTokenResponse(BaseModel):
     meeting_id: str
     token: str
     participant_id: str
-    # Aliases for frontend compatibility
-    videosdk_meeting_id: Optional[str] = None
-    videosdk_token: Optional[str] = None
-    interview_mode: Optional[str] = None
-    id: Optional[str] = None
 
 
 class InsightResponse(BaseModel):
@@ -96,17 +92,12 @@ class TranscriptSegment(BaseModel):
 
 class VerdictCreate(BaseModel):
     """Create verdict request."""
-    decision: str = Field(..., pattern="^(ADVANCE|REJECT|HOLD|REASSESS|selected|rejected|on_hold)$")
+    decision: str = Field(..., pattern="^(ADVANCE|REJECT|HOLD|REASSESS)$")
     overall_rating: Optional[int] = Field(None, ge=1, le=5)
     criteria_scores: Optional[dict] = None
     notes: Optional[str] = None
     ai_insights_helpful: Optional[bool] = None
     ai_feedback_notes: Optional[str] = None
-    # Additional fields for alternative payload format
-    strengths: List[str] = []
-    improvements: List[str] = []
-    feedback: Optional[str] = None
-    ratings: Optional[dict] = None
 
 
 class VerdictResponse(BaseModel):
@@ -239,7 +230,7 @@ async def websocket_interview(
             {
                 "type": "participant_left",
                 "user_id": user_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.utcnow().isoformat(),
             }
         )
 
@@ -285,7 +276,7 @@ async def start_interview_round(
     round_obj.status = RoundStatus.IN_PROGRESS
     round_obj.interview_mode = request.interview_mode
     round_obj.videosdk_meeting_id = meeting_id
-    round_obj.started_at = datetime.now(timezone.utc)
+    round_obj.started_at = datetime.utcnow()
     
     await session.commit()
     await session.refresh(round_obj)
@@ -322,7 +313,7 @@ async def end_interview_round(
         raise HTTPException(status_code=400, detail="Round is not in progress")
     
     round_obj.status = RoundStatus.COMPLETED
-    round_obj.ended_at = datetime.now(timezone.utc)
+    round_obj.ended_at = datetime.utcnow()
     
     await session.commit()
     await session.refresh(round_obj)
@@ -347,7 +338,6 @@ async def get_videosdk_token(
     Get VideoSDK token for joining the interview meeting.
     
     Returns participant token based on user role.
-    Auto-creates the meeting if not started yet.
     """
     result = await session.execute(
         select(InterviewRound).filter(InterviewRound.id == round_id)
@@ -364,21 +354,13 @@ async def get_videosdk_token(
             raise HTTPException(status_code=403, detail="Access denied")
     
     meeting_id = getattr(round_obj, 'videosdk_meeting_id', None)
-    
-    # Auto-create meeting if not started yet
     if not meeting_id:
-        import uuid
-        meeting_id = f"ai-int-{str(uuid.uuid4())[:8]}"
-        round_obj.videosdk_meeting_id = meeting_id
-        round_obj.status = RoundStatus.IN_PROGRESS
-        round_obj.started_at = datetime.now(timezone.utc)
-        await session.commit()
-        await session.refresh(round_obj)
+        raise HTTPException(status_code=400, detail="Meeting not started yet")
     
     # Generate VideoSDK JWT token
-    # Use VideoSDK API key/secret from settings
-    videosdk_api_key = settings.videosdk_api_key
-    videosdk_secret = settings.videosdk_secret
+    # In production, use proper VideoSDK API key/secret
+    videosdk_api_key = settings.get("VIDEOSDK_API_KEY", "")
+    videosdk_secret = settings.get("VIDEOSDK_SECRET", "")
     
     if not videosdk_api_key or not videosdk_secret:
         # Return mock token for development
@@ -388,8 +370,8 @@ async def get_videosdk_token(
         payload = {
             "apikey": videosdk_api_key,
             "permissions": ["allow_join", "allow_mod"],
-            "iat": datetime.now(timezone.utc),
-            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+            "iat": datetime.utcnow(),
+            "exp": datetime.utcnow() + timedelta(hours=2),
         }
         token = jwt.encode(payload, videosdk_secret, algorithm="HS256")
     
@@ -397,11 +379,6 @@ async def get_videosdk_token(
         meeting_id=meeting_id,
         token=token,
         participant_id=str(current_user.id),
-        # Include aliases for frontend compatibility
-        videosdk_meeting_id=meeting_id,
-        videosdk_token=token,
-        interview_mode=getattr(round_obj, 'interview_mode', 'HUMAN_AI_ASSISTED'),
-        id=str(round_id),
     )
 
 
@@ -463,7 +440,7 @@ async def get_fraud_alerts(
     if acknowledged is not None:
         query = query.filter(FraudAlert.acknowledged == acknowledged)
     
-    query = query.order_by(FraudAlert.detected_at_ms.desc()).limit(200)
+    query = query.order_by(FraudAlert.detected_at_ms.desc())
     
     result = await session.execute(query)
     alerts = result.scalars().all()
@@ -502,7 +479,7 @@ async def acknowledge_fraud_alert(
     
     alert.acknowledged = True
     alert.acknowledged_by = current_user.id
-    alert.acknowledged_at = datetime.now(timezone.utc)
+    alert.acknowledged_at = datetime.utcnow()
     alert.false_positive_marked = false_positive
     
     await session.commit()
@@ -523,7 +500,7 @@ async def get_transcript(
     if speaker:
         query = query.filter(InterviewTranscript.speaker == speaker.upper())
     
-    query = query.order_by(InterviewTranscript.start_time_ms).limit(500)
+    query = query.order_by(InterviewTranscript.start_time_ms)
     
     result = await session.execute(query)
     segments = result.scalars().all()
@@ -568,79 +545,19 @@ async def submit_verdict(
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Verdict already submitted for this round")
     
-    # Normalize payload - support both formats
-    # Use ratings if criteria_scores not provided
-    final_scores = verdict.criteria_scores or verdict.ratings
-    
-    # Build notes from multiple sources
-    notes_parts = []
-    if verdict.notes:
-        notes_parts.append(verdict.notes)
-    if verdict.feedback and verdict.feedback != verdict.notes:
-        notes_parts.append(verdict.feedback)
-    if verdict.strengths:
-        notes_parts.append(f"Strengths: {', '.join(verdict.strengths)}")
-    if verdict.improvements:
-        notes_parts.append(f"Areas for improvement: {', '.join(verdict.improvements)}")
-    final_notes = '\n\n'.join(notes_parts) if notes_parts else None
-    
-    # Normalize decision value
-    decision_map = {
-        'selected': 'ADVANCE',
-        'rejected': 'REJECT',
-        'on_hold': 'HOLD',
-    }
-    normalized_decision = decision_map.get(verdict.decision.lower(), verdict.decision.upper())
-    
     # Create verdict
     new_verdict = HumanVerdict(
         round_id=round_id,
         interviewer_id=current_user.id,
-        decision=normalized_decision,
+        decision=verdict.decision,
         overall_rating=verdict.overall_rating,
-        criteria_scores=final_scores,
-        notes=final_notes,
+        criteria_scores=verdict.criteria_scores,
+        notes=verdict.notes,
         ai_insights_helpful=verdict.ai_insights_helpful,
         ai_feedback_notes=verdict.ai_feedback_notes,
     )
     
     session.add(new_verdict)
-    
-    # Update candidate status based on verdict decision
-    candidate_result = await session.execute(
-        select(Candidate).filter(Candidate.id == round_obj.candidate_id)
-    )
-    candidate = candidate_result.scalars().first()
-    
-    if candidate:
-        # Use the already-normalized decision
-        if normalized_decision == "ADVANCE":
-            # Promote to next round or final review
-            if candidate.status in (
-                CandidateStatus.AI_PASSED,
-                CandidateStatus.AI_REVIEW,
-                CandidateStatus.ROUND_2_IN_PROGRESS,
-                CandidateStatus.ROUND_2_COMPLETED,
-                CandidateStatus.INTERVIEW_SCHEDULED,
-                CandidateStatus.INTERVIEW_COMPLETED,
-            ):
-                candidate.status = CandidateStatus.ELIGIBLE_ROUND_2
-            else:
-                candidate.status = CandidateStatus.FINAL_REVIEW
-            logging.info(f"[Verdict] ADVANCE - Candidate {candidate.id} → {candidate.status.value}")
-        elif normalized_decision == "REJECT":
-            candidate.status = CandidateStatus.FAILED
-            logging.info(f"[Verdict] REJECT - Candidate {candidate.id} → failed")
-        elif normalized_decision == "HOLD":
-            candidate.status = CandidateStatus.FINAL_REVIEW
-            logging.info(f"[Verdict] HOLD - Candidate {candidate.id} → final_review")
-        elif normalized_decision == "REASSESS":
-            candidate.status = CandidateStatus.REVIEW
-            logging.info(f"[Verdict] REASSESS - Candidate {candidate.id} → review")
-    
-    # Also mark round as having a verdict
-    round_obj.status = RoundStatus.COMPLETED
-    
     await session.commit()
     await session.refresh(new_verdict)
     
@@ -710,142 +627,3 @@ async def get_summary(
         key_observations=summary.key_observations,
         generated_at=summary.generated_at,
     )
-
-
-# =============================================================================
-# WebRTC Signaling Endpoints (P2P video without VideoSDK)
-# =============================================================================
-
-class SignalMessage(BaseModel):
-    """WebRTC signaling message."""
-    type: str  # "offer", "answer", "ice-candidate"
-    data: dict  # SDP or ICE candidate data
-    from_user: Optional[str] = None
-
-
-@router.post("/rounds/{round_id}/signal")
-async def post_signal(
-    round_id: UUID,
-    signal: SignalMessage,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-):
-    """
-    Post a WebRTC signaling message (offer, answer, or ICE candidate).
-    Messages are stored in Redis with a 60s TTL for the peer to pick up.
-    """
-    from app.utils.redis_client import redis_client
-    import json
-
-    # Verify round exists and user has access
-    result = await session.execute(
-        select(InterviewRound).filter(InterviewRound.id == round_id)
-    )
-    round_obj = result.scalars().first()
-    if not round_obj:
-        raise HTTPException(status_code=404, detail="Round not found")
-
-    user_id = str(current_user.id)
-    # HR, EMPLOYEE, and SYSTEM_ADMIN are all interviewers; only CANDIDATE is candidate
-    role = "interviewer" if current_user.role in (UserRole.EMPLOYEE, UserRole.HR, UserRole.SYSTEM_ADMIN) else "candidate"
-    logger.info(f"[WebRTC Signal] User {user_id} role={current_user.role.value} -> {role}, signal type={signal.type}")
-    
-    # Store signal in Redis list for the OTHER party to pick up
-    key = f"webrtc_signal:{round_id}:{role}"
-    msg = json.dumps({
-        "type": signal.type,
-        "data": signal.data,
-        "from_user": user_id,
-        "from_role": role,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    })
-    
-    if redis_client.client:
-        await redis_client.client.rpush(key, msg)
-        await redis_client.client.expire(key, 120)  # 2 min TTL
-    
-    return {"status": "ok"}
-
-
-@router.get("/rounds/{round_id}/signal")
-async def get_signals(
-    round_id: UUID,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-):
-    """
-    Poll for WebRTC signaling messages from the peer.
-    Returns all pending messages and clears them.
-    """
-    from app.utils.redis_client import redis_client
-    import json
-
-    # Verify round exists
-    result = await session.execute(
-        select(InterviewRound).filter(InterviewRound.id == round_id)
-    )
-    round_obj = result.scalars().first()
-    if not round_obj:
-        raise HTTPException(status_code=404, detail="Round not found")
-
-    # HR, EMPLOYEE, and SYSTEM_ADMIN are all interviewers; only CANDIDATE is candidate
-    role = "interviewer" if current_user.role in (UserRole.EMPLOYEE, UserRole.HR, UserRole.SYSTEM_ADMIN) else "candidate"
-    # Read signals FROM the OTHER role
-    peer_role = "candidate" if role == "interviewer" else "interviewer"
-    key = f"webrtc_signal:{round_id}:{peer_role}"
-    
-    messages = []
-    if redis_client.client:
-        # Pop all messages atomically
-        while True:
-            raw = await redis_client.client.lpop(key)
-            if raw is None:
-                break
-            try:
-                messages.append(json.loads(raw))
-            except json.JSONDecodeError:
-                continue
-    
-    return {"messages": messages}
-
-
-@router.post("/rounds/{round_id}/presence")
-async def post_presence(
-    round_id: UUID,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-):
-    """Register presence in a round - lets other party know you're online."""
-    from app.utils.redis_client import redis_client
-    
-    # HR, EMPLOYEE, and SYSTEM_ADMIN are all interviewers; only CANDIDATE is candidate
-    role = "interviewer" if current_user.role in (UserRole.EMPLOYEE, UserRole.HR, UserRole.SYSTEM_ADMIN) else "candidate"
-    key = f"webrtc_presence:{round_id}:{role}"
-    logger.info(f"[WebRTC Presence] POST user={current_user.id} role={current_user.role.value} -> {role}")
-    
-    if redis_client.client:
-        await redis_client.client.setex(key, 30, str(current_user.id))  # 30s TTL
-    
-    return {"status": "ok", "role": role}
-
-
-@router.get("/rounds/{round_id}/presence")
-async def get_presence(
-    round_id: UUID,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-):
-    """Check if the peer is online in this round."""
-    from app.utils.redis_client import redis_client
-    
-    # HR, EMPLOYEE, and SYSTEM_ADMIN are all interviewers; only CANDIDATE is candidate
-    role = "interviewer" if current_user.role in (UserRole.EMPLOYEE, UserRole.HR, UserRole.SYSTEM_ADMIN) else "candidate"
-    peer_role = "candidate" if role == "interviewer" else "interviewer"
-    logger.info(f"[WebRTC Presence] GET user={current_user.id} role={current_user.role.value} -> {role}, checking peer_role={peer_role}")
-    
-    peer_present = False
-    if redis_client.client:
-        val = await redis_client.client.get(f"webrtc_presence:{round_id}:{peer_role}")
-        peer_present = val is not None
-    
-    return {"peer_online": peer_present, "my_role": role, "peer_role": peer_role}

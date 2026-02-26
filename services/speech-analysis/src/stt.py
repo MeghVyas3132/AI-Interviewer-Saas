@@ -6,42 +6,11 @@ import base64
 import json
 import logging
 from typing import Optional, Dict, Any, List
-"""
-Speech-to-Text service using Deepgram (primary) and Whisper (fallback).
-"""
+from deepgram import DeepgramClient, PrerecordedOptions
+import whisper
+import numpy as np
 import io
-import logging
-import asyncio
-from typing import Optional, Dict, Any
-
-# Optional external libs — import defensively so the service can start
-# even when optional STT providers are not installed in the image.
-try:
-    from deepgram import DeepgramClient, PrerecordedOptions
-    _HAS_DEEPGRAM = True
-except Exception:
-    DeepgramClient = None
-    PrerecordedOptions = None
-    _HAS_DEEPGRAM = False
-
-try:
-    import whisper as _whisper
-    _HAS_WHISPER = True
-except Exception:
-    _whisper = None
-    _HAS_WHISPER = False
-
-try:
-    import numpy as np
-except Exception:
-    np = None
-
-try:
-    import soundfile as sf
-    _HAS_SOUNDFILE = True
-except Exception:
-    sf = None
-    _HAS_SOUNDFILE = False
+import soundfile as sf
 
 from .config import settings
 
@@ -58,8 +27,8 @@ class STTService:
     
     def _initialize_clients(self):
         """Initialize STT clients."""
-        # Initialize Deepgram if API key is available and library present
-        if _HAS_DEEPGRAM and settings.deepgram_api_key:
+        # Initialize Deepgram if API key is available
+        if settings.deepgram_api_key:
             try:
                 self.deepgram_client = DeepgramClient(settings.deepgram_api_key)
                 logger.info("Deepgram client initialized")
@@ -67,15 +36,11 @@ class STTService:
                 logger.error(f"Failed to initialize Deepgram: {e}")
         
         # Initialize Whisper as fallback
-        # Initialize Whisper if library available (model loading may be heavy)
-        if _HAS_WHISPER:
-            try:
-                self.whisper_model = _whisper.load_model(settings.whisper_model_size)
-                logger.info(f"Whisper model ({settings.whisper_model_size}) loaded")
-            except Exception as e:
-                logger.error(f"Failed to load Whisper model: {e}")
-        else:
-            logger.info("Whisper library not available; Whisper fallback disabled")
+        try:
+            self.whisper_model = whisper.load_model(settings.whisper_model_size)
+            logger.info(f"Whisper model ({settings.whisper_model_size}) loaded")
+        except Exception as e:
+            logger.error(f"Failed to load Whisper model: {e}")
     
     async def transcribe_audio(
         self,
@@ -104,9 +69,6 @@ class STTService:
         # Fallback to Whisper
         if self.whisper_model:
             return await self._transcribe_whisper(audio_data, sample_rate)
-
-        # If neither provider is available, raise with helpful message
-        raise RuntimeError("No STT service available: Deepgram or Whisper not configured/installed")
         
         raise RuntimeError("No STT service available")
     
@@ -163,18 +125,12 @@ class STTService:
     ) -> Dict[str, Any]:
         """Transcribe using local Whisper model."""
         try:
-            if np is None:
-                raise RuntimeError("NumPy is required for Whisper transcription but is not installed")
-
             # Convert bytes to numpy array
             audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
             
             # Resample to 16kHz if needed (Whisper expects 16kHz)
             if sample_rate != 16000:
-                try:
-                    import librosa
-                except Exception:
-                    raise RuntimeError("librosa required for resampling but is not installed")
+                import librosa
                 audio_np = librosa.resample(audio_np, orig_sr=sample_rate, target_sr=16000)
             
             # Run transcription in thread pool to not block event loop

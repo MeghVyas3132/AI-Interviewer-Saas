@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.models.user import User, UserRole
 from app.schemas.company_schema import (
@@ -201,11 +200,12 @@ async def get_system_metrics(
 # Company Registration Request Management
 # =============================================================================
 
-from datetime import datetime, timezone
+from datetime import datetime
 from pydantic import BaseModel
 from sqlalchemy import select
 from app.models.company_request import CompanyRequest, RequestStatus
 from app.models.company import Company
+from app.services.auth_service import AuthService
 # Async email queueing service (Celery)
 from app.services.email_async_service import EmailService as AsyncEmailService
 from app.models.candidate import EmailType, EmailPriority
@@ -259,7 +259,6 @@ async def list_pending_requests(
             select(CompanyRequest)
             .where(CompanyRequest.status == RequestStatus.PENDING)
             .order_by(CompanyRequest.created_at.desc())
-            .limit(100)
         )
         requests = result.scalars().all()
         
@@ -281,7 +280,7 @@ async def list_pending_requests(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching pending requests",
+            detail=f"Error fetching pending requests: {str(e)}",
         )
 
 
@@ -311,7 +310,6 @@ async def list_all_requests(
                     detail="Invalid status filter. Must be: pending, approved, or rejected",
                 )
         
-        query = query.limit(200)
         result = await session.execute(query)
         requests = result.scalars().all()
         
@@ -335,7 +333,7 @@ async def list_all_requests(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching requests",
+            detail=f"Error fetching requests: {str(e)}",
         )
 
 
@@ -414,7 +412,7 @@ async def approve_request(
         # Update the request
         company_request.status = RequestStatus.APPROVED
         company_request.reviewed_by = current_user.id
-        company_request.reviewed_at = datetime.now(timezone.utc)
+        company_request.reviewed_at = datetime.utcnow()
         company_request.approved_company_id = company.id
         
         # Log the action
@@ -434,7 +432,7 @@ async def approve_request(
         await session.commit()
         # Queue a welcome / approval email to the requester via Celery
         try:
-            login_link = f"{settings.frontend_url}/auth/login"
+            login_link = "http://localhost:3000/auth/login"  # TODO: read from config
             await AsyncEmailService.queue_email(
                 session=session,
                 company_id=company.id,
@@ -475,7 +473,7 @@ async def approve_request(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error approving request",
+            detail=f"Error approving request: {str(e)}",
         )
 
 
@@ -516,7 +514,7 @@ async def reject_request(
         # Update the request
         company_request.status = RequestStatus.REJECTED
         company_request.reviewed_by = current_user.id
-        company_request.reviewed_at = datetime.now(timezone.utc)
+        company_request.reviewed_at = datetime.utcnow()
         company_request.rejection_reason = body.reason
         
         await session.commit()
@@ -533,7 +531,7 @@ async def reject_request(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error rejecting request",
+            detail=f"Error rejecting request: {str(e)}",
         )
 
 
@@ -568,15 +566,9 @@ async def delete_company(
     
     Requires admin code verification for security.
     """
-    # Verify admin code from environment variable
-    from app.core.config import settings
-    admin_delete_code = getattr(settings, 'admin_delete_code', None)
-    if not admin_delete_code:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Admin delete code not configured. Set ADMIN_DELETE_CODE env var.",
-        )
-    if body.admin_code != admin_delete_code:
+    # Verify admin code
+    ADMIN_CODE = "ADMIN2025"
+    if body.admin_code != ADMIN_CODE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin code. Deletion not authorized.",
@@ -680,5 +672,5 @@ async def delete_company(
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error deleting company",
+            detail=f"Error deleting company: {str(e)}",
         )

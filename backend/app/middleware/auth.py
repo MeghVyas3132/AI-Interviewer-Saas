@@ -10,6 +10,7 @@ Login Flow:
 """
 
 import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status

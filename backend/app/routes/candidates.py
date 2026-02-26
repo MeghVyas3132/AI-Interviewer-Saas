@@ -4,16 +4,16 @@ Comprehensive CRUD, bulk operations, and email integration
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.models.candidate import CandidateStatus, EmailType, EmailPriority
+from app.models.candidate import CandidateStatus, CandidateSource, EmailType, EmailPriority
 from app.models.user import User
 from app.schemas.candidate_schema import (
     CandidateCreate,
@@ -24,12 +24,13 @@ from app.schemas.candidate_schema import (
     CandidateUpdate,
     BulkSendEmailRequest,
     BulkActionResponse,
+    BulkActionStatusResponse,
 )
 from app.schemas.import_job_schema import ImportJobResponse, ImportJobStatusResponse
 from app.services.candidate_service import CandidateService
 from app.services.email_async_service import EmailService
 from app.services.import_job_service import ImportJobService
-from app.utils.file_parser import CandidateImportParser, FileParseError
+from app.utils.file_parser import CandidateImportParser, FileParseError, BulkImportStats
 
 logger = logging.getLogger(__name__)
 
@@ -309,79 +310,6 @@ async def update_candidate(
         raise HTTPException(status_code=500, detail="Error updating candidate")
 
 
-class CandidateStatusUpdate(BaseModel):
-    """Schema for updating just the candidate status (used by Kanban)."""
-    status: str
-
-
-@router.patch(
-    "/{candidate_id}/status",
-    response_model=CandidateResponse,
-    summary="Update candidate status only",
-)
-async def update_candidate_status_only(
-    candidate_id: UUID,
-    update_data: CandidateStatusUpdate,
-    session: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> CandidateResponse:
-    """
-    Update just the candidate status.
-    Used by Kanban drag-and-drop functionality.
-    """
-    from app.utils.cache import invalidate_cache
-    
-    try:
-        candidate = await CandidateService.get_candidate_by_id(
-            session=session,
-            candidate_id=candidate_id,
-            company_id=current_user.company_id,
-        )
-        
-        if not candidate:
-            raise HTTPException(status_code=404, detail="Candidate not found")
-        
-        # Update status and send email notification
-        try:
-            new_status = CandidateStatus(update_data.status.lower())
-        except ValueError:
-            # Try uppercase
-            try:
-                new_status = CandidateStatus(update_data.status.upper())
-            except ValueError:
-                # Try to find a matching status
-                status_value = update_data.status.lower().replace(' ', '_').replace('-', '_')
-                try:
-                    new_status = CandidateStatus(status_value)
-                except ValueError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid status: {update_data.status}. Valid values: {[s.value for s in CandidateStatus]}"
-                    )
-        
-        await CandidateService.update_candidate_status(
-            session=session,
-            candidate_id=candidate_id,
-            company_id=current_user.company_id,
-            new_status=new_status,
-            send_email=False,  # Don't send email for Kanban drag-drop
-        )
-        
-        await session.commit()
-        await session.refresh(candidate)
-        
-        # Invalidate cached candidate lists for this company
-        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
-        
-        return CandidateResponse.model_validate(candidate)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating candidate status: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error updating candidate status")
-
-
 @router.delete(
     "/{candidate_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -567,7 +495,7 @@ async def bulk_import_file(
         logger.error(f"Error queuing import job: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error queuing import job"
+            detail=f"Error queuing import job: {str(e)}"
         )
 
 
@@ -636,7 +564,7 @@ async def get_import_job_status(
         logger.error(f"Error fetching import job status: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching import job status"
+            detail=f"Error fetching import job status: {str(e)}"
         )
 
 
@@ -780,13 +708,13 @@ async def bulk_send_email(
         
         await session.commit()
         
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
         
         return BulkActionResponse(
             job_id=email_ids[0] if email_ids else None,  # Return first email ID as job ID
             status="202 ACCEPTED",
             queued_count=len(email_ids),
-            estimated_completion=datetime.now(timezone.utc) + timedelta(minutes=2),
+            estimated_completion=datetime.utcnow() + timedelta(minutes=2),
             message=f"Queued {len(email_ids)} emails for sending",
         )
         
@@ -1007,5 +935,5 @@ async def bulk_import_candidates_csv(
         logger.error(f"Error in CSV bulk import: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error importing candidates from CSV"
+            detail=f"Error importing candidates from CSV: {str(e)}"
         )
