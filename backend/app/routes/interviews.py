@@ -5,10 +5,11 @@ Handles interview creation, scheduling, status updates, and candidate feedback.
 """
 
 from datetime import datetime
+import random
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,11 +27,13 @@ from app.schemas.interview_schema import (
 )
 
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
+MAX_INTERVIEW_QUESTIONS = 10
 
 
 @router.get("/by-token/{token}")
 async def get_interview_by_token(
     token: str,
+    response: Response,
     session: AsyncSession = Depends(get_db),
 ):
     """
@@ -39,6 +42,11 @@ async def get_interview_by_token(
     The token itself serves as authentication.
     """
     try:
+        # Interview token responses are time-sensitive and should not be cached.
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
         from app.models.company import Company
         from app.models.job import JobTemplate, Question
         
@@ -82,7 +90,23 @@ async def get_interview_by_token(
             ).order_by(Question.weight.desc(), Question.created_at)
             questions_result = await session.execute(questions_query)
             questions = questions_result.scalars().all()
-            questions_generated = [q.text for q in questions]
+
+            # Keep unique non-empty question text values while preserving DB order.
+            seen_questions = set()
+            all_questions = []
+            for question in questions:
+                question_text = (question.text or "").strip()
+                if question_text and question_text not in seen_questions:
+                    seen_questions.add(question_text)
+                    all_questions.append(question_text)
+
+            # Use exactly 10 questions when more are available.
+            # Seed by interview token so the random subset remains stable for this interview.
+            if len(all_questions) > MAX_INTERVIEW_QUESTIONS:
+                rng = random.Random(interview.ai_interview_token)
+                questions_generated = rng.sample(all_questions, MAX_INTERVIEW_QUESTIONS)
+            else:
+                questions_generated = all_questions
         
         # If no questions in job template, generate default questions based on position
         if not questions_generated:

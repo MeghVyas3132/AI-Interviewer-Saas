@@ -169,7 +169,7 @@ export default function HRJobsPage() {
               </a>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Job Openings</h1>
-                <p className="text-sm text-gray-500">Manage job roles and AI-generated interview questions</p>
+                <p className="text-sm text-gray-500">Start by creating a job listing for the position you want to hire.</p>
               </div>
             </div>
             <button 
@@ -222,6 +222,10 @@ export default function HRJobsPage() {
               <p className="text-sm text-green-600">Click "View Questions" on the job to see them.</p>
             </div>
           </div>
+        )}
+
+        {jobs.length > 0 && (
+          <p className="mb-6 text-sm text-gray-500">Next step: Add an employee to manage this hiring process.</p>
         )}
 
         {/* Add/Edit Form Modal */}

@@ -15,6 +15,7 @@ import { AIAnalyticsDashboard } from '@/components/ai-analytics'
 import { aiServiceClient } from '@/services/ai-service-client'
 import BulkImportModal from '@/components/BulkImportModal'
 import CandidateProfileModal from '@/components/CandidateProfileModal'
+import JobListingTabContent from '@/components/hr/JobListingTabContent'
 
 interface Candidate {
   id: string
@@ -51,7 +52,7 @@ export default function HRDashboard() {
   const [metrics, setMetrics] = useState<HRMetrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState<'overview' | 'candidates' | 'employees' | 'pipeline' | 'ai-tools' | 'ai-reports'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'job-listing' | 'candidates' | 'employees' | 'pipeline' | 'ai-tools' | 'ai-reports'>('overview')
   const [activeFilter, setActiveFilter] = useState<'all' | 'assigned' | 'unassigned'>('all')
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -299,23 +300,9 @@ export default function HRDashboard() {
           {/* Navigation Tabs (Window Style) - Global */}
           <div className="mb-8">
             <div className="bg-gray-100/50 border border-gray-200 rounded-2xl p-1.5 inline-flex gap-1 shadow-sm backdrop-blur-sm">
-              {['Overview', 'Candidates', 'Pipeline', 'Job Listing', 'Employees', 'AI Tools', 'AI Reports'].map((tab) => {
+              {['Overview', 'Job Listing', 'Employees', 'Candidates', 'Pipeline', 'AI Tools', 'AI Reports'].map((tab) => {
                 const tabKey = tab.toLowerCase().replace(' ', '-') as typeof activeTab;
                 const isActive = activeTab === tabKey;
-                if (tab === 'Job Listing') {
-                  return (
-                    <a
-                      key={tabKey}
-                      href="/hr/jobs"
-                      className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all duration-300 ${isActive
-                        ? 'bg-white text-primary-600 shadow-lg ring-1 ring-black/5 scale-105'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-white/50'
-                        }`}
-                    >
-                      {tab}
-                    </a>
-                  );
-                }
                 return (
                   <button
                     key={tabKey}
@@ -467,7 +454,10 @@ export default function HRDashboard() {
                 <div className="p-8">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div className="flex items-center gap-6">
-                      <h2 className="text-2xl font-bold text-gray-900">All Candidates</h2>
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-900">All Candidates</h2>
+                        <p className="text-sm text-gray-500 mt-1">Assign candidates to the selected employee for interview.</p>
+                      </div>
                       <div className="flex bg-gray-100/80 rounded-2xl p-1 backdrop-blur-sm border">
                         <button
                           onClick={() => setActiveFilter('all')}
@@ -502,6 +492,9 @@ export default function HRDashboard() {
                       <Button className="rounded-xl px-6 font-bold" onClick={() => router.push('/candidates/new')}>+ Add Candidate</Button>
                     </div>
                   </div>
+                  {candidates.some(candidate => candidate.assigned_to) && (
+                    <p className="text-sm text-gray-500 mb-5">You can now track progress in the Pipeline section.</p>
+                  )}
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
@@ -600,8 +593,18 @@ export default function HRDashboard() {
               </Card>
             )}
 
+            {activeTab === 'job-listing' && (
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 ring-1 ring-gray-50">
+                <JobListingTabContent />
+              </div>
+            )}
+
             {activeTab === 'pipeline' && (
               <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 ring-1 ring-gray-50">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">Pipeline</h2>
+                  <p className="text-sm text-gray-500 mt-1">Track candidate progress through screening, interview, and final selection stages.</p>
+                </div>
                 <KanbanCandidatePipeline
                   candidates={candidates}
                   pendingChanges={pendingPipeline}
@@ -615,9 +618,15 @@ export default function HRDashboard() {
             {activeTab === 'employees' && (
               <Card className="rounded-3xl shadow-sm border-gray-100 overflow-hidden p-8 border-none ring-1 ring-gray-100">
                 <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-2xl font-bold text-gray-900">Employee Directory</h2>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">Employee Directory</h2>
+                    <p className="text-sm text-gray-500 mt-1">Add or assign a team member who will conduct interviews for this job.</p>
+                  </div>
                   <Button className="rounded-xl px-6 font-bold shadow-lg shadow-primary-50" onClick={() => setIsEmployeeModalOpen(true)}>Add Team Member</Button>
                 </div>
+                {employees.length > 0 && (
+                  <p className="text-sm text-gray-500 mb-5">Next step: Assign candidates to this employee.</p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {employees.map((emp) => (
                     <div key={emp.id} className="p-6 bg-gray-50/50 rounded-3xl border border-gray-100 hover:bg-white hover:shadow-xl hover:border-transparent transition-all group relative">

@@ -85,9 +85,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "upgrade-insecure-requests"
         )
 
-        # Disable client-side caching for sensitive pages
-        # (but still allow browser cache for performance)
-        response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        # Respect route-specific cache headers (for token/session endpoints).
+        # Fall back to a conservative default for other responses.
+        if "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
 
         # Disable FLoC (Federated Learning of Cohorts) tracking
         response.headers["Permissions-Policy"] = "interest-cohort=()"

@@ -71,7 +71,13 @@ export default function InterviewRoomPage() {
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/interviews/by-token/${token}`);
+        const response = await fetch(`${API_BASE_URL}/interviews/by-token/${token}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
+        });
         if (!response.ok) {
           setError('Interview session not found.');
           return;

@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus
 from app.models.user import User, UserRole
+from app.utils.cache import invalidate_cache
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
 
@@ -242,6 +243,7 @@ async def assign_candidate_to_employee(
             {"status": "assigned", "emp_id": str(employee_id), "id": str(candidate_id)}
         )
         await db.commit()
+        await invalidate_cache(f"candidates:list:{company_id}:*")
 
         return {
             "message": f"Candidate assigned to {employee.name} successfully",
@@ -309,6 +311,7 @@ async def revoke_candidate_assignment(
                 {"id": str(candidate_id)}
             )
         await db.commit()
+        await invalidate_cache(f"candidates:list:{company_id}:*")
 
         return {
             "message": "Candidate assignment revoked successfully",
@@ -404,6 +407,7 @@ async def assign_candidates_bulk(
             )
         
         await db.commit()
+        await invalidate_cache(f"candidates:list:{company_id}:*")
 
         return {
             "message": f"{len(candidates)} candidates assigned to {employee.name} successfully",
