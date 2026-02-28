@@ -15,19 +15,6 @@ interface AIConfig {
     ai_verdict_enabled: boolean;
 }
 
-interface Job {
-    id: string;
-    title: string;
-    description: string;
-    department?: string;
-    created_at?: string;
-}
-
-interface Question {
-    id: string;
-    text: string;
-}
-
 interface AIConfigManagerProps {
     readOnly?: boolean;
 }
@@ -43,19 +30,12 @@ export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
         ats_enabled: true,
         ai_verdict_enabled: true,
     });
-    const [jobs, setJobs] = useState<Job[]>([]);
-    const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-    const [questions, setQuestions] = useState<Question[]>([]);
-    const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [questionsLoading, setQuestionsLoading] = useState(false);
     const [success, setSuccess] = useState('');
     const [error, setError] = useState('');
-    const [activeSection, setActiveSection] = useState<'config' | 'questions'>('config');
 
     useEffect(() => {
         fetchConfig();
-        fetchJobs();
     }, []);
 
     const fetchConfig = async () => {
@@ -67,36 +47,6 @@ export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
         } catch (err) {
             console.error('Failed to load AI config:', err);
         }
-    };
-
-    const fetchJobs = async () => {
-        setLoading(true);
-        try {
-            const data = await apiClient.get<Job[]>('/jobs');
-            setJobs(data || []);
-        } catch (err) {
-            console.error('Failed to load jobs:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchQuestions = async (jobId: string) => {
-        setQuestionsLoading(true);
-        try {
-            const data = await apiClient.get<Question[]>(`/jobs/${jobId}/questions`);
-            setQuestions(data || []);
-        } catch (err) {
-            console.error('Failed to load questions:', err);
-            setQuestions([]);
-        } finally {
-            setQuestionsLoading(false);
-        }
-    };
-
-    const handleSelectJob = (job: Job) => {
-        setSelectedJob(job);
-        fetchQuestions(job.id);
     };
 
     const handleSaveConfig = async () => {
@@ -133,24 +83,9 @@ export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
             {/* Tab Navigation */}
             <div className="flex gap-2 border-b border-gray-200">
                 <button
-                    onClick={() => setActiveSection('config')}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                        activeSection === 'config'
-                            ? 'border-brand-500 text-brand-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
+                    className="px-4 py-2 text-sm font-medium border-b-2 transition-colors border-brand-500 text-brand-600"
                 >
                     AI Settings
-                </button>
-                <button
-                    onClick={() => setActiveSection('questions')}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                        activeSection === 'questions'
-                            ? 'border-brand-500 text-brand-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    View Questions
                 </button>
             </div>
 
@@ -166,8 +101,7 @@ export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
                 </div>
             )}
 
-            {activeSection === 'config' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Scoring Thresholds */}
                     <Card className="p-6">
                         <div className="flex items-center gap-3 mb-6">
@@ -349,96 +283,6 @@ export function AIConfigManager({ readOnly = false }: AIConfigManagerProps) {
                         </button>
                     </Card>
                 </div>
-            )}
-
-            {activeSection === 'questions' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Job List */}
-                    <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700">Job Roles ({jobs.length})</h3>
-                        
-                        {loading ? (
-                            <div className="text-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                            </div>
-                        ) : jobs.length === 0 ? (
-                            <Card className="p-6 text-center text-gray-500">
-                                No jobs created yet. <a href="/hr/jobs" className="text-brand-600 hover:underline">Create one</a>
-                            </Card>
-                        ) : (
-                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                                {jobs.map(job => (
-                                    <div key={job.id}>
-                                        <Card
-                                            className={`p-4 cursor-pointer transition hover:shadow-md ${
-                                                selectedJob?.id === job.id ? 'ring-2 ring-brand-500 bg-brand-50' : ''
-                                            }`}
-                                            onClick={() => handleSelectJob(job)}
-                                        >
-                                            <div className="flex justify-between items-start">
-                                                <div className="flex-1">
-                                                    <h4 className="font-semibold text-gray-900">{job.title}</h4>
-                                                    {job.department && (
-                                                        <span className="text-xs text-gray-500">{job.department}</span>
-                                                    )}
-                                                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">{job.description}</p>
-                                                </div>
-                                            </div>
-                                        </Card>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Questions Panel */}
-                    <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700">
-                            {selectedJob ? `Questions for "${selectedJob.title}"` : 'Select a job to view questions'}
-                        </h3>
-                        
-                        {selectedJob ? (
-                            questionsLoading ? (
-                                <div className="text-center py-8">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto"></div>
-                                </div>
-                            ) : questions.length === 0 ? (
-                                <Card className="p-6 text-center">
-                                    <p className="text-gray-500 mb-4">No questions generated yet</p>
-                                    <a href="/hr/jobs" className="btn-primary inline-block">
-                                        Go to Job Listing to Generate
-                                    </a>
-                                </Card>
-                            ) : (
-                                <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                                    <p className="text-sm text-gray-500 mb-2">
-                                        {questions.length} questions • 10 random selected per interview
-                                    </p>
-                                    {questions.map((q, idx) => (
-                                        <div key={q.id}>
-                                            <Card className="p-4">
-                                                <div className="flex gap-3">
-                                                    <span className="flex-shrink-0 w-6 h-6 bg-brand-100 text-brand-600 rounded-full flex items-center justify-center text-sm font-semibold">
-                                                        {idx + 1}
-                                                    </span>
-                                                    <p className="text-gray-800">{q.text}</p>
-                                                </div>
-                                            </Card>
-                                        </div>
-                                    ))}
-                                </div>
-                            )
-                        ) : (
-                            <Card className="p-8 text-center text-gray-400">
-                                <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <p>Click on a job role to view its AI-generated interview questions</p>
-                            </Card>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
