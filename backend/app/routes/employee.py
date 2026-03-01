@@ -8,7 +8,8 @@ Employee capabilities:
 - Update candidate status
 """
 
-from typing import List, Optional
+import json
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -34,6 +35,47 @@ def require_employee(current_user: User = Depends(get_current_user)) -> User:
             detail="Only employees can access this resource",
         )
     return current_user
+
+
+def _parse_interview_transcript(raw_transcript: Optional[str]) -> List[Dict[str, Any]]:
+    """Parse serialized interview transcript JSON safely."""
+    if not raw_transcript:
+        return []
+    try:
+        parsed = json.loads(raw_transcript)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+    except Exception:
+        return []
+    return []
+
+
+def _build_qa_pairs(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract ordered Q&A pairs from transcript timeline."""
+    qa_pairs: List[Dict[str, Any]] = []
+    current_question: Optional[Dict[str, Any]] = None
+
+    for msg in transcript:
+        role = str(msg.get("role", "")).lower()
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+
+        if role in {"ai", "assistant", "interviewer"}:
+            current_question = msg
+            continue
+
+        if role in {"user", "candidate"} and current_question is not None:
+            qa_pairs.append({
+                "question": str(current_question.get("content", "")).strip(),
+                "answer": content,
+                "timestamp": msg.get("timestamp", "") or current_question.get("timestamp", ""),
+                "question_timestamp": current_question.get("timestamp", ""),
+                "answer_timestamp": msg.get("timestamp", ""),
+            })
+            current_question = None
+
+    return qa_pairs
 
 
 @router.get("/my-candidates")
@@ -216,21 +258,80 @@ async def get_candidate_detailed_profile(
         for interview in interviews:
             report = reports_by_interview.get(interview.id)
             provider_response = report.provider_response if report else {}
-            transcript = provider_response.get("transcript", [])
-            
-            # Extract Q&A pairs from transcript
-            qa_pairs = []
-            current_question = None
-            for msg in transcript:
-                if msg.get("role") == "ai":
-                    current_question = msg.get("content", "")
-                elif msg.get("role") == "user" and current_question:
-                    qa_pairs.append({
-                        "question": current_question,
-                        "answer": msg.get("content", ""),
-                        "timestamp": msg.get("timestamp", "")
-                    })
-                    current_question = None
+
+            # Source-of-truth transcript lives on Interview.transcript.
+            transcript = _parse_interview_transcript(getattr(interview, "transcript", None))
+            if not transcript:
+                fallback_transcript = provider_response.get("transcript", [])
+                if isinstance(fallback_transcript, list):
+                    transcript = [item for item in fallback_transcript if isinstance(item, dict)]
+
+            qa_pairs = _build_qa_pairs(transcript)
+            qa_evaluations = provider_response.get("qa_evaluations", []) if isinstance(provider_response, dict) else []
+            if not isinstance(qa_evaluations, list):
+                qa_evaluations = []
+
+            # Ensure each Q&A can be rendered with AI opinion row.
+            eval_by_question: Dict[str, Dict[str, Any]] = {}
+            for item in qa_evaluations:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question", "")).strip()
+                if not question:
+                    continue
+                eval_by_question[question.lower()] = item
+
+            normalized_qa_evaluations: List[Dict[str, Any]] = []
+            for qa in qa_pairs:
+                question = str(qa.get("question", "")).strip()
+                answer = str(qa.get("answer", "")).strip()
+                matched = eval_by_question.get(question.lower(), {})
+                score = matched.get("score")
+                try:
+                    score_value = int(score) if score is not None else None
+                except Exception:
+                    score_value = None
+
+                if score_value is None:
+                    score_value = max(20, min(95, int(35 + min(len(answer) / 4.0, 55))))
+
+                rating = str(matched.get("rating", "")).strip().upper()
+                if rating not in {"EXCELLENT", "GOOD", "FAIR", "POOR"}:
+                    if score_value >= 85:
+                        rating = "EXCELLENT"
+                    elif score_value >= 70:
+                        rating = "GOOD"
+                    elif score_value >= 50:
+                        rating = "FAIR"
+                    else:
+                        rating = "POOR"
+
+                opinion = str(matched.get("opinion", "")).strip()
+                if not opinion:
+                    opinion = (
+                        "Answer addressed the question well and demonstrated practical understanding."
+                        if score_value >= 70
+                        else "Answer was partially relevant but lacked depth or concrete implementation detail."
+                    )
+
+                improvement = str(matched.get("improvement", "")).strip()
+                if not improvement:
+                    improvement = (
+                        "Add measurable outcomes or concrete trade-offs to strengthen the response."
+                        if score_value < 85
+                        else "Maintain this quality and keep structure concise."
+                    )
+
+                normalized_qa_evaluations.append({
+                    "question": question,
+                    "answer": answer,
+                    "rating": rating,
+                    "score": score_value,
+                    "opinion": opinion,
+                    "improvement": improvement,
+                    "question_timestamp": qa.get("question_timestamp"),
+                    "answer_timestamp": qa.get("answer_timestamp"),
+                })
             
             # Calculate verdict from score if not present
             verdict = provider_response.get("verdict") if report else None
@@ -241,6 +342,10 @@ async def get_candidate_detailed_profile(
                     verdict = "REVIEW"
                 else:
                     verdict = "FAIL"
+            if not verdict:
+                recommendation = str(provider_response.get("recommendation", "")).upper()
+                recommendation_to_verdict = {"HIRE": "PASS", "REJECT": "FAIL", "NEUTRAL": "REVIEW"}
+                verdict = recommendation_to_verdict.get(recommendation)
             
             interview_details.append({
                 "interview_id": str(interview.id),
@@ -248,7 +353,7 @@ async def get_candidate_detailed_profile(
                 "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
                 "status": interview.status.value if interview.status else None,
                 "verdict": verdict,
-                "overall_score": report.score if report else None,
+                "overall_score": (provider_response.get("overall_score") if report else None) or (report.score if report else None),
                 "behavior_score": provider_response.get("behavior_score") if report else None,
                 "confidence_score": provider_response.get("confidence_score") if report else None,
                 "answer_score": provider_response.get("answer_score") if report else None,
@@ -260,7 +365,9 @@ async def get_candidate_detailed_profile(
                 "duration_seconds": provider_response.get("duration_seconds"),
                 "total_questions": provider_response.get("total_questions"),
                 "total_answers": provider_response.get("total_answers"),
+                "transcript": transcript,
                 "qa_pairs": qa_pairs,
+                "qa_evaluations": normalized_qa_evaluations,
                 "resume_text": provider_response.get("resume_text", "") or getattr(candidate, 'resume_text', "") or "",
                 "resume_filename": provider_response.get("resume_filename", ""),
                 "ats_score": getattr(interview, 'ats_score', None),
@@ -821,6 +928,10 @@ async def get_my_interviews(
                 provider_response = report.provider_response or {}
                 # Calculate verdict from score if not present
                 verdict = provider_response.get("verdict")
+                if not verdict:
+                    recommendation = str(provider_response.get("recommendation", "")).upper()
+                    recommendation_to_verdict = {"HIRE": "PASS", "REJECT": "FAIL", "NEUTRAL": "REVIEW"}
+                    verdict = recommendation_to_verdict.get(recommendation)
                 if not verdict and report.score is not None:
                     if report.score >= 70:
                         verdict = "PASS"
@@ -837,24 +948,43 @@ async def get_my_interviews(
                     "detail_score": provider_response.get("detail_score"),
                 }
 
-        return [
-            {
-                "id": str(interview.id),
-                "candidate_id": str(interview.candidate_id),
-                "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
-                "candidate_email": candidate.email,
-                "round": interview.round.value if interview.round else None,
-                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
-                "status": interview.status.value if interview.status else None,
-                "meeting_link": interview.meeting_link,
-                "notes": interview.notes,
-                # Include verdict data for completed interviews
-                "verdict": reports_dict.get(interview.id, {}).get("verdict"),
-                "score": reports_dict.get(interview.id, {}).get("score"),
-                "verdict_summary": reports_dict.get(interview.id, {}).get("summary"),
-            }
-            for interview, candidate in rows
-        ]
+        recommendation_to_verdict = {"HIRE": "PASS", "REJECT": "FAIL", "NEUTRAL": "REVIEW"}
+        response_payload = []
+        for interview, candidate in rows:
+            report_data = reports_dict.get(interview.id, {})
+            verdict = report_data.get("verdict")
+            if not verdict and interview.ai_recommendation:
+                verdict = recommendation_to_verdict.get(str(interview.ai_recommendation).upper())
+
+            summary = report_data.get("summary")
+            if not summary and interview.ai_verdict:
+                try:
+                    ai_verdict = json.loads(interview.ai_verdict)
+                    if isinstance(ai_verdict, dict):
+                        summary = ai_verdict.get("summary")
+                except Exception:
+                    summary = None
+
+            response_payload.append(
+                {
+                    "id": str(interview.id),
+                    "candidate_id": str(interview.candidate_id),
+                    "candidate_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                    "candidate_email": candidate.email,
+                    "round": interview.round.value if interview.round else None,
+                    "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                    "completed_at": interview.updated_at.isoformat() if interview.updated_at else None,
+                    "status": interview.status.value if interview.status else None,
+                    "meeting_link": interview.meeting_link,
+                    "notes": interview.notes,
+                    # Include verdict data for completed interviews
+                    "verdict": verdict,
+                    "score": report_data.get("score") if report_data.get("score") is not None else interview.answer_score,
+                    "verdict_summary": summary,
+                }
+            )
+
+        return response_payload
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1529,4 +1659,3 @@ async def update_auto_schedule_config(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating auto-schedule config: {str(e)}"
         )
-

@@ -41,6 +41,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Ensure static assets are readable by the non-root runtime user.
+RUN chown -R nextjs:nodejs /app/public /app/.next \
+  && chmod -R a+rX /app/public /app/.next
+
 USER nextjs
 
 EXPOSE 3000

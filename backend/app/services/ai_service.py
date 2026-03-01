@@ -530,11 +530,281 @@ async def generate_interview_verdict(
     Uses Groq as primary provider with key rotation for rate limit mitigation.
     Analyzes behavior, confidence, answer quality, and provides hiring recommendation.
     """
+    def extract_qa_pairs(transcript_items: list) -> List[Dict[str, Any]]:
+        """Convert transcript timeline into ordered question/answer pairs."""
+        qa_pairs: List[Dict[str, Any]] = []
+        current_question: str | None = None
+        current_question_timestamp: str | None = None
+
+        for item in transcript_items:
+            role = str(item.get("role", "")).lower()
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+
+            if role in {"ai", "assistant", "interviewer"}:
+                current_question = content
+                current_question_timestamp = item.get("timestamp")
+                continue
+
+            if role in {"user", "candidate"} and current_question:
+                qa_pairs.append(
+                    {
+                        "question": current_question,
+                        "answer": content,
+                        "question_timestamp": current_question_timestamp,
+                        "answer_timestamp": item.get("timestamp"),
+                    }
+                )
+                current_question = None
+                current_question_timestamp = None
+
+        return qa_pairs
+
+    def _score_answer_text(answer: str) -> int:
+        """Deterministic score used to fill missing per-question evaluation."""
+        if not answer:
+            return 20
+        answer_l = answer.lower()
+        uncertain = ("don't know", "not sure", "no idea", "can't recall", "skip")
+        uncertain_hits = sum(1 for token in uncertain if token in answer_l)
+        length_factor = min(len(answer) / 4.0, 55)
+        score = int(35 + length_factor - (uncertain_hits * 15))
+        return max(15, min(95, score))
+
+    def _score_to_rating(score: int) -> str:
+        if score >= 85:
+            return "EXCELLENT"
+        if score >= 70:
+            return "GOOD"
+        if score >= 50:
+            return "FAIR"
+        return "POOR"
+
+    def normalize_qa_evaluations(
+        qa_pairs: List[Dict[str, Any]],
+        parsed_evaluations: object,
+        parsed_key_answers: object,
+    ) -> List[Dict[str, Any]]:
+        """
+        Ensure every transcript Q&A has an AI opinion row.
+        Falls back deterministically when model response is partial/malformed.
+        """
+        evaluations_by_question: Dict[str, Dict[str, Any]] = {}
+
+        if isinstance(parsed_evaluations, list):
+            for item in parsed_evaluations:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question", "")).strip()
+                if not question:
+                    continue
+                score = item.get("score")
+                try:
+                    score_value = int(score) if score is not None else None
+                except Exception:
+                    score_value = None
+                if score_value is None:
+                    score_value = _score_answer_text(str(item.get("answer", "")).strip())
+                score_value = max(0, min(100, score_value))
+                rating = str(item.get("rating", "")).strip().upper() or _score_to_rating(score_value)
+                evaluations_by_question[question.lower()] = {
+                    "question": question,
+                    "answer": str(item.get("answer", "")).strip(),
+                    "rating": rating,
+                    "score": score_value,
+                    "opinion": str(item.get("opinion", "")).strip(),
+                    "improvement": str(item.get("improvement", "")).strip(),
+                }
+
+        # Backfill from key_answers if qa_evaluations was not provided by the model.
+        if isinstance(parsed_key_answers, list):
+            for item in parsed_key_answers:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question", "")).strip()
+                if not question:
+                    continue
+                key = question.lower()
+                if key in evaluations_by_question:
+                    continue
+                rating = str(item.get("rating", "FAIR")).strip().upper() or "FAIR"
+                base_score = {"EXCELLENT": 90, "GOOD": 75, "FAIR": 58, "POOR": 35}.get(rating, 58)
+                evaluations_by_question[key] = {
+                    "question": question,
+                    "answer": "",
+                    "rating": rating,
+                    "score": base_score,
+                    "opinion": str(item.get("answer_summary", "")).strip(),
+                    "improvement": "",
+                }
+
+        normalized: List[Dict[str, Any]] = []
+        for pair in qa_pairs:
+            question = str(pair.get("question", "")).strip()
+            answer = str(pair.get("answer", "")).strip()
+            eval_item = evaluations_by_question.get(question.lower(), {})
+
+            score_value = eval_item.get("score")
+            if score_value is None:
+                score_value = _score_answer_text(answer)
+            score_value = max(0, min(100, int(score_value)))
+
+            rating = str(eval_item.get("rating", "")).strip().upper()
+            if rating not in {"EXCELLENT", "GOOD", "FAIR", "POOR"}:
+                rating = _score_to_rating(score_value)
+
+            opinion = str(eval_item.get("opinion", "")).strip()
+            if not opinion:
+                opinion = (
+                    "Answer was clear and relevant to the question."
+                    if score_value >= 70
+                    else "Answer partially addressed the question and lacked depth in key areas."
+                )
+
+            improvement = str(eval_item.get("improvement", "")).strip()
+            if not improvement:
+                improvement = (
+                    "Add concrete implementation details and trade-offs from real projects."
+                    if score_value < 85
+                    else "Maintain this quality and keep answers concise with measurable impact."
+                )
+
+            normalized.append(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "rating": rating,
+                    "score": score_value,
+                    "opinion": opinion,
+                    "improvement": improvement,
+                    "question_timestamp": pair.get("question_timestamp"),
+                    "answer_timestamp": pair.get("answer_timestamp"),
+                }
+            )
+
+        return normalized
+
+    def safe_int(value: object, default: int) -> int:
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except Exception:
+            return default
+
+    qa_pairs = extract_qa_pairs(transcript)
+
     # Format transcript for AI
     transcript_text = "\n".join([
         f"[{msg.get('role', 'unknown').upper()}]: {msg.get('content', '')}"
         for msg in transcript
     ])
+
+    def fallback_verdict(reason: str) -> Dict[str, Any]:
+        """Deterministic fallback so verdict generation never blocks interview completion."""
+        user_answers = [
+            (msg.get("content") or "").strip()
+            for msg in transcript
+            if str(msg.get("role", "")).lower() == "user"
+        ]
+        answer_count = len(user_answers)
+        non_empty_answers = [a for a in user_answers if a]
+        avg_len = (
+            sum(len(answer) for answer in non_empty_answers) / max(len(non_empty_answers), 1)
+            if non_empty_answers
+            else 0
+        )
+        uncertain_phrases = ("don't know", "not sure", "no idea", "can't recall", "skip")
+        uncertainty_count = sum(
+            1
+            for answer in non_empty_answers
+            if any(phrase in answer.lower() for phrase in uncertain_phrases)
+        )
+        uncertainty_ratio = uncertainty_count / max(len(non_empty_answers), 1)
+
+        # Heuristic scoring tuned to remain conservative under uncertainty.
+        answer_score = max(25, min(92, int(40 + min(avg_len / 2.5, 35) - (uncertainty_ratio * 20))))
+        confidence_score = max(20, min(90, int(35 + min(avg_len / 4, 30) - (uncertainty_ratio * 25))))
+        behavior_score = max(
+            30,
+            min(92, int(45 + min(answer_count * 4, 20) + (5 if uncertainty_ratio < 0.2 else 0))),
+        )
+
+        overall_score = int(
+            round((answer_score * 0.45) + (confidence_score * 0.25) + (behavior_score * 0.30))
+        )
+        if ats_score is not None:
+            # Blend ATS lightly; interview performance still dominates.
+            overall_score = int(round((overall_score * 0.8) + (max(0, min(100, ats_score)) * 0.2)))
+
+        if overall_score >= 70 and answer_score >= 65:
+            recommendation = "HIRE"
+            hiring_risk = "LOW"
+        elif overall_score < 45 or answer_score < 40:
+            recommendation = "REJECT"
+            hiring_risk = "HIGH"
+        else:
+            recommendation = "NEUTRAL"
+            hiring_risk = "MEDIUM"
+
+        summary = (
+            f"Fallback evaluation generated because AI verdict provider was unavailable ({reason}). "
+            f"Candidate provided {answer_count} responses with average answer length of {int(avg_len)} characters."
+        )
+        if position:
+            summary += f" Interview context: {position}."
+
+        strengths: List[str] = []
+        weaknesses: List[str] = []
+        if answer_score >= 65:
+            strengths.append("Responses were generally detailed and substantive.")
+        if confidence_score >= 60:
+            strengths.append("Candidate showed stable confidence in responses.")
+        if behavior_score >= 60:
+            strengths.append("Interview participation and engagement were consistent.")
+
+        if uncertainty_ratio >= 0.3:
+            weaknesses.append("Multiple uncertain responses detected; deeper probing recommended.")
+        if avg_len < 60:
+            weaknesses.append("Several answers were brief and may lack depth.")
+        if not strengths:
+            strengths.append("Candidate completed the interview flow without interruption.")
+        if not weaknesses:
+            weaknesses.append("Conduct a quick human review for final calibration.")
+
+        qa_evaluations = normalize_qa_evaluations(qa_pairs, [], [])
+        key_answers = [
+            {
+                "question": item["question"],
+                "answer_summary": item["opinion"],
+                "rating": item["rating"],
+            }
+            for item in qa_evaluations[:5]
+        ]
+
+        return {
+            "recommendation": recommendation,
+            "behavior_score": behavior_score,
+            "confidence_score": confidence_score,
+            "answer_score": answer_score,
+            "overall_score": overall_score,
+            "summary": summary,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "detailed_feedback": "Automated fallback scoring was used due to provider unavailability. Recommend human review before final decision.",
+            "technical_assessment": "Fallback mode: limited to transcript-structure signals.",
+            "hiring_risk": hiring_risk,
+            "key_answers": key_answers,
+            "qa_evaluations": qa_evaluations,
+            "total_questions": len(qa_pairs),
+            "total_answers": len(qa_pairs),
+            "raw": {
+                "fallback": True,
+                "reason": reason,
+                "answer_count": answer_count,
+                "avg_answer_length": int(avg_len),
+                "uncertainty_ratio": round(uncertainty_ratio, 3),
+            },
+        }
     
     # Build context sections
     ats_context = ""
@@ -606,7 +876,19 @@ Return a JSON object with EXACTLY these keys:
     "key_answers": [
         {{"question": "<question text>", "answer_summary": "<answer summary>", "rating": "EXCELLENT" | "GOOD" | "FAIR" | "POOR"}},
         ...
-    ]
+    ],
+    "qa_evaluations": [
+        {{
+            "question": "<exact asked question>",
+            "answer": "<candidate answer excerpt>",
+            "rating": "EXCELLENT" | "GOOD" | "FAIR" | "POOR",
+            "score": <integer 0-100>,
+            "opinion": "<2-3 line evaluator opinion specific to the given answer>",
+            "improvement": "<one actionable way to improve this answer>"
+        }}
+    ],
+    "total_questions": <integer>,
+    "total_answers": <integer>
 }}
 
 RECOMMENDATION RULES:
@@ -665,11 +947,19 @@ Return ONLY valid JSON, no markdown, no explanation."""
                 "technical_assessment": parsed.get("technical_assessment", ""),
                 "hiring_risk": parsed.get("hiring_risk", "MEDIUM"),
                 "key_answers": parsed.get("key_answers") or [],
+                "qa_evaluations": normalize_qa_evaluations(
+                    qa_pairs,
+                    parsed.get("qa_evaluations"),
+                    parsed.get("key_answers"),
+                ),
+                "total_questions": safe_int(parsed.get("total_questions"), len(qa_pairs)),
+                "total_answers": safe_int(parsed.get("total_answers"), len(qa_pairs)),
                 "raw": result.get("raw")
             }
             
         except Exception as e:
             logger.error(f"Groq API failed for interview verdict: {e}")
-            raise
+            return fallback_verdict(str(e))
     
-    raise Exception("GROQ_API_KEYS environment variable is required for interview verdict. Please set it in Railway.")
+    logger.warning("GROQ_API_KEYS is not configured; using fallback interview verdict scoring.")
+    return fallback_verdict("missing_groq_api_key")

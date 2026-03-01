@@ -30,6 +30,54 @@ const DEBUG_SPEECH = process.env.NODE_ENV === 'development';
 import type { Scoring } from '@/lib/data-store';
 type Feedback = Omit<InterviewAgentOutput, 'nextQuestion' | 'isInterviewOver'> & { scoring: Scoring };
 type ConversationState = 'loading' | 'speaking' | 'listening' | 'thinking' | 'finished' | 'idle' | 'paused';
+type InterviewTrack = 'hr' | 'exam' | 'technical';
+
+const QUESTION_SIMILARITY_THRESHOLD = 0.84;
+const VOICE_AUTO_SUBMIT_MIN_DELAY_MS = 2600;
+const VOICE_AUTO_SUBMIT_MAX_DELAY_MS = 5200;
+const SPEECH_WATCHDOG_INTERVAL_MS = 5000;
+const SPEECH_STALE_RESTART_MS = 12000;
+
+const HR_FALLBACK_QUESTIONS = [
+  "Tell me about a time you handled a disagreement in your team. What did you do?",
+  "Describe a situation where you had to adapt quickly to a change at work.",
+  "How do you prioritize when you have multiple deadlines in the same week?",
+  "What kind of work environment helps you perform at your best?"
+];
+
+const EXAM_FALLBACK_QUESTIONS = [
+  "When a question seems difficult, what structured approach do you use to solve it?",
+  "How do you balance speed and accuracy during a timed test?",
+  "Walk me through how you decide whether to skip or attempt a tough question.",
+  "What is one strategy you use to reduce mistakes under pressure?"
+];
+
+const TECHNICAL_FALLBACK_QUESTIONS = [
+  "Describe a technical problem you solved recently and the tradeoffs you considered.",
+  "How do you debug an issue when the root cause is not immediately obvious?",
+  "Tell me about a project where your first approach failed and how you recovered.",
+  "How do you decide what to optimize first in a system with performance issues?"
+];
+
+const normalizeQuestionKey = (value: string): string => {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const calculateQuestionSimilarity = (a: string, b: string): number => {
+  const aTokens = new Set(normalizeQuestionKey(a).split(' ').filter(Boolean));
+  const bTokens = new Set(normalizeQuestionKey(b).split(' ').filter(Boolean));
+  if (aTokens.size === 0 || bTokens.size === 0) return 0;
+  let intersection = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) intersection += 1;
+  }
+  const union = new Set([...aTokens, ...bTokens]).size;
+  return union === 0 ? 0 : intersection / union;
+};
 
 const languageCodeMap: Record<string, string> = {
   "English": "en-US",
@@ -225,6 +273,13 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const speechUpdateCount = useRef<number>(0); // Track number of speech recognition updates
   const manualEditCount = useRef<number>(0); // Track number of manual edits
   const lastSpeechUpdateTime = useRef<number>(0); // Track last time speech recognition updated transcript
+  const askedQuestionKeysRef = useRef<Set<string>>(new Set());
+  const fallbackQuestionCursorRef = useRef<number>(0);
+  const autoSubmitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSubmitInProgressRef = useRef<boolean>(false);
+  const lastAutoSubmittedAnswerRef = useRef<string>("");
+  const handleSubmitRef = useRef<(() => Promise<void>) | null>(null);
+  const lastSpeechEngineKickRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -294,6 +349,79 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null); // Ref to track current TTS audio
   const lastSpokenQuestion = useRef<string | null>(null); // Ref to track last spoken question
   const isTTSPlaying = useRef(false); // Ref to track if TTS is currently playing
+
+  const clearAutoSubmitTimer = () => {
+    if (autoSubmitTimerRef.current) {
+      clearTimeout(autoSubmitTimerRef.current);
+      autoSubmitTimerRef.current = null;
+    }
+  };
+
+  const getInterviewTrack = (): InterviewTrack => {
+    const roleContext = `${jobRole} ${company}`.toLowerCase();
+    if (roleContext.includes('hr') || roleContext.includes('interview')) return 'hr';
+    if (
+      roleContext.includes('neet') ||
+      roleContext.includes('jee') ||
+      roleContext.includes('cat') ||
+      roleContext.includes('gmat') ||
+      roleContext.includes('gre') ||
+      roleContext.includes('exam')
+    ) {
+      return 'exam';
+    }
+    return 'technical';
+  };
+
+  const isQuestionDuplicate = (candidate: string): boolean => {
+    const key = normalizeQuestionKey(candidate);
+    if (!key) return false;
+    if (askedQuestionKeysRef.current.has(key)) return true;
+    for (const asked of askedQuestionKeysRef.current) {
+      if (calculateQuestionSimilarity(key, asked) >= QUESTION_SIMILARITY_THRESHOLD) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const resolveUniqueNextQuestion = (candidate: string, previousQuestion?: string): string => {
+    const normalizedPrevious = normalizeQuestionKey(previousQuestion || "");
+    if (normalizedPrevious) {
+      askedQuestionKeysRef.current.add(normalizedPrevious);
+    }
+
+    const proposed = (candidate || "").trim();
+    if (proposed && !isQuestionDuplicate(proposed)) {
+      const key = normalizeQuestionKey(proposed);
+      if (key) askedQuestionKeysRef.current.add(key);
+      return proposed;
+    }
+
+    const track = getInterviewTrack();
+    const fallbackPool =
+      track === 'hr'
+        ? HR_FALLBACK_QUESTIONS
+        : track === 'exam'
+          ? EXAM_FALLBACK_QUESTIONS
+          : TECHNICAL_FALLBACK_QUESTIONS;
+
+    for (let attempt = 0; attempt < fallbackPool.length; attempt++) {
+      const index = (fallbackQuestionCursorRef.current + attempt) % fallbackPool.length;
+      const fallback = fallbackPool[index];
+      if (!isQuestionDuplicate(fallback)) {
+        fallbackQuestionCursorRef.current = index + 1;
+        const key = normalizeQuestionKey(fallback);
+        if (key) askedQuestionKeysRef.current.add(key);
+        return fallback;
+      }
+    }
+
+    const emergencyFallback = "Thanks for that response. Let's switch to a different question and continue.";
+    const emergencyKey = normalizeQuestionKey(emergencyFallback);
+    if (emergencyKey) askedQuestionKeysRef.current.add(emergencyKey);
+    return emergencyFallback;
+  };
 
   // Navigation warning handlers
   const handleStayInInterview = () => {
@@ -787,6 +915,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   // Cleanup effect when component unmounts
   useEffect(() => {
     return () => {
+      clearAutoSubmitTimer();
+      autoSubmitInProgressRef.current = false;
       stopCamera();
       stopMicrophone();
       // End interview session on unmount
@@ -1398,9 +1528,11 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
   // Helper function to clear all transcript-related state
   const clearTranscript = () => {
+    clearAutoSubmitTimer();
     setTranscript("");
     transcriptRef.current = "";
     lastTranscriptFromNative.current = "";
+    lastAutoSubmittedAnswerRef.current = "";
     if (useFallbackSpeech) {
       resetNativeTranscripts();
     } else {
@@ -1501,6 +1633,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
   const handleSubmit = async () => {
     const currentAnswer = transcriptRef.current.trim();
+    clearAutoSubmitTimer();
     console.log('=== SUBMIT DEBUG ===');
    console.log('Current answer length:', currentAnswer.length);
     console.log('Answer length:', currentAnswer.length);
@@ -1564,7 +1697,11 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         });
         
         // Process the result and move to next question
-        if (result.nextQuestion) {
+        if (result.nextQuestion && !(result as any).isInterviewOver) {
+          const uniqueNextQuestion = resolveUniqueNextQuestion(result.nextQuestion, currentQuestion);
+          setCurrentQuestion(uniqueNextQuestion);
+          setConversationState('listening');
+        } else if (result.nextQuestion) {
           setCurrentQuestion(result.nextQuestion);
           setConversationState('listening');
         }
@@ -1676,6 +1813,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         console.log('  Reference Question IDs:', result.referenceQuestionIds);
       } else {
         console.log('  ⚠️ No referenceQuestionIds in result');
+      }
+
+      if ((result as any).nextQuestion && !(result as any).isInterviewOver) {
+        (result as any).nextQuestion = resolveUniqueNextQuestion((result as any).nextQuestion, currentQuestion);
       }
       
       const newFeedback = {
@@ -2043,6 +2184,110 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     }
   };
 
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  }, [handleSubmit]);
+
+  useEffect(() => {
+    if (
+      interviewMode !== 'voice' ||
+      conversationState !== 'listening' ||
+      isMuted ||
+      isPaused ||
+      isTTSPlaying.current
+    ) {
+      clearAutoSubmitTimer();
+      return;
+    }
+
+    const trimmedTranscript = transcript.trim();
+    if (!trimmedTranscript) {
+      clearAutoSubmitTimer();
+      return;
+    }
+
+    const adaptiveDelay = Math.min(
+      VOICE_AUTO_SUBMIT_MAX_DELAY_MS,
+      Math.max(
+        VOICE_AUTO_SUBMIT_MIN_DELAY_MS,
+        4500 - Math.floor(trimmedTranscript.length / 40) * 280
+      )
+    );
+
+    clearAutoSubmitTimer();
+    autoSubmitTimerRef.current = setTimeout(() => {
+      if (autoSubmitInProgressRef.current) return;
+      if (conversationStateRef.current !== 'listening') return;
+      if (isTTSPlaying.current || isMuted || isPaused) return;
+
+      const candidateAnswer = transcriptRef.current.trim();
+      if (!candidateAnswer) return;
+      if (candidateAnswer === lastAutoSubmittedAnswerRef.current) return;
+
+      const now = Date.now();
+      const sinceSpeech = lastSpeechUpdateTime.current ? now - lastSpeechUpdateTime.current : Number.MAX_SAFE_INTEGER;
+      const lastManualEdit = typeof window !== 'undefined' ? window.lastManualEdit : undefined;
+      const sinceManual = lastManualEdit ? now - lastManualEdit : Number.MAX_SAFE_INTEGER;
+      if (sinceSpeech < adaptiveDelay && sinceManual < adaptiveDelay) return;
+
+      autoSubmitInProgressRef.current = true;
+      lastAutoSubmittedAnswerRef.current = candidateAnswer;
+      Promise.resolve(handleSubmitRef.current?.()).finally(() => {
+        autoSubmitInProgressRef.current = false;
+      });
+    }, adaptiveDelay);
+
+    return () => clearAutoSubmitTimer();
+  }, [conversationState, interviewMode, isMuted, isPaused, transcript]);
+
+  useEffect(() => {
+    if (interviewMode !== 'voice') return;
+
+    const watchdog = setInterval(() => {
+      if (conversationStateRef.current !== 'listening') return;
+      if (isMuted || isPaused || isTTSPlaying.current) return;
+
+      const now = Date.now();
+      const lastSignal = Math.max(
+        lastSpeechUpdateTime.current || 0,
+        lastTranscriptUpdate.current || 0,
+        lastVoiceActivity || 0
+      );
+      if (now - lastSignal < SPEECH_STALE_RESTART_MS) return;
+      if (now - lastSpeechEngineKickRef.current < SPEECH_WATCHDOG_INTERVAL_MS) return;
+
+      lastSpeechEngineKickRef.current = now;
+      setSpeechRecognitionIssue(true);
+      if (DEBUG_SPEECH) {
+        console.log('[Speech] Watchdog restarting speech capture after inactivity');
+      }
+
+      if (useFallbackSpeech) {
+        stopNativeSpeech();
+        resetNativeTranscripts();
+        void startNativeSpeech();
+      } else {
+        stopAssemblyRealtime();
+        resetAssemblyTranscripts();
+        void startAssemblyRealtime();
+      }
+    }, SPEECH_WATCHDOG_INTERVAL_MS);
+
+    return () => clearInterval(watchdog);
+  }, [
+    interviewMode,
+    isMuted,
+    isPaused,
+    lastVoiceActivity,
+    resetAssemblyTranscripts,
+    resetNativeTranscripts,
+    startAssemblyRealtime,
+    startNativeSpeech,
+    stopAssemblyRealtime,
+    stopNativeSpeech,
+    useFallbackSpeech
+  ]);
+
   // Debug conversation state changes
   useEffect(() => {
     console.log('Conversation state changed to:', conversationState);
@@ -2053,11 +2298,25 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     console.log('Interview mode changed to:', interviewMode);
   }, [interviewMode]);
 
+  useEffect(() => {
+    if (!currentQuestion || conversationState === 'finished') return;
+    const key = normalizeQuestionKey(currentQuestion);
+    if (key && currentQuestion.includes('?')) {
+      askedQuestionKeysRef.current.add(key);
+    }
+  }, [conversationState, currentQuestion]);
+
 
   useEffect(() => {
     // This effect runs once to set up the whole session.
     const setupInterview = async () => {
         console.log('Setting up interview...');
+        askedQuestionKeysRef.current.clear();
+        fallbackQuestionCursorRef.current = 0;
+        lastAutoSubmittedAnswerRef.current = '';
+        lastSpeechEngineKickRef.current = 0;
+        autoSubmitInProgressRef.current = false;
+        clearAutoSubmitTimer();
         
         // Initialize manual editing tracking
         window.lastManualEdit = undefined;

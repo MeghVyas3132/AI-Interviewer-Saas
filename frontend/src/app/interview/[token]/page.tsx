@@ -101,7 +101,7 @@ export default function InterviewLandingPage() {
     };
 
     fetchSession();
-  }, [token]);
+  }, [API_BASE_URL, token]);
 
   useEffect(() => {
     if (currentStep !== 'not-started' || !session) return;
@@ -156,79 +156,107 @@ export default function InterviewLandingPage() {
 
     setUploadingResume(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const text = reader.result as string;
-        setResumeText(text);
-        localStorage.setItem(`resume_${token}`, text);
-        localStorage.setItem(`resume_filename_${token}`, resumeFile.name);
-        setUploadingResume(false);
-        
-        // Check if ATS score already exists from dashboard check
-        if (session?.ats_score && session.ats_report) {
-          // Use cached ATS result from dashboard
-          setAtsResult({
-            score: session.ats_score,
-            summary: session.ats_report.summary || 'Resume analysis complete (from dashboard check).',
-            verdict: session.ats_report.verdict,
-            highlights: session.ats_report.highlights || [],
-            improvements: session.ats_report.improvements || [],
-            keywords_found: session.ats_report.keywords_found || [],
-            keywords_missing: session.ats_report.keywords_missing || []
-          });
-          setCurrentStep('ats-check');
-          return;
+      // Parse resume through backend extractor to avoid storing binary file bytes as text.
+      let extractedText = '';
+      try {
+        const formData = new FormData();
+        formData.append('file', resumeFile);
+        const parseResponse = await fetch(`${API_BASE_URL}/ai/parse-resume`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (parseResponse.ok) {
+          const parsed = await parseResponse.json();
+          extractedText = typeof parsed?.text === 'string' ? parsed.text : '';
         }
-        
+      } catch {
+        // Fallback below
+      }
+
+      // Fallback extraction for plain-text-like files when parser is unavailable.
+      if (!extractedText.trim()) {
+        const rawBuffer = await resumeFile.arrayBuffer();
+        extractedText = new TextDecoder('utf-8', { fatal: false }).decode(rawBuffer);
+      }
+
+      const sanitizedResumeText = extractedText
+        .replace(/\u0000/g, '')
+        .trim()
+        .slice(0, 50000);
+
+      if (!sanitizedResumeText) {
+        setError('Could not extract readable text from resume. Please upload a clearer PDF, DOCX, or TXT file.');
+        return;
+      }
+
+      setResumeText(sanitizedResumeText);
+      localStorage.setItem(`resume_${token}`, sanitizedResumeText);
+      localStorage.setItem(`resume_filename_${token}`, resumeFile.name);
+
+      // Check if ATS score already exists from dashboard check
+      if (session?.ats_score && session.ats_report) {
+        // Use cached ATS result from dashboard
+        setAtsResult({
+          score: session.ats_score,
+          summary: session.ats_report.summary || 'Resume analysis complete (from dashboard check).',
+          verdict: session.ats_report.verdict,
+          highlights: session.ats_report.highlights || [],
+          improvements: session.ats_report.improvements || [],
+          keywords_found: session.ats_report.keywords_found || [],
+          keywords_missing: session.ats_report.keywords_missing || []
+        });
         setCurrentStep('ats-check');
+        return;
+      }
+
+      setCurrentStep('ats-check');
+
+      // Run ATS check
+      setAtsLoading(true);
+      try {
+        const jobDescription = session?.position ? 
+          `Position: ${session.position} at ${session.company_name}` : 
+          'General interview position';
         
-        // Run ATS check
-        setAtsLoading(true);
-        try {
-          const jobDescription = session?.position ? 
-            `Position: ${session.position} at ${session.company_name}` : 
-            'General interview position';
-          
-          const response = await fetch(`${API_BASE_URL}/ai/ats`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              resume_text: text,
-              job_description: jobDescription,
-              interview_id: session?.id
-            })
+        const response = await fetch(`${API_BASE_URL}/ai/ats`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resume_text: sanitizedResumeText,
+            job_description: jobDescription,
+            interview_id: session?.id
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setAtsResult({
+            score: data.score || data.ai_response?.score || 75,
+            summary: data.summary || data.ai_response?.summary || 'Resume analysis complete.',
+            verdict: data.verdict || data.ai_response?.verdict,
+            highlights: data.highlights || data.ai_response?.highlights || [],
+            improvements: data.improvements || data.ai_response?.improvements || [],
+            keywords_found: data.keywords_found || data.ai_response?.keywords_found || [],
+            keywords_missing: data.keywords_missing || data.ai_response?.keywords_missing || []
           });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setAtsResult({
-              score: data.score || data.ai_response?.score || 75,
-              summary: data.summary || data.ai_response?.summary || 'Resume analysis complete.',
-              verdict: data.verdict || data.ai_response?.verdict,
-              highlights: data.highlights || data.ai_response?.highlights || [],
-              improvements: data.improvements || data.ai_response?.improvements || [],
-              keywords_found: data.keywords_found || data.ai_response?.keywords_found || [],
-              keywords_missing: data.keywords_missing || data.ai_response?.keywords_missing || []
-            });
-          } else {
-            // Even if ATS fails, allow to continue
-            setAtsResult({
-              score: 0,
-              summary: 'ATS check could not be completed. You can still proceed with the interview.'
-            });
-          }
-        } catch {
+        } else {
+          // Even if ATS fails, allow to continue
           setAtsResult({
             score: 0,
             summary: 'ATS check could not be completed. You can still proceed with the interview.'
           });
-        } finally {
-          setAtsLoading(false);
         }
-      };
-      reader.readAsText(resumeFile);
+      } catch {
+        setAtsResult({
+          score: 0,
+          summary: 'ATS check could not be completed. You can still proceed with the interview.'
+        });
+      } finally {
+        setAtsLoading(false);
+      }
     } catch {
       setError('Failed to process resume. Please try again.');
+    } finally {
       setUploadingResume(false);
     }
   };

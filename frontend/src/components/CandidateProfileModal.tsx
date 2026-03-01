@@ -6,12 +6,25 @@ interface QAPair {
   question: string
   answer: string
   timestamp?: string
+  question_timestamp?: string
+  answer_timestamp?: string
 }
 
 interface KeyAnswer {
   question: string
   answer: string
   rating?: number | string
+}
+
+interface QAEvaluation {
+  question: string
+  answer: string
+  rating?: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | string
+  score?: number
+  opinion?: string
+  improvement?: string
+  question_timestamp?: string
+  answer_timestamp?: string
 }
 
 interface InterviewDetail {
@@ -32,7 +45,13 @@ interface InterviewDetail {
   duration_seconds?: number
   total_questions?: number
   total_answers?: number
+  transcript?: Array<{
+    role: string
+    content: string
+    timestamp?: string
+  }>
   qa_pairs: QAPair[]
+  qa_evaluations?: QAEvaluation[]
   resume_text?: string
   resume_filename?: string
   ats_score?: number
@@ -143,13 +162,31 @@ export default function CandidateProfileModal({
   const getVerdictColor = (verdict?: string) => {
     switch (verdict?.toUpperCase()) {
       case 'PASS':
+      case 'HIRE':
         return 'bg-green-500 text-white'
       case 'FAIL':
+      case 'REJECT':
         return 'bg-red-500 text-white'
       case 'REVIEW':
+      case 'NEUTRAL':
         return 'bg-yellow-500 text-white'
       default:
         return 'bg-gray-500 text-white'
+    }
+  }
+
+  const getRatingColor = (rating?: string) => {
+    switch (rating?.toUpperCase()) {
+      case 'EXCELLENT':
+        return 'bg-green-100 text-green-800 border-green-200'
+      case 'GOOD':
+        return 'bg-blue-100 text-blue-800 border-blue-200'
+      case 'FAIR':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
+      case 'POOR':
+        return 'bg-red-100 text-red-800 border-red-200'
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200'
     }
   }
 
@@ -442,6 +479,42 @@ export default function CandidateProfileModal({
                             </div>
                           )}
 
+                          {interview.qa_evaluations && interview.qa_evaluations.length > 0 && (
+                            <div className="mt-3 bg-white border border-gray-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <h5 className="text-xs font-semibold text-gray-800">Question-Level Analysis</h5>
+                                <span className="text-xs text-gray-500">
+                                  {interview.qa_evaluations.length} evaluated answer(s)
+                                </span>
+                              </div>
+                              <div className="space-y-2">
+                                {interview.qa_evaluations.slice(0, 3).map((item, idx) => (
+                                  <div key={`${interview.interview_id}-qa-eval-${idx}`} className="p-2 rounded border border-gray-100 bg-gray-50">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs font-medium text-gray-700 truncate">{item.question}</p>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${getRatingColor(item.rating)}`}>
+                                          {item.rating || 'N/A'}
+                                        </span>
+                                        {item.score != null && (
+                                          <span className="text-xs font-semibold text-gray-700">{item.score}%</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {item.opinion && (
+                                      <p className="text-xs text-gray-600 mt-1">{item.opinion}</p>
+                                    )}
+                                  </div>
+                                ))}
+                                {interview.qa_evaluations.length > 3 && (
+                                  <p className="text-xs text-gray-500">
+                                    Open the Q&A tab to see all question-level AI opinions.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           {/* ATS Score - only show if we have a value */}
                           {interview.ats_score != null && (
                             <div className="mt-2">
@@ -532,6 +605,36 @@ export default function CandidateProfileModal({
                                   <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded">A</span>
                                   <p className="text-gray-700 flex-1 bg-gray-50 p-3 rounded-lg">{qa.answer || <span className="text-gray-400 italic">No answer provided</span>}</p>
                                 </div>
+                                {(() => {
+                                  const evaluation = interview.qa_evaluations?.find(
+                                    (e) => e.question?.trim().toLowerCase() === qa.question?.trim().toLowerCase()
+                                  ) || interview.qa_evaluations?.[index]
+                                  if (!evaluation) return null
+                                  return (
+                                    <div className="ml-6 border border-gray-200 rounded-lg bg-white p-3">
+                                      <div className="flex items-center justify-between gap-2 mb-2">
+                                        <span className="text-xs font-semibold text-gray-600">AI Opinion</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${getRatingColor(evaluation.rating)}`}>
+                                            {evaluation.rating || 'N/A'}
+                                          </span>
+                                          {evaluation.score != null && (
+                                            <span className="text-xs font-semibold text-gray-700">{evaluation.score}%</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {evaluation.opinion && (
+                                        <p className="text-sm text-gray-700 mb-2">{evaluation.opinion}</p>
+                                      )}
+                                      {evaluation.improvement && (
+                                        <div className="bg-amber-50 border border-amber-100 rounded p-2">
+                                          <p className="text-xs font-semibold text-amber-800 mb-1">Improve</p>
+                                          <p className="text-xs text-amber-700">{evaluation.improvement}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             ))}
                           </div>

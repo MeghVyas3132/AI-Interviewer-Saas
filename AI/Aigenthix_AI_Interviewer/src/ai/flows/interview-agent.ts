@@ -139,6 +139,97 @@ import { withApiKeyRotation } from '@/lib/api-key-manager';
 import { googleAI } from '@genkit-ai/googleai';
 import { genkit } from 'genkit';
 
+const NEXT_QUESTION_SIMILARITY_THRESHOLD = 0.84;
+
+const normalizeQuestionForMatch = (value: string): string => {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const questionSimilarity = (a: string, b: string): number => {
+  const aTokens = new Set(normalizeQuestionForMatch(a).split(' ').filter(Boolean));
+  const bTokens = new Set(normalizeQuestionForMatch(b).split(' ').filter(Boolean));
+  if (aTokens.size === 0 || bTokens.size === 0) return 0;
+  let overlap = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) overlap += 1;
+  }
+  const union = new Set([...aTokens, ...bTokens]).size;
+  return union === 0 ? 0 : overlap / union;
+};
+
+const getFallbackQuestionPool = (jobRole: string, company: string): string[] => {
+  const roleContext = `${jobRole} ${company}`.toLowerCase();
+  if (roleContext.includes('hr') || roleContext.includes('interview')) {
+    return [
+      'Tell me about a time you resolved a conflict in your team.',
+      'How do you prioritize your work when deadlines overlap?',
+      'Describe a situation where you had to adapt quickly to change.'
+    ];
+  }
+  if (
+    roleContext.includes('neet') ||
+    roleContext.includes('jee') ||
+    roleContext.includes('cat') ||
+    roleContext.includes('gmat') ||
+    roleContext.includes('gre') ||
+    roleContext.includes('exam')
+  ) {
+    return [
+      'What is your strategy when a timed question looks difficult at first glance?',
+      'How do you minimize careless mistakes during time pressure?',
+      'When do you decide to skip and return to a question later?'
+    ];
+  }
+  return [
+    'Describe a challenging technical problem you solved and how you approached it.',
+    'How do you debug issues when the root cause is unclear?',
+    'Tell me about a project decision where you had to balance speed and quality.'
+  ];
+};
+
+const enforceUniqueNextQuestion = (
+  proposedQuestion: string,
+  input: InterviewAgentInput,
+  isInterviewOver: boolean
+): string => {
+  if (isInterviewOver) return proposedQuestion;
+  const candidate = (proposedQuestion || '').trim();
+  if (!candidate) return proposedQuestion;
+
+  const previousQuestions = input.conversationHistory.map(entry => (entry.question || '').trim()).filter(Boolean);
+  const isDuplicate = previousQuestions.some(previous => {
+    const prevKey = normalizeQuestionForMatch(previous);
+    const candidateKey = normalizeQuestionForMatch(candidate);
+    return (
+      prevKey === candidateKey ||
+      questionSimilarity(previous, candidate) >= NEXT_QUESTION_SIMILARITY_THRESHOLD
+    );
+  });
+
+  if (!isDuplicate) {
+    return candidate;
+  }
+
+  const fallbackPool = getFallbackQuestionPool(input.jobRole, input.company);
+  for (const fallback of fallbackPool) {
+    const fallbackDuplicate = previousQuestions.some(previous => {
+      return (
+        normalizeQuestionForMatch(previous) === normalizeQuestionForMatch(fallback) ||
+        questionSimilarity(previous, fallback) >= NEXT_QUESTION_SIMILARITY_THRESHOLD
+      );
+    });
+    if (!fallbackDuplicate) {
+      return fallback;
+    }
+  }
+
+  return 'Let us take a different angle. Can you share a specific example from your experience?';
+};
+
 export async function interviewAgent(input: InterviewAgentInput): Promise<InterviewAgentOutput> {
   // Use API key rotation for all interview agent calls
   return withApiKeyRotation(async (apiKey: string) => {
@@ -368,6 +459,14 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         // TODO: Extract prompt template into a constant for proper rotation
         const result = await prompt(promptInput);
         const output = result.output;
+
+        if (output?.nextQuestion) {
+          output.nextQuestion = enforceUniqueNextQuestion(
+            output.nextQuestion,
+            flowInput,
+            output.isInterviewOver
+          );
+        }
         
         if (output && currentAffairsQuestion) {
           const isCurrentAffairsNext = output.nextQuestion.includes(currentAffairsQuestion) || 
@@ -1691,6 +1790,14 @@ const interviewAgentFlow = ai.defineFlow(
     };
     
     const {output} = await prompt(promptInput);
+
+    if (output?.nextQuestion) {
+      output.nextQuestion = enforceUniqueNextQuestion(
+        output.nextQuestion,
+        input,
+        output.isInterviewOver
+      );
+    }
     
     // If this was a current affairs question, add metadata to the output for tracking
     if (output && currentAffairsQuestion) {

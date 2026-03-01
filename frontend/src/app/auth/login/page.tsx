@@ -11,6 +11,7 @@ type LoginTab = 'employee' | 'candidate'
 export default function LoginPage() {
   const router = useRouter()
   const { login, isLoading } = useAuth()
+  const candidateApiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1'
   const [activeTab, setActiveTab] = useState<LoginTab>('employee')
   const [error, setError] = useState('')
   const [candidateLoading, setCandidateLoading] = useState(false)
@@ -48,11 +49,9 @@ export default function LoginPage() {
     setError('')
     setCandidateLoading(true)
 
-    alert('Starting candidate login for: ' + candidateEmail)
-
     try {
       // Use direct fetch to avoid any apiClient interceptors
-      const res = await fetch('http://localhost:8000/api/v1/candidate-portal/login', {
+      const res = await fetch(`${candidateApiBaseUrl}/candidate-portal/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -60,15 +59,12 @@ export default function LoginPage() {
         body: JSON.stringify({ email: candidateEmail }),
       })
 
-      alert('Fetch completed, status: ' + res.status)
-
       if (!res.ok) {
         const errorData = await res.json()
         throw new Error(errorData.detail || 'Login failed')
       }
 
       const response = await res.json()
-      alert('Login successful! User: ' + response.user.name)
 
       // Store tokens
       Cookies.set('access_token', response.access_token, { expires: 1 })
@@ -78,12 +74,9 @@ export default function LoginPage() {
       localStorage.setItem('candidate_companies', JSON.stringify(response.companies))
       localStorage.setItem('candidate_interviews', JSON.stringify(response.interviews))
 
-      alert('Data stored! Redirecting to /candidate-portal...')
-
-      // Use window.location for a full page redirect
+      // Force full reload so auth context re-initializes with the new candidate token/user.
       window.location.href = '/candidate-portal'
     } catch (err: any) {
-      alert('Error: ' + err.message)
       console.error('Candidate login error:', err)
       setError(err.message || 'Login failed. No candidate found with this email.')
       setCandidateLoading(false)

@@ -33,6 +33,7 @@ interface Interview {
   candidate_email: string
   round: string
   scheduled_time: string
+  completed_at?: string | null
   status: string
   notes: string
   interview_token?: string
@@ -59,6 +60,17 @@ interface Job {
   status: string
 }
 
+const normalizeInterviewStatus = (status: string | null | undefined): string => {
+  return String(status || '').toLowerCase().trim()
+}
+
+const normalizeInterviewRows = (items: Interview[]): Interview[] => {
+  return items.map((item) => ({
+    ...item,
+    status: normalizeInterviewStatus(item.status),
+  }))
+}
+
 export default function EmployeeDashboardPage() {
   const router = useRouter()
   const { user, isLoading: authLoading, logout } = useAuth()
@@ -69,7 +81,7 @@ export default function EmployeeDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [activeTab, setActiveTab] = useState<'candidates' | 'interviews' | 'pipeline' | 'jobs' | 'settings'>('candidates')
+  const [activeTab, setActiveTab] = useState<'candidates' | 'verdicts' | 'pipeline' | 'jobs' | 'settings'>('candidates')
 
   // Schedule interview modal
   const [showScheduleModal, setShowScheduleModal] = useState(false)
@@ -118,7 +130,7 @@ export default function EmployeeDashboardPage() {
 
         // Fetch interviews
         const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-        const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
+        const interviewsList = normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : [])
         setInterviews(interviewsList)
 
         // Fetch jobs for assigning to candidates
@@ -270,7 +282,7 @@ export default function EmployeeDashboardPage() {
 
       // Refresh both interviews AND candidates list
       const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-      const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
+      const interviewsList = normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : [])
       setInterviews(interviewsList)
 
       // Update candidates list with new scheduled_at
@@ -323,7 +335,7 @@ export default function EmployeeDashboardPage() {
 
       // Refresh interviews list
       const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-      const interviewsList = Array.isArray(interviewsRes) ? interviewsRes : []
+      const interviewsList = normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : [])
       setInterviews(interviewsList)
 
       setSuccess('Interview cancelled successfully')
@@ -367,7 +379,7 @@ export default function EmployeeDashboardPage() {
         
         // Refresh data
         const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-        setInterviews(Array.isArray(interviewsRes) ? interviewsRes : [])
+        setInterviews(normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : []))
       }
       setTimeout(() => setSuccess(''), 5000)
     } catch (err: any) {
@@ -382,6 +394,22 @@ export default function EmployeeDashboardPage() {
       </div>
     )
   }
+
+  const interviewsWithVerdicts = interviews.filter(
+    (interview) => interview.status === 'completed' && Boolean(interview.verdict)
+  )
+  const latestVerdictByCandidate = new Map<string, Interview>()
+  for (const interview of interviewsWithVerdicts) {
+    const existing = latestVerdictByCandidate.get(interview.candidate_id)
+    const existingTime = existing?.scheduled_time ? new Date(existing.scheduled_time).getTime() : 0
+    const currentTime = interview.scheduled_time ? new Date(interview.scheduled_time).getTime() : 0
+    if (!existing || currentTime > existingTime) {
+      latestVerdictByCandidate.set(interview.candidate_id, interview)
+    }
+  }
+  const verdictCandidates = Array.from(latestVerdictByCandidate.values()).sort(
+    (a, b) => new Date(b.scheduled_time || 0).getTime() - new Date(a.scheduled_time || 0).getTime()
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -498,13 +526,13 @@ export default function EmployeeDashboardPage() {
               Candidates ({candidates.length})
             </button>
             <button
-              onClick={() => setActiveTab('interviews')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'interviews'
+              onClick={() => setActiveTab('verdicts')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'verdicts'
                 ? 'border-primary-500 text-primary-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
-              Interviews ({interviews.length})
+              Verdicts ({verdictCandidates.length})
             </button>
             <button
               onClick={() => setActiveTab('pipeline')}
@@ -715,14 +743,14 @@ export default function EmployeeDashboardPage() {
           </div>
         )}
 
-        {/* Interviews Tab */}
-        {activeTab === 'interviews' && (
+        {/* Verdicts Tab */}
+        {activeTab === 'verdicts' && (
           <Card>
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">My Interviews</h2>
-              {interviews.length === 0 ? (
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Verdicts</h2>
+              {verdictCandidates.length === 0 ? (
                 <p className="text-gray-600 py-8 text-center">
-                  No interviews scheduled yet. Schedule interviews with your assigned candidates.
+                  No verdicts yet. Completed interviews with AI analysis will appear here.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -730,15 +758,14 @@ export default function EmployeeDashboardPage() {
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Candidate</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Round</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Scheduled</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Latest Round</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Completed</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Verdict</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Notes</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Summary</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {interviews.map((interview) => (
+                      {verdictCandidates.map((interview) => (
                         <tr key={interview.id} className="hover:bg-gray-50">
                           <td className="px-4 py-4 text-sm">
                             <div>
@@ -753,19 +780,10 @@ export default function EmployeeDashboardPage() {
                           </td>
                           <td className="px-4 py-4 text-sm text-gray-600 capitalize">{interview.round}</td>
                           <td className="px-4 py-4 text-sm text-gray-600">
-                            {new Date(interview.scheduled_time).toLocaleString()}
+                            {new Date(interview.completed_at || interview.scheduled_time).toLocaleString()}
                           </td>
                           <td className="px-4 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${interview.status === 'scheduled' ? 'bg-blue-50 text-blue-700' :
-                              interview.status === 'completed' ? 'bg-green-50 text-green-700' :
-                                interview.status === 'cancelled' ? 'bg-red-50 text-red-700' :
-                                  'bg-gray-50 text-gray-700'
-                              }`}>
-                              {interview.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4">
-                            {interview.status === 'completed' && interview.verdict ? (
+                            {interview.verdict ? (
                               <div className="flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded text-xs font-bold inline-block w-fit ${
                                   interview.verdict === 'PASS' ? 'bg-green-100 text-green-800' :
@@ -789,10 +807,6 @@ export default function EmployeeDashboardPage() {
                             {interview.verdict_summary ? (
                               <p className="truncate" title={interview.verdict_summary}>
                                 {interview.verdict_summary}
-                              </p>
-                            ) : interview.notes ? (
-                              <p className="truncate" title={interview.notes}>
-                                {interview.notes}
                               </p>
                             ) : '-'}
                           </td>

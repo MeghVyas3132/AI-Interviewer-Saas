@@ -132,7 +132,7 @@ export function InterviewSession({
     // Speech-to-Text function
     const startListening = useCallback(() => {
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert('Speech recognition is not supported in your browser. Please use Chrome or Edge.');
+            setError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
             return;
         }
 

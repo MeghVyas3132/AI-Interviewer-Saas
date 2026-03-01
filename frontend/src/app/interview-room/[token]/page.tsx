@@ -47,13 +47,13 @@ export default function InterviewRoomPage() {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setTabSwitchCount(prev => prev + 1);
-        console.warn('🚨 Proctoring: Tab switch detected!');
+        console.warn('Proctoring: tab switch detected.');
       }
     };
 
     const handleWindowBlur = () => {
       setWindowBlurCount(prev => prev + 1);
-      console.warn('🚨 Proctoring: Window blur detected!');
+      console.warn('Proctoring: window blur detected.');
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);

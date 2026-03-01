@@ -7,7 +7,9 @@ HR capabilities:
 - Access company-specific data
 """
 
-from typing import List, Optional
+import json
+import logging
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +23,114 @@ from app.models.user import User, UserRole
 from app.utils.cache import invalidate_cache
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
+logger = logging.getLogger(__name__)
+
+
+MAX_RESUME_TEXT_LENGTH = 50_000
+MAX_TRANSCRIPT_JSON_LENGTH = 2_000_000
+
+
+def _sanitize_text_for_db(value: Optional[str], *, max_length: int) -> str:
+    """Normalize text payloads before persisting to Postgres text columns."""
+    if not value:
+        return ""
+    text_value = str(value)
+    text_value = text_value.replace("\x00", "")
+    # Remove additional control characters that commonly break persistence/logging.
+    text_value = "".join(
+        ch for ch in text_value if ch in ("\n", "\r", "\t") or ord(ch) >= 32
+    )
+    return text_value.strip()[:max_length]
+
+
+def _looks_like_binary_blob(value: Optional[str]) -> bool:
+    """Detect raw/binary payloads (e.g. PDF bytes interpreted as text)."""
+    if not value:
+        return False
+    sample = str(value)[:4096]
+    if sample.startswith("%PDF-") or "\x00" in sample:
+        return True
+    # Heuristic: too many replacement chars usually indicates binary decode noise.
+    replacement_char_ratio = sample.count("\ufffd") / max(len(sample), 1)
+    return replacement_char_ratio > 0.01
+
+
+def _normalize_transcript_payload(raw_transcript: object) -> list[dict]:
+    """Ensure transcript payload is a bounded, serializable list of message objects."""
+    if not isinstance(raw_transcript, list):
+        return []
+
+    normalized: list[dict] = []
+    for item in raw_transcript[:1000]:
+        if not isinstance(item, dict):
+            continue
+        role = _sanitize_text_for_db(item.get("role", "unknown"), max_length=32).lower() or "unknown"
+        content = _sanitize_text_for_db(item.get("content", ""), max_length=5000)
+        timestamp = _sanitize_text_for_db(item.get("timestamp", ""), max_length=64)
+
+        if not content:
+            continue
+
+        normalized_item = {
+            "role": role,
+            "content": content,
+        }
+        if timestamp:
+            normalized_item["timestamp"] = timestamp
+
+        # Preserve richer utterance metadata for downstream verdict rendering.
+        raw_meta = item.get("meta", {})
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        normalized_meta: dict = {}
+
+        transcript_source = _sanitize_text_for_db(
+            meta.get("transcript_source", item.get("transcript_source", "")),
+            max_length=32,
+        ).lower()
+        if transcript_source:
+            normalized_meta["transcript_source"] = transcript_source
+
+        segment_id = _sanitize_text_for_db(
+            meta.get("segment_id", item.get("segment_id", "")),
+            max_length=128,
+        )
+        if segment_id:
+            normalized_meta["segment_id"] = segment_id
+
+        confidence_raw = meta.get("confidence", item.get("confidence"))
+        try:
+            if confidence_raw is not None and str(confidence_raw).strip() != "":
+                normalized_meta["confidence"] = max(0.0, min(1.0, float(confidence_raw)))
+        except Exception:
+            pass
+
+        is_final_raw = meta.get("is_final", item.get("is_final"))
+        if isinstance(is_final_raw, bool):
+            normalized_meta["is_final"] = is_final_raw
+
+        for key in ("start_ms", "end_ms"):
+            value = meta.get(key, item.get(key))
+            try:
+                if value is not None and str(value).strip() != "":
+                    normalized_meta[key] = int(float(value))
+            except Exception:
+                continue
+
+        flags_raw = meta.get("flags", item.get("flags", []))
+        if isinstance(flags_raw, list):
+            normalized_flags = []
+            for flag in flags_raw[:10]:
+                clean_flag = _sanitize_text_for_db(flag, max_length=64).lower()
+                if clean_flag:
+                    normalized_flags.append(clean_flag)
+            if normalized_flags:
+                normalized_meta["flags"] = normalized_flags
+
+        if normalized_meta:
+            normalized_item["meta"] = normalized_meta
+        normalized.append(normalized_item)
+
+    return normalized
 
 
 def require_hr(current_user: User = Depends(get_current_user)) -> User:
@@ -33,6 +143,47 @@ def require_hr(current_user: User = Depends(get_current_user)) -> User:
             detail="Only HR users can access this resource",
         )
     return current_user
+
+
+def _parse_interview_transcript(raw_transcript: Optional[str]) -> List[Dict[str, Any]]:
+    """Parse serialized interview transcript JSON safely."""
+    if not raw_transcript:
+        return []
+    try:
+        parsed = json.loads(raw_transcript)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+    except Exception:
+        return []
+    return []
+
+
+def _build_qa_pairs(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract ordered Q&A pairs from transcript timeline."""
+    qa_pairs: List[Dict[str, Any]] = []
+    current_question: Optional[Dict[str, Any]] = None
+
+    for msg in transcript:
+        role = str(msg.get("role", "")).lower()
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+
+        if role in {"ai", "assistant", "interviewer"}:
+            current_question = msg
+            continue
+
+        if role in {"user", "candidate"} and current_question is not None:
+            qa_pairs.append({
+                "question": str(current_question.get("content", "")).strip(),
+                "answer": content,
+                "timestamp": msg.get("timestamp", "") or current_question.get("timestamp", ""),
+                "question_timestamp": current_question.get("timestamp", ""),
+                "answer_timestamp": msg.get("timestamp", ""),
+            })
+            current_question = None
+
+    return qa_pairs
 
 
 @router.get("/metrics")
@@ -495,6 +646,201 @@ async def get_employee_assigned_candidates(
         )
 
 
+@router.get("/candidate-profile/{candidate_id}")
+async def get_hr_candidate_detailed_profile(
+    candidate_id: UUID,
+    current_user: User = Depends(require_hr),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed candidate profile including interview transcript and Q&A analysis
+    for HR users within the same company.
+    """
+    from app.models.ai_report import AIReport
+
+    try:
+        query = select(Candidate).filter(
+            and_(
+                Candidate.id == candidate_id,
+                Candidate.company_id == current_user.company_id,
+            )
+        )
+        result = await db.execute(query)
+        candidate = result.scalars().first()
+
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found",
+            )
+
+        interviews_query = select(Interview).filter(
+            Interview.candidate_id == candidate.id
+        ).order_by(Interview.scheduled_time.desc())
+        interviews_result = await db.execute(interviews_query)
+        interviews = interviews_result.scalars().all()
+
+        interview_ids = [interview.id for interview in interviews]
+        reports: List[AIReport] = []
+        if interview_ids:
+            reports_query = select(AIReport).filter(
+                and_(
+                    AIReport.interview_id.in_(interview_ids),
+                    AIReport.report_type == "interview_verdict",
+                )
+            )
+            reports_result = await db.execute(reports_query)
+            reports = reports_result.scalars().all()
+
+        reports_by_interview = {report.interview_id: report for report in reports}
+
+        interview_details = []
+        for interview in interviews:
+            report = reports_by_interview.get(interview.id)
+            provider_response = report.provider_response if report else {}
+            if not isinstance(provider_response, dict):
+                provider_response = {}
+
+            transcript = _parse_interview_transcript(getattr(interview, "transcript", None))
+            if not transcript:
+                fallback_transcript = provider_response.get("transcript", [])
+                if isinstance(fallback_transcript, list):
+                    transcript = [item for item in fallback_transcript if isinstance(item, dict)]
+
+            qa_pairs = _build_qa_pairs(transcript)
+            qa_evaluations = provider_response.get("qa_evaluations", [])
+            if not isinstance(qa_evaluations, list):
+                qa_evaluations = []
+
+            eval_by_question: Dict[str, Dict[str, Any]] = {}
+            for item in qa_evaluations:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question", "")).strip()
+                if question:
+                    eval_by_question[question.lower()] = item
+
+            normalized_qa_evaluations: List[Dict[str, Any]] = []
+            for qa in qa_pairs:
+                question = str(qa.get("question", "")).strip()
+                answer = str(qa.get("answer", "")).strip()
+                matched = eval_by_question.get(question.lower(), {})
+                score = matched.get("score")
+                try:
+                    score_value = int(score) if score is not None else None
+                except Exception:
+                    score_value = None
+
+                if score_value is None:
+                    score_value = max(20, min(95, int(35 + min(len(answer) / 4.0, 55))))
+
+                rating = str(matched.get("rating", "")).strip().upper()
+                if rating not in {"EXCELLENT", "GOOD", "FAIR", "POOR"}:
+                    if score_value >= 85:
+                        rating = "EXCELLENT"
+                    elif score_value >= 70:
+                        rating = "GOOD"
+                    elif score_value >= 50:
+                        rating = "FAIR"
+                    else:
+                        rating = "POOR"
+
+                opinion = str(matched.get("opinion", "")).strip()
+                if not opinion:
+                    opinion = (
+                        "Answer addressed the question well and demonstrated practical understanding."
+                        if score_value >= 70
+                        else "Answer was partially relevant but lacked depth or concrete implementation detail."
+                    )
+
+                improvement = str(matched.get("improvement", "")).strip()
+                if not improvement:
+                    improvement = (
+                        "Add measurable outcomes or concrete trade-offs to strengthen the response."
+                        if score_value < 85
+                        else "Maintain this quality and keep structure concise."
+                    )
+
+                normalized_qa_evaluations.append({
+                    "question": question,
+                    "answer": answer,
+                    "rating": rating,
+                    "score": score_value,
+                    "opinion": opinion,
+                    "improvement": improvement,
+                    "question_timestamp": qa.get("question_timestamp"),
+                    "answer_timestamp": qa.get("answer_timestamp"),
+                })
+
+            verdict = provider_response.get("verdict") if report else None
+            if not verdict and report and report.score is not None:
+                if report.score >= 70:
+                    verdict = "PASS"
+                elif report.score >= 50:
+                    verdict = "REVIEW"
+                else:
+                    verdict = "FAIL"
+            if not verdict:
+                recommendation = str(provider_response.get("recommendation", "")).upper()
+                recommendation_to_verdict = {"HIRE": "PASS", "REJECT": "FAIL", "NEUTRAL": "REVIEW"}
+                verdict = recommendation_to_verdict.get(recommendation)
+
+            interview_details.append({
+                "interview_id": str(interview.id),
+                "round": interview.round.value if interview.round else "unknown",
+                "scheduled_time": interview.scheduled_time.isoformat() if interview.scheduled_time else None,
+                "status": interview.status.value if interview.status else None,
+                "verdict": verdict,
+                "overall_score": provider_response.get("overall_score") or (report.score if report else None),
+                "behavior_score": provider_response.get("behavior_score"),
+                "confidence_score": provider_response.get("confidence_score"),
+                "answer_score": provider_response.get("answer_score"),
+                "strengths": provider_response.get("strengths", []),
+                "weaknesses": provider_response.get("weaknesses", []),
+                "detailed_feedback": provider_response.get("detailed_feedback", ""),
+                "key_answers": provider_response.get("key_answers", []),
+                "summary": report.summary if report else None,
+                "duration_seconds": provider_response.get("duration_seconds"),
+                "total_questions": provider_response.get("total_questions"),
+                "total_answers": provider_response.get("total_answers"),
+                "transcript": transcript,
+                "qa_pairs": qa_pairs,
+                "qa_evaluations": normalized_qa_evaluations,
+                "resume_text": provider_response.get("resume_text", "") or getattr(candidate, "resume_text", "") or "",
+                "resume_filename": provider_response.get("resume_filename", ""),
+                "ats_score": getattr(interview, "ats_score", None),
+                "employee_verdict": getattr(interview, "employee_verdict", None),
+            })
+
+        return {
+            "candidate": {
+                "id": str(candidate.id),
+                "email": candidate.email,
+                "first_name": candidate.first_name,
+                "last_name": candidate.last_name,
+                "full_name": f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or candidate.email,
+                "phone": candidate.phone,
+                "position": candidate.position,
+                "domain": candidate.domain,
+                "status": candidate.status.value if candidate.status else None,
+                "experience_years": candidate.experience_years,
+                "qualifications": candidate.qualifications,
+            },
+            "interviews": interview_details,
+            "total_interviews": len(interviews),
+            "completed_interviews": len([i for i in interviews if i.status == InterviewStatus.COMPLETED]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching candidate profile: {str(e)}",
+        )
+
+
 @router.get("/interviews")
 async def get_hr_interviews(
     current_user: User = Depends(require_hr),
@@ -570,6 +916,7 @@ async def save_interview_transcript(
     try:
         import json
         from sqlalchemy import text
+        from app.models.ai_report import AIReport
         from app.services.ai_service import generate_interview_verdict
         
         # Find interview by ID
@@ -593,29 +940,91 @@ async def save_interview_transcript(
             if candidate:
                 position = candidate.position or ""
         
-        # Extract data from request
-        transcript_data = data.get("transcript", [])
-        duration_seconds = data.get("duration_seconds", 0)
-        resume_text = data.get("resume_text", "")
-        
-        # Update interview with transcript
-        interview.transcript = json.dumps(transcript_data) if transcript_data else None
-        interview.resume_text = resume_text if resume_text else interview.resume_text
-        
-        # Mark interview as completed using raw SQL to handle enum properly
-        await db.execute(
-            text("UPDATE interviews SET status = 'COMPLETED' WHERE id = :interview_id"),
-            {"interview_id": str(interview_id)}
+        # Extract and sanitize payload
+        transcript_data = _normalize_transcript_payload(data.get("transcript", []))
+        raw_duration = data.get("duration_seconds", 0)
+        duration_seconds = int(raw_duration) if str(raw_duration).isdigit() else 0
+
+        raw_resume_text = data.get("resume_text", "")
+        sanitized_resume_text = _sanitize_text_for_db(
+            raw_resume_text,
+            max_length=MAX_RESUME_TEXT_LENGTH,
         )
-        
-        # Also update candidate status to interview_completed
-        if interview.candidate_id:
-            await db.execute(
-                text("UPDATE candidates SET status = 'interview_completed' WHERE id = :candidate_id"),
-                {"candidate_id": str(interview.candidate_id)}
+        sanitized_resume_filename = _sanitize_text_for_db(
+            data.get("resume_filename", ""),
+            max_length=255,
+        )
+        if _looks_like_binary_blob(raw_resume_text):
+            logger.warning(
+                "Detected binary resume_text payload for interview %s. Ignoring unsafe content.",
+                interview_id,
             )
-        
-        await db.commit()
+            sanitized_resume_text = ""
+
+        transcript_json = None
+        if transcript_data:
+            transcript_json = _sanitize_text_for_db(
+                json.dumps(transcript_data, ensure_ascii=False),
+                max_length=MAX_TRANSCRIPT_JSON_LENGTH,
+            )
+
+        # Primary persistence path: save transcript/resume + mark completed
+        # If this fails (e.g. malformed payload edge case), we still force completion in fallback.
+        try:
+            await db.execute(
+                text(
+                    """
+                    UPDATE interviews
+                    SET status = 'COMPLETED',
+                        transcript = COALESCE(:transcript, transcript),
+                        resume_text = COALESCE(NULLIF(:resume_text, ''), resume_text),
+                        updated_at = now()
+                    WHERE id = :interview_id
+                    """
+                ),
+                {
+                    "interview_id": str(interview_id),
+                    "transcript": transcript_json,
+                    "resume_text": sanitized_resume_text,
+                },
+            )
+
+            if interview.candidate_id:
+                await db.execute(
+                    text(
+                        "UPDATE candidates SET status = 'interview_completed', updated_at = now() WHERE id = :candidate_id"
+                    ),
+                    {"candidate_id": str(interview.candidate_id)},
+                )
+
+            await db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to persist transcript payload for interview %s. Falling back to status-only completion.",
+                interview_id,
+            )
+            await db.rollback()
+
+            # Fallback path to guarantee interview completion state.
+            await db.execute(
+                text(
+                    """
+                    UPDATE interviews
+                    SET status = 'COMPLETED',
+                        updated_at = now()
+                    WHERE id = :interview_id
+                    """
+                ),
+                {"interview_id": str(interview_id)},
+            )
+            if interview.candidate_id:
+                await db.execute(
+                    text(
+                        "UPDATE candidates SET status = 'interview_completed', updated_at = now() WHERE id = :candidate_id"
+                    ),
+                    {"candidate_id": str(interview.candidate_id)},
+                )
+            await db.commit()
         
         # Trigger AI analysis asynchronously (non-blocking)
         ai_verdict = None
@@ -623,13 +1032,45 @@ async def save_interview_transcript(
             try:
                 ai_verdict = await generate_interview_verdict(
                     transcript=transcript_data,
-                    resume_text=resume_text or (candidate.resume_text if candidate else ""),
+                    resume_text=sanitized_resume_text
+                    or _sanitize_text_for_db(
+                        candidate.resume_text if candidate else "",
+                        max_length=MAX_RESUME_TEXT_LENGTH,
+                    ),
                     ats_score=interview.ats_score,
                     position=position
                 )
                 
                 # Update interview with AI scores
                 if ai_verdict:
+                    # Enrich verdict payload with transcript context for UI rendering.
+                    # This guarantees verdict views can always reconstruct full Q&A.
+                    ai_verdict["transcript"] = transcript_data
+                    ai_verdict["duration_seconds"] = duration_seconds
+                    try:
+                        verdict_total_questions = int(ai_verdict.get("total_questions") or 0)
+                    except Exception:
+                        verdict_total_questions = 0
+                    try:
+                        verdict_total_answers = int(ai_verdict.get("total_answers") or 0)
+                    except Exception:
+                        verdict_total_answers = 0
+
+                    ai_verdict["total_questions"] = verdict_total_questions or sum(
+                        1 for item in transcript_data if str(item.get("role", "")).lower() == "ai"
+                    )
+                    ai_verdict["total_answers"] = verdict_total_answers or sum(
+                        1 for item in transcript_data if str(item.get("role", "")).lower() == "user"
+                    )
+                    if sanitized_resume_text:
+                        ai_verdict["resume_text"] = sanitized_resume_text
+                    if sanitized_resume_filename:
+                        ai_verdict["resume_filename"] = sanitized_resume_filename
+
+                    verdict_json = _sanitize_text_for_db(
+                        json.dumps(ai_verdict, ensure_ascii=False),
+                        max_length=MAX_TRANSCRIPT_JSON_LENGTH,
+                    )
                     await db.execute(
                         text("""
                             UPDATE interviews SET 
@@ -645,20 +1086,61 @@ async def save_interview_transcript(
                             "behavior_score": ai_verdict.get("behavior_score"),
                             "confidence_score": ai_verdict.get("confidence_score"),
                             "answer_score": ai_verdict.get("answer_score"),
-                            "ai_verdict": json.dumps(ai_verdict),
+                            "ai_verdict": verdict_json,
                             "ai_recommendation": ai_verdict.get("recommendation"),
                         }
                     )
+
+                    # Persist/refresh AI report row used by employee dashboard.
+                    report_query = select(AIReport).filter(
+                        and_(
+                            AIReport.interview_id == interview.id,
+                            AIReport.report_type == "interview_verdict",
+                        )
+                    ).order_by(AIReport.created_at.desc())
+                    report_result = await db.execute(report_query)
+                    existing_report = report_result.scalars().first()
+
+                    report_summary = _sanitize_text_for_db(
+                        ai_verdict.get("summary", ""),
+                        max_length=5000,
+                    )
+                    report_score = float(ai_verdict.get("overall_score", 0) or 0)
+
+                    if existing_report:
+                        existing_report.score = report_score
+                        existing_report.summary = report_summary
+                        existing_report.provider_response = ai_verdict
+                    else:
+                        db.add(
+                            AIReport(
+                                company_id=interview.company_id,
+                                candidate_id=interview.candidate_id,
+                                interview_id=interview.id,
+                                report_type="interview_verdict",
+                                score=report_score,
+                                summary=report_summary,
+                                provider_response=ai_verdict,
+                                created_by=interview.created_by,
+                            )
+                        )
+
                     await db.commit()
             except Exception as ai_error:
                 # Don't fail the whole request if AI analysis fails
-                print(f"AI analysis error (non-critical): {ai_error}")
+                logger.exception(
+                    "AI analysis failed for completed interview %s (non-critical): %s",
+                    interview_id,
+                    ai_error,
+                )
+                await db.rollback()
         
         return {
             "success": True,
             "message": "Interview transcript saved and marked as completed",
             "interview_id": str(interview_id),
             "duration_seconds": duration_seconds,
+            "transcript_entries": len(transcript_data),
             "ai_analysis": ai_verdict is not None,
         }
     except HTTPException:
