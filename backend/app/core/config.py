@@ -44,13 +44,6 @@ class Settings(BaseSettings):
     cors_origins: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:9002",
-        "http://127.0.0.1:9002",
-        "http://localhost:9004",
-        "http://127.0.0.1:9004",
-        # Railway production URLs
-        "https://adorable-insight-production.up.railway.app",
-        "https://ai-interviewer-saas-production.up.railway.app",
     ]
 
     @field_validator('cors_origins', mode='before')
@@ -66,12 +59,6 @@ class Settings(BaseSettings):
                 return [
                     "http://localhost:3000",
                     "http://127.0.0.1:3000",
-                    "http://localhost:9002",
-                    "http://127.0.0.1:9002",
-                    "http://localhost:9004",
-                    "http://127.0.0.1:9004",
-                    "https://adorable-insight-production.up.railway.app",
-                    "https://ai-interviewer-saas-production.up.railway.app",
                 ]
         return v
 
@@ -107,6 +94,9 @@ class Settings(BaseSettings):
     # Security
     bcrypt_rounds: int = 12
     password_min_length: int = 8
+    
+    # Frontend URL (for emails, links, etc.)
+    frontend_url: str = "http://localhost:3000"
     
     # AI Service Integration
     ai_service_url: str = "http://localhost:9004"
@@ -195,7 +185,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-        extra = "forbid"  # Reject unknown environment variables
+        extra = "ignore"  # Ignore unknown environment variables (Railway adds its own)
 
 
 # Lazy initialization with validation
