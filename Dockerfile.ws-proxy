@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy the ws-proxy-server.js and package files from AI service
+COPY AI/Aigenthix_AI_Interviewer/ws-proxy-server.js ./
+COPY AI/Aigenthix_AI_Interviewer/package.json AI/Aigenthix_AI_Interviewer/package-lock.json* ./
+
+# Install only production dependencies (ws, dotenv)
+RUN npm ci --omit=dev 2>/dev/null || npm install ws dotenv
+
+EXPOSE 9003
+
+# Railway sets PORT env var; map it to WS_PROXY_PORT
+# If PORT is set (Railway), use it; otherwise default 9003
+CMD ["sh", "-c", "WS_PROXY_PORT=${PORT:-9003} node ws-proxy-server.js"]
