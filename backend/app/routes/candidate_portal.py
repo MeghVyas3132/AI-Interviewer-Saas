@@ -292,8 +292,8 @@ async def candidate_login(
             detail="Email is required"
         )
     
-    # Find candidate by email
-    candidate_query = select(Candidate).filter(Candidate.email == email)
+    # Find candidate by email (can exist in multiple companies)
+    candidate_query = select(Candidate).filter(Candidate.email == email).order_by(Candidate.created_at.desc())
     result = await db.execute(candidate_query)
     candidates = result.scalars().all()
     
@@ -303,8 +303,37 @@ async def candidate_login(
             detail="No candidate found with this email. You can only login if a company has added you as a candidate."
         )
     
-    # Get the first candidate (could be in multiple companies)
-    candidate = candidates[0]
+    # Build interview map once and choose the most relevant candidate company context.
+    # Priority: active/scheduled interviews -> latest interview time -> latest candidate record.
+    interviews_by_candidate: dict[str, list[Interview]] = {}
+    now_utc = datetime.now(timezone.utc)
+    recent_window = now_utc - timedelta(hours=24)
+    for c in candidates:
+        interviews_query = select(Interview).filter(Interview.candidate_id == c.id)
+        interviews_result = await db.execute(interviews_query)
+        interviews_by_candidate[str(c.id)] = interviews_result.scalars().all()
+
+    def _candidate_rank(c: Candidate) -> tuple[int, int, datetime, datetime]:
+        interviews = interviews_by_candidate.get(str(c.id), [])
+        active_priority = 0
+        latest_interview_time = datetime.min.replace(tzinfo=timezone.utc)
+
+        for interview in interviews:
+            scheduled_time = interview.scheduled_time or datetime.min.replace(tzinfo=timezone.utc)
+            if scheduled_time > latest_interview_time:
+                latest_interview_time = scheduled_time
+
+            status_val = (interview.status.value if interview.status else "").upper()
+            if status_val in {"SCHEDULED", "IN_PROGRESS"} and scheduled_time >= recent_window:
+                active_priority = 2
+            elif status_val == "SCHEDULED":
+                active_priority = max(active_priority, 1)
+
+        has_interviews = 1 if interviews else 0
+        created_at = c.created_at or datetime.min.replace(tzinfo=timezone.utc)
+        return (active_priority, has_interviews, latest_interview_time, created_at)
+
+    candidate = max(candidates, key=_candidate_rank)
     
     # Get company info
     company_query = select(Company).filter(Company.id == candidate.company_id)
@@ -317,9 +346,11 @@ async def candidate_login(
             User.email == email,
             User.role == UserRole.CANDIDATE
         )
-    )
+    ).order_by(User.created_at.desc())
     user_result = await db.execute(user_query)
     user = user_result.scalars().first()
+
+    candidate_name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or email
     
     # If no user account exists, create one
     if not user:
@@ -327,18 +358,36 @@ async def candidate_login(
         user = User(
             id=uuid4(),
             email=email,
-            name=f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or email,
+            name=candidate_name,
             password_hash="CANDIDATE_NO_PASSWORD",  # Candidates don't have passwords
             role=UserRole.CANDIDATE,
             company_id=candidate.company_id,
             is_active=True,
             email_verified=True,
             verification_attempts=0,
-            created_at=datetime.now(timezone.utc),
+            created_at=now_utc,
         )
         db.add(user)
         await db.commit()
         await db.refresh(user)
+    else:
+        # Keep candidate user in sync with the most relevant company context.
+        user_updated = False
+        if user.company_id != candidate.company_id:
+            user.company_id = candidate.company_id
+            user_updated = True
+        if user.name != candidate_name:
+            user.name = candidate_name
+            user_updated = True
+        if not user.is_active:
+            user.is_active = True
+            user_updated = True
+        if not user.email_verified:
+            user.email_verified = True
+            user_updated = True
+        if user_updated:
+            await db.commit()
+            await db.refresh(user)
     
     # Generate JWT token
     token_data = {
@@ -346,8 +395,8 @@ async def candidate_login(
         "email": user.email,
         "role": user.role.value,
         "company_id": str(user.company_id) if user.company_id else None,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
-        "iat": datetime.now(timezone.utc),
+        "exp": now_utc + timedelta(hours=24),
+        "iat": now_utc,
     }
     
     access_token = jwt.encode(token_data, settings.secret_key, algorithm="HS256")
@@ -369,9 +418,7 @@ async def candidate_login(
     # Get interviews for this candidate
     interviews_list = []
     for c in candidates:
-        interviews_query = select(Interview).filter(Interview.candidate_id == c.id)
-        interviews_result = await db.execute(interviews_query)
-        interviews = interviews_result.scalars().all()
+        interviews = interviews_by_candidate.get(str(c.id), [])
         for i in interviews:
             comp_query = select(Company).filter(Company.id == c.company_id)
             comp_result = await db.execute(comp_query)

@@ -2,12 +2,241 @@ import httpx
 import json
 import asyncio
 import random
+import re
 from typing import Optional, Dict, Any, List
 import logging
 from app.core.config import settings
 from app.models.candidate import Candidate
 
 logger = logging.getLogger(__name__)
+
+_GENERIC_QA_OPINIONS = (
+    "answer was clear and relevant to the question.",
+    "answer addressed the question well and demonstrated practical understanding.",
+    "answer partially addressed the question and lacked depth in key areas.",
+)
+_GENERIC_QA_IMPROVEMENTS = (
+    "add concrete implementation details and trade-offs from real projects.",
+    "maintain this quality and keep answers concise with measurable impact.",
+    "add measurable outcomes or concrete trade-offs to strengthen the response.",
+)
+_COMMON_STOPWORDS = {
+    "what", "when", "where", "which", "while", "would", "could", "should", "about",
+    "their", "there", "these", "those", "your", "with", "from", "into", "have",
+    "this", "that", "then", "than", "them", "they", "were", "been", "being", "also",
+    "explain", "describe", "design", "implement", "across", "please", "how", "for",
+    "and", "the", "are", "you", "why", "use", "used", "using", "into", "over",
+}
+_MAX_ATS_RESUME_CHARS = 12000
+_MAX_ATS_JOB_DESC_CHARS = 3000
+
+
+def _clip_text(value: str, max_chars: int) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
+
+def _extract_ats_keywords(text: str, limit: int = 25) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+#/.\-]{2,}", (text or "").lower())
+    deduped: List[str] = []
+    for token in tokens:
+        if token in _COMMON_STOPWORDS:
+            continue
+        if token not in deduped:
+            deduped.append(token)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _heuristic_ats_report_enhanced(resume_text: str, job_description: str = "") -> Dict[str, Any]:
+    resume = (resume_text or "").strip()
+    job_desc = (job_description or "").strip()
+    resume_lower = resume.lower()
+
+    email_present = bool(re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", resume))
+    phone_present = bool(re.search(r"\+?\d[\d\-\s()]{7,}\d", resume))
+    bullet_count = len(re.findall(r"(^|\n)\s*[-*•]\s+", resume))
+    metrics_count = len(re.findall(r"\b\d+(?:\.\d+)?\s*(?:%|x|ms|s|k|m|b|yrs?|years?)\b", resume_lower))
+
+    action_verbs_catalog = [
+        "built", "designed", "implemented", "delivered", "optimized", "automated",
+        "led", "improved", "deployed", "managed", "migrated", "integrated",
+    ]
+    action_verbs_used = [verb for verb in action_verbs_catalog if re.search(rf"\b{verb}\b", resume_lower)]
+
+    skill_catalog = [
+        "python", "react", "docker", "kubernetes", "terraform", "aws", "gcp", "azure",
+        "ci/cd", "jenkins", "github", "gitlab", "prometheus", "grafana", "linux", "sql",
+    ]
+    skills_found = [skill for skill in skill_catalog if skill in resume_lower]
+
+    jd_keywords = _extract_ats_keywords(job_desc, limit=20)
+    resume_keywords = set(_extract_ats_keywords(resume, limit=200))
+    keywords_found = [keyword for keyword in jd_keywords if keyword in resume_keywords]
+    keywords_missing = [keyword for keyword in jd_keywords if keyword not in resume_keywords]
+
+    score = 35
+    if email_present:
+        score += 10
+    if phone_present:
+        score += 5
+    score += min(12, bullet_count * 2)
+    score += min(15, metrics_count * 3)
+    score += min(15, len(skills_found) * 2)
+
+    if jd_keywords:
+        score += int((len(keywords_found) / max(len(jd_keywords), 1)) * 23)
+    else:
+        score += 8
+
+    score = max(0, min(100, score))
+
+    if score >= 80:
+        summary = "Resume appears ATS-friendly with strong structure, relevant skills, and measurable experience."
+    elif score >= 65:
+        summary = "Resume is reasonably ATS-compatible but can be improved with clearer role-aligned keywords and quantified impact."
+    else:
+        summary = "Resume needs ATS improvements in structure, keyword targeting, and measurable achievements."
+
+    highlights: List[str] = []
+    if email_present and phone_present:
+        highlights.append("Contact information is present and parseable.")
+    if skills_found:
+        highlights.append(f"Relevant technical skills detected: {', '.join(skills_found[:5])}.")
+    if metrics_count > 0:
+        highlights.append(f"Contains {metrics_count} quantified achievement(s), which improves ATS ranking.")
+    if not highlights:
+        highlights.append("Resume text was extracted successfully for ATS analysis.")
+
+    improvements: List[str] = []
+    if not phone_present:
+        improvements.append("Add a phone number in a standard format for reliable ATS parsing.")
+    if not jd_keywords:
+        improvements.append("Include role-specific keywords from the job description in skills and experience sections.")
+    elif keywords_missing:
+        improvements.append(f"Add missing role keywords: {', '.join(keywords_missing[:6])}.")
+    if metrics_count < 2:
+        improvements.append("Add measurable outcomes (%, latency, cost, uptime, delivery speed) to recent experience.")
+    if bullet_count < 3:
+        improvements.append("Use concise bullet points for experience sections to improve ATS readability.")
+    if len(action_verbs_used) < 3:
+        improvements.append("Use stronger action verbs (e.g., built, optimized, automated, led) in achievement statements.")
+    if len(improvements) < 3:
+        improvements.append("Align resume headline and summary with the target role title and core stack.")
+
+    section_scores = {
+        "contact_info": {"score": 5 if (email_present and phone_present) else 3, "feedback": "Contact details should include email and phone."},
+        "format_structure": {"score": 4 if bullet_count >= 3 else 3, "feedback": "Clear headings and bullet points improve ATS extraction."},
+        "professional_summary": {"score": 4, "feedback": "Tailor summary to target role and technical scope."},
+        "work_experience": {"score": min(5, 2 + metrics_count), "feedback": "Quantified impact and ownership improve ranking."},
+        "technical_skills": {"score": min(5, 2 + len(skills_found) // 2), "feedback": "Explicitly list core tools and platforms used in production."},
+        "education": {"score": 4, "feedback": "Keep education concise and include relevant certifications."},
+        "keyword_optimization": {"score": min(5, 1 + (len(keywords_found) // 2)) if jd_keywords else 3, "feedback": "Match job-description terminology across skills and experience."},
+    }
+
+    return {
+        "score": score,
+        "summary": summary,
+        "section_scores": section_scores,
+        "highlights": highlights[:5],
+        "improvements": improvements[:7],
+        "keywords_found": keywords_found[:12] if keywords_found else skills_found[:12],
+        "keywords_missing": keywords_missing[:12],
+        "formatting_issues": [] if bullet_count >= 2 else ["Experience section has limited bullet structure."],
+        "action_verbs_used": action_verbs_used[:12],
+        "quantified_achievements": metrics_count,
+        "ats_friendly": score >= 65,
+    }
+
+
+def _extract_question_keywords(question: str, limit: int = 6) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+#/.\-]{2,}", question.lower())
+    deduped: List[str] = []
+    for token in tokens:
+        if token in _COMMON_STOPWORDS:
+            continue
+        if token not in deduped:
+            deduped.append(token)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _derive_focus_area(question: str) -> str:
+    q = question.lower()
+    mapping = (
+        (("ci/cd", "pipeline", "release", "deployment"), "delivery pipeline design"),
+        (("kubernetes", "pods", "cluster", "k8s"), "Kubernetes operations"),
+        (("secret", "vault", "credential", "token"), "security and secret management"),
+        (("observability", "monitor", "metrics", "logs", "traces"), "observability strategy"),
+        (("incident", "outage", "latency", "rollback"), "incident handling"),
+        (("cost", "optimize", "spend", "efficiency"), "cost optimization"),
+        (("system", "architecture", "scalability", "design"), "system design reasoning"),
+    )
+    for keywords, label in mapping:
+        if any(keyword in q for keyword in keywords):
+            return label
+    return "the core question requirement"
+
+
+def _is_generic_qa_feedback(text: str, *, kind: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return True
+    generic_pool = _GENERIC_QA_OPINIONS if kind == "opinion" else _GENERIC_QA_IMPROVEMENTS
+    return any(generic in normalized for generic in generic_pool)
+
+
+def _build_contextual_qa_feedback(question: str, answer: str, score: int) -> Dict[str, str]:
+    answer_lower = answer.lower()
+    focus_area = _derive_focus_area(question)
+    keywords = _extract_question_keywords(question)
+    matched_keywords = [keyword for keyword in keywords if keyword in answer_lower]
+    missing_keywords = [keyword for keyword in keywords if keyword not in answer_lower]
+    uncertain = any(
+        phrase in answer_lower
+        for phrase in ("don't know", "not sure", "no idea", "can't recall", "unsure", "maybe")
+    )
+    has_numbers = bool(re.search(r"\d", answer))
+    has_tools = any(tool in answer_lower for tool in ("kubernetes", "terraform", "docker", "prometheus", "grafana", "aws", "gcp", "azure", "ci/cd", "pipeline"))
+    answer_length = len(answer.strip())
+
+    if uncertain or score < 50:
+        opinion = (
+            f"The response on {focus_area} was uncertain and did not sufficiently address critical parts of the prompt."
+        )
+    elif score < 70:
+        opinion = (
+            f"The response on {focus_area} touched the right direction but missed depth on {', '.join(missing_keywords[:2]) or 'key implementation details'}."
+        )
+    elif score < 85:
+        opinion = (
+            f"The response on {focus_area} was relevant and reasonably structured, with room to improve depth and trade-off discussion."
+        )
+    else:
+        opinion = (
+            f"The response on {focus_area} was strong, with clear reasoning and practical implementation context."
+        )
+
+    if score >= 85 and (has_numbers or has_tools):
+        improvement = "Maintain this level; keep highlighting measurable outcomes and explicit trade-offs."
+    elif uncertain or score < 50:
+        improvement = (
+            f"Provide a concrete approach for {focus_area}, including architecture steps, tooling choices, and validation checks."
+        )
+    elif missing_keywords:
+        improvement = (
+            f"Strengthen this answer by explicitly covering {', '.join(missing_keywords[:2])} and linking them to a real project scenario."
+        )
+    elif answer_length < 120:
+        improvement = "Add one concrete production example, including metrics and failure-handling trade-offs."
+    else:
+        improvement = "Add measurable impact (latency, reliability, or cost) to make the answer decision-ready."
+
+    return {"opinion": opinion, "improvement": improvement}
 
 # Global HTTP client with connection pooling for better performance
 # This reuses connections instead of creating new ones for each request
@@ -262,6 +491,8 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
     Call Groq API to produce a structured ATS report.
     Uses Groq as primary provider with key rotation for rate limit mitigation.
     """
+    clipped_resume_text = _clip_text(resume_text, _MAX_ATS_RESUME_CHARS)
+
     prompt = (
         "You are an expert applicant-tracking-system (ATS) evaluator. "
         "Given the candidate resume text, return a strict JSON object with the following keys:\n"
@@ -270,7 +501,7 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
         "- issues: list of strings describing missing keywords, formatting, or problems\n"
         "- recommendations: list of actionable suggestions to improve ATS compatibility\n"
         "Respond with JSON only and nothing else. If a value is missing, return null or an empty list.\n\n"
-        f"Resume:\n{resume_text}\n\nJSON:\n"
+        f"Resume:\n{clipped_resume_text}\n\nJSON:\n"
     )
 
     # Use Groq as primary provider
@@ -307,7 +538,14 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
             }
         except Exception as e:
             logger.error(f"Groq API failed for ATS report: {e}")
-            raise
+            heuristic = _heuristic_ats_report_enhanced(clipped_resume_text, "")
+            return {
+                "score": heuristic.get("score"),
+                "summary": heuristic.get("summary"),
+                "issues": heuristic.get("formatting_issues") or [],
+                "recommendations": heuristic.get("improvements") or [],
+                "raw": {"provider": "heuristic_fallback", "reason": str(e)},
+            }
     
     raise Exception("GROQ_API_KEYS environment variable is required for ATS analysis. Please set it in Railway.")
 
@@ -395,14 +633,21 @@ async def generate_ats_report_enhanced(resume_text: str, job_description: str = 
     Uses Groq as primary provider with key rotation for rate limit mitigation.
     Used for candidate-facing ATS checker tool.
     """
+    clipped_resume_text = _clip_text(resume_text, _MAX_ATS_RESUME_CHARS)
+    clipped_job_description = _clip_text(job_description, _MAX_ATS_JOB_DESC_CHARS)
+    if len((resume_text or "").strip()) > len(clipped_resume_text):
+        logger.warning("ATS input resume text clipped from %s to %s chars", len((resume_text or "").strip()), len(clipped_resume_text))
+    if len((job_description or "").strip()) > len(clipped_job_description):
+        logger.warning("ATS input job description clipped from %s to %s chars", len((job_description or "").strip()), len(clipped_job_description))
+
     jd_context = ""
-    if job_description:
-        jd_context = f"\n\nTARGET JOB DESCRIPTION/ROLE:\n{job_description}\n\nAnalyze the resume specifically for this role. Check if the candidate's skills and experience align with this position."
+    if clipped_job_description:
+        jd_context = f"\n\nTARGET JOB DESCRIPTION/ROLE:\n{clipped_job_description}\n\nAnalyze the resume specifically for this role. Check if the candidate's skills and experience align with this position."
 
     prompt = f"""You are an expert ATS (Applicant Tracking System) analyst. Analyze this resume and provide a detailed assessment.
 
 RESUME:
-{resume_text}
+{clipped_resume_text}
 {jd_context}
 
 Analyze the resume for ATS compatibility and provide specific, actionable feedback. Look at:
@@ -433,7 +678,7 @@ Return ONLY valid JSON."""
     groq_key = get_groq_api_key()
     if groq_key:
         try:
-            result = await call_groq_api(prompt, model="llama-3.3-70b-versatile", max_tokens=8192, temperature=0.2)
+            result = await call_groq_api(prompt, model="llama-3.3-70b-versatile", max_tokens=1800, temperature=0.2)
             text_output = result.get("text", "")
             
             # Parse JSON from response
@@ -513,9 +758,150 @@ Return ONLY valid JSON."""
             
         except Exception as e:
             logger.error(f"Groq API failed for enhanced ATS report: {e}")
-            raise
+            fallback = _heuristic_ats_report_enhanced(clipped_resume_text, clipped_job_description)
+            fallback["summary"] = f"{fallback.get('summary', '')} (Fallback analysis used because AI provider was unavailable.)".strip()
+            return fallback
     
     raise Exception("GROQ_API_KEYS environment variable is required for ATS analysis. Please set it in Railway.")
+
+
+async def extract_candidate_profile_from_resume(
+    resume_text: str,
+    hinted_position: str = "",
+    hinted_domain: str = "",
+    model: str | None = None,
+) -> Dict[str, Any]:
+    """
+    Extract candidate registration fields from resume text.
+    Returns a normalized object suitable for candidate creation flows.
+    """
+    text = (resume_text or "").strip()
+    if not text:
+        raise Exception("Resume text is empty; cannot extract profile.")
+
+    prompt = f"""You are an expert resume parser.
+Extract candidate profile data and return ONLY valid JSON with these fields:
+{{
+  "full_name": "<candidate full name>",
+  "email": "<email>",
+  "phone": "<phone>",
+  "position": "<most relevant role title>",
+  "domain": "<functional domain>",
+  "experience_years": <integer or null>,
+  "qualifications": "<short summary of education, certifications, and key skills>"
+}}
+
+Rules:
+- If email is missing, return an empty string for email.
+- Use null for unknown experience_years.
+- Keep qualifications concise (<= 300 chars).
+- Do not include markdown.
+
+Hints:
+- Position override: {hinted_position or "none"}
+- Domain override: {hinted_domain or "none"}
+
+Resume text:
+{text[:12000]}
+"""
+
+    parsed: Dict[str, Any] = {}
+    groq_key = get_groq_api_key()
+    if groq_key:
+        try:
+            result = await call_groq_api(
+                prompt,
+                model=model or "llama-3.3-70b-versatile",
+                max_tokens=1200,
+                temperature=0.0,
+            )
+            raw_text = str(result.get("text", "")).strip()
+            if raw_text:
+                cleaned = raw_text
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith("```"):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                try:
+                    parsed = json.loads(cleaned)
+                except Exception:
+                    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+                    if match:
+                        parsed = json.loads(match.group(0))
+        except Exception as e:
+            logger.warning("LLM profile extraction failed; using heuristic fallback: %s", e)
+
+    # Heuristic fallback (or post-processor for partial model output).
+    if not isinstance(parsed, dict):
+        parsed = {}
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    email_match = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
+    phone_match = re.search(r"(\+?\d[\d\-\s().]{8,}\d)", text)
+    years_match = re.search(r"(\d{1,2})\s*\+?\s*(?:years|yrs)\b", text, re.IGNORECASE)
+
+    guessed_name = ""
+    for line in lines[:8]:
+        if "@" in line or len(line) > 60:
+            continue
+        if re.search(r"[A-Za-z]", line):
+            guessed_name = line
+            break
+
+    guessed_position = ""
+    role_patterns = [
+        r"(devops engineer|site reliability engineer|sre|software engineer|backend engineer|frontend engineer|full stack engineer|data engineer|ml engineer|product manager|qa engineer|cloud engineer|platform engineer)",
+    ]
+    for pattern in role_patterns:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            guessed_position = m.group(1)
+            break
+
+    position_value = (hinted_position or parsed.get("position") or guessed_position or "").strip()
+    domain_value = (hinted_domain or parsed.get("domain") or "").strip()
+    if not domain_value and position_value:
+        lower_position = position_value.lower()
+        if "devops" in lower_position or "sre" in lower_position:
+            domain_value = "DevOps"
+        elif "data" in lower_position or "ml" in lower_position:
+            domain_value = "Data"
+        elif "product" in lower_position:
+            domain_value = "Product"
+        elif "qa" in lower_position or "test" in lower_position:
+            domain_value = "QA"
+        else:
+            domain_value = "Engineering"
+
+    raw_experience = parsed.get("experience_years")
+    experience_years = None
+    try:
+        if raw_experience is not None and str(raw_experience).strip() != "":
+            experience_years = max(0, min(80, int(float(raw_experience))))
+    except Exception:
+        experience_years = None
+    if experience_years is None and years_match:
+        try:
+            experience_years = max(0, min(80, int(years_match.group(1))))
+        except Exception:
+            experience_years = None
+
+    qualifications = str(parsed.get("qualifications") or "").strip()
+    if not qualifications:
+        qualifications = "Parsed from resume."
+
+    return {
+        "full_name": str(parsed.get("full_name") or guessed_name).strip(),
+        "email": str(parsed.get("email") or (email_match.group(0) if email_match else "")).strip().lower(),
+        "phone": str(parsed.get("phone") or (phone_match.group(1) if phone_match else "")).strip(),
+        "position": position_value,
+        "domain": domain_value,
+        "experience_years": experience_years,
+        "qualifications": qualifications[:300],
+    }
 
 
 async def generate_interview_verdict(
@@ -655,20 +1041,13 @@ async def generate_interview_verdict(
                 rating = _score_to_rating(score_value)
 
             opinion = str(eval_item.get("opinion", "")).strip()
-            if not opinion:
-                opinion = (
-                    "Answer was clear and relevant to the question."
-                    if score_value >= 70
-                    else "Answer partially addressed the question and lacked depth in key areas."
-                )
+            generated_feedback = _build_contextual_qa_feedback(question, answer, score_value)
+            if _is_generic_qa_feedback(opinion, kind="opinion"):
+                opinion = generated_feedback["opinion"]
 
             improvement = str(eval_item.get("improvement", "")).strip()
-            if not improvement:
-                improvement = (
-                    "Add concrete implementation details and trade-offs from real projects."
-                    if score_value < 85
-                    else "Maintain this quality and keep answers concise with measurable impact."
-                )
+            if _is_generic_qa_feedback(improvement, kind="improvement"):
+                improvement = generated_feedback["improvement"]
 
             normalized.append(
                 {

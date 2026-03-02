@@ -117,16 +117,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('user')
     localStorage.removeItem('candidate_companies')
     localStorage.removeItem('candidate_interviews')
+    const accessToken = Cookies.get('access_token')
+
+    // Try backend logout only when an access token exists.
+    if (accessToken) {
+      try {
+        await apiClient.logout()
+      } catch {
+        // Ignore backend logout errors; local logout is source of truth.
+      }
+    }
+
+    // Ensure local auth artifacts are removed even if API call fails.
     Cookies.remove('access_token')
     Cookies.remove('refresh_token')
-    
-    // Then try to call backend logout (non-blocking)
-    try {
-      await apiClient.logout()
-    } catch (error) {
-      // Ignore logout API errors - user is already logged out locally
-      console.warn('Backend logout failed (non-critical):', error)
-    }
     // Don't set isLoading during logout to prevent UI flash
   }
 

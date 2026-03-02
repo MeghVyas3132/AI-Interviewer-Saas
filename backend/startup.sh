@@ -86,6 +86,19 @@ try:
             print(f"candidatestatus.{value}: OK")
         except Exception as e:
             print(f"candidatestatus.{value}: {e}")
+
+    # 3d. Normalize legacy statuses to current pipeline values
+    print("\nNormalizing legacy candidate statuses...")
+    try:
+        cur.execute("""
+            UPDATE candidates
+            SET status = 'failed'::candidatestatus,
+                updated_at = NOW()
+            WHERE status::text = 'ai_rejected'
+        """)
+        print(f"candidates.ai_rejected -> failed: {cur.rowcount} row(s) updated")
+    except Exception as e:
+        print(f"status normalization: {e}")
     
     # 4. Create company_ai_config table if not exists
     print("Checking company_ai_config table...")

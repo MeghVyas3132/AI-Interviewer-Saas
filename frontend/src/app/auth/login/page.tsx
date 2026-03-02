@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import Cookies from 'js-cookie'
+import { API_BASE_URL } from '@/lib/constants'
 
 type LoginTab = 'employee' | 'candidate'
 
 export default function LoginPage() {
   const router = useRouter()
   const { login, isLoading } = useAuth()
-  const candidateApiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1'
+  const candidateApiBaseUrl = API_BASE_URL
   const [activeTab, setActiveTab] = useState<LoginTab>('employee')
   const [error, setError] = useState('')
   const [candidateLoading, setCandidateLoading] = useState(false)

@@ -3,8 +3,9 @@ Production-grade Candidate Service
 Handles CRUD operations, validation, and business logic for candidates
 """
 
+import json
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy import select, and_, desc, func, text
@@ -27,6 +28,186 @@ logger = logging.getLogger(__name__)
 
 class CandidateService:
     """Service for candidate management and operations"""
+
+    _STATUS_SYNC_PROTECTED = {
+        CandidateStatus.SELECTED,
+        CandidateStatus.OFFER,
+        CandidateStatus.ACCEPTED,
+        CandidateStatus.REJECTED,
+        CandidateStatus.WITHDRAWN,
+        CandidateStatus.ON_HOLD,
+        CandidateStatus.AUTO_REJECTED,
+    }
+
+    @staticmethod
+    def derive_candidate_status_from_interview_outcome(
+        ai_recommendation: Optional[str] = None,
+        employee_verdict: Optional[str] = None,
+        ai_verdict_payload: Optional[Any] = None,
+        overall_score: Optional[float] = None,
+    ) -> Optional[CandidateStatus]:
+        """
+        Derive canonical pipeline status from latest interview outcome fields.
+        Precedence:
+        1) employee_verdict (manual override)
+        2) ai_recommendation / ai_verdict recommendation
+        3) ai_verdict verdict
+        4) overall_score
+        """
+        employee = (employee_verdict or "").strip().upper()
+        if employee in {"APPROVE", "APPROVED", "PASS", "PASSED", "ACCEPTED", "HIRE", "HIRED"}:
+            return CandidateStatus.PASSED
+        if employee in {"REJECT", "REJECTED", "FAIL", "FAILED"}:
+            return CandidateStatus.FAILED
+        if employee in {"REVIEW", "NEUTRAL", "HOLD", "ON_HOLD"}:
+            return CandidateStatus.REVIEW
+
+        verdict_payload: dict[str, Any] = {}
+        if isinstance(ai_verdict_payload, dict):
+            verdict_payload = ai_verdict_payload
+        elif isinstance(ai_verdict_payload, str) and ai_verdict_payload.strip():
+            try:
+                parsed = json.loads(ai_verdict_payload)
+                if isinstance(parsed, dict):
+                    verdict_payload = parsed
+            except Exception:
+                verdict_payload = {}
+
+        recommendation = (
+            ai_recommendation
+            or verdict_payload.get("recommendation")
+            or verdict_payload.get("ai_recommendation")
+            or ""
+        )
+        recommendation = str(recommendation).strip().upper()
+        if recommendation in {"HIRE", "PASS", "PASSED"}:
+            return CandidateStatus.PASSED
+        if recommendation in {"REJECT", "FAIL", "FAILED"}:
+            return CandidateStatus.FAILED
+        if recommendation in {"NEUTRAL", "REVIEW"}:
+            return CandidateStatus.REVIEW
+
+        verdict = (
+            verdict_payload.get("verdict")
+            or verdict_payload.get("final_verdict")
+            or ""
+        )
+        verdict = str(verdict).strip().upper()
+        if verdict in {"PASS", "PASSED"}:
+            return CandidateStatus.PASSED
+        if verdict in {"FAIL", "FAILED"}:
+            return CandidateStatus.FAILED
+        if verdict == "REVIEW":
+            return CandidateStatus.REVIEW
+
+        score = overall_score
+        if score is None:
+            score = verdict_payload.get("overall_score")
+        try:
+            if score is not None:
+                score_value = float(score)
+                if score_value >= 70:
+                    return CandidateStatus.PASSED
+                if score_value < 45:
+                    return CandidateStatus.FAILED
+                return CandidateStatus.REVIEW
+        except Exception:
+            return None
+
+        return None
+
+    @staticmethod
+    async def reconcile_candidate_pipeline_statuses(
+        session: AsyncSession,
+        company_id: UUID,
+        candidate_ids: Optional[List[UUID]] = None,
+    ) -> int:
+        """
+        Self-heal stale candidate statuses based on latest completed interview outcome.
+        Returns number of candidate rows updated.
+        """
+        latest_completed_subquery = (
+            select(
+                Interview.candidate_id.label("candidate_id"),
+                Interview.ai_recommendation.label("ai_recommendation"),
+                Interview.employee_verdict.label("employee_verdict"),
+                Interview.ai_verdict.label("ai_verdict"),
+                func.row_number().over(
+                    partition_by=Interview.candidate_id,
+                    order_by=(Interview.updated_at.desc(), Interview.created_at.desc()),
+                ).label("rn"),
+            )
+            .where(
+                and_(
+                    Interview.company_id == company_id,
+                    Interview.status == InterviewStatus.COMPLETED,
+                    Interview.candidate_id.isnot(None),
+                )
+            )
+            .subquery()
+        )
+
+        query = (
+            select(
+                Candidate.id,
+                Candidate.status,
+                latest_completed_subquery.c.ai_recommendation,
+                latest_completed_subquery.c.employee_verdict,
+                latest_completed_subquery.c.ai_verdict,
+            )
+            .join(
+                latest_completed_subquery,
+                latest_completed_subquery.c.candidate_id == Candidate.id,
+            )
+            .where(
+                and_(
+                    Candidate.company_id == company_id,
+                    latest_completed_subquery.c.rn == 1,
+                )
+            )
+        )
+
+        if candidate_ids:
+            query = query.where(Candidate.id.in_(candidate_ids))
+
+        result = await session.execute(query)
+        rows = result.fetchall()
+
+        updated_count = 0
+        for row in rows:
+            candidate_id = row.id
+            current_status = row.status
+
+            if current_status in CandidateService._STATUS_SYNC_PROTECTED:
+                continue
+
+            derived_status = CandidateService.derive_candidate_status_from_interview_outcome(
+                ai_recommendation=row.ai_recommendation,
+                employee_verdict=row.employee_verdict,
+                ai_verdict_payload=row.ai_verdict,
+            )
+
+            if not derived_status or derived_status == current_status:
+                continue
+
+            await session.execute(
+                text("UPDATE candidates SET status = :status, updated_at = now() WHERE id = :candidate_id"),
+                {
+                    "status": derived_status.value,
+                    "candidate_id": str(candidate_id),
+                },
+            )
+            updated_count += 1
+
+        if updated_count:
+            await session.flush()
+            logger.info(
+                "Reconciled %s candidate pipeline status row(s) for company %s",
+                updated_count,
+                company_id,
+            )
+
+        return updated_count
 
     @staticmethod
     async def update_candidate_status(
@@ -707,4 +888,3 @@ class CandidateService:
         except Exception as e:
             logger.error(f"Error getting time-to-hire metrics: {str(e)}", exc_info=True)
             raise
-

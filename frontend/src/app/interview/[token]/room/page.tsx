@@ -52,7 +52,11 @@ interface ReadinessStatus {
   sampleConfidence: number;
 }
 
-const AUTO_SUBMIT_FALLBACK_MS = 1600;
+const AUTO_SUBMIT_BASE_DELAY_MS = 4200;
+const AUTO_SUBMIT_MAX_DELAY_MS = 6500;
+const AUTO_SUBMIT_MIN_WORDS = 12;
+const AUTO_SUBMIT_RECENT_SPEECH_GUARD_MS = 1200;
+const AUTO_SUBMIT_ENABLED = false;
 const LONG_SILENCE_PROMPT_MS = 12000;
 const LOW_CONFIDENCE_THRESHOLD = 0.55;
 const HEARTBEAT_INTERVAL_MS = 15000;
@@ -96,13 +100,19 @@ function getWsProxyBaseUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     return `${protocol}://${window.location.hostname}:9003`;
   }
-  return 'ws://127.0.0.1:9003';
+  return 'ws://localhost:9003';
 }
 
 function buildPhraseHints(session: InterviewSession | null): string[] {
   if (!session) return [];
 
   const hints = new Set<string>();
+  const commonStopWords = new Set([
+    'about', 'after', 'again', 'before', 'being', 'between', 'could', 'describe', 'design',
+    'experience', 'explain', 'first', 'from', 'have', 'into', 'just', 'like', 'please',
+    'project', 'question', 'role', 'should', 'their', 'there', 'these', 'they', 'this',
+    'through', 'using', 'what', 'when', 'where', 'which', 'with', 'would', 'your',
+  ]);
 
   const addHint = (value: string) => {
     const cleaned = value.trim();
@@ -114,13 +124,25 @@ function buildPhraseHints(session: InterviewSession | null): string[] {
   addHint(session.position || '');
   addHint(session.company_name || '');
 
-  const seedText = [session.position, session.company_name, ...(session.questions_generated || [])].join(' ');
-  seedText
+  [session.candidate_name, session.position, session.company_name]
+    .join(' ')
     .split(/[^A-Za-z0-9+#.]+/)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 3)
-    .slice(0, 80)
+    .filter((token) => token.length >= 2)
     .forEach(addHint);
+
+  const questionTokens = (session.questions_generated || [])
+    .join(' ')
+    .split(/[^A-Za-z0-9+#/.-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .filter((token) => !commonStopWords.has(token.toLowerCase()))
+    .filter((token) =>
+      /[0-9+#/.]/.test(token) ||
+      /^(ci\/cd|devops|docker|kubernetes|terraform|ansible|jenkins|github|aws|gcp|azure|linux|python|react|node|api|sql|nosql)$/i.test(token),
+    );
+
+  questionTokens.slice(0, 40).forEach(addHint);
 
   return Array.from(hints).slice(0, 80);
 }
@@ -144,6 +166,7 @@ export default function InterviewRoomPage() {
   const [hasTranscriptContent, setHasTranscriptContent] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [endpointState, setEndpointState] = useState<'idle' | 'speech' | 'silence_grace' | 'finalize'>('idle');
+  const [cameraUnavailable, setCameraUnavailable] = useState(false);
   const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>({
     status: 'idle',
     message: 'Readiness checks have not run yet.',
@@ -169,9 +192,11 @@ export default function InterviewRoomPage() {
   const transcriptSaveInFlightRef = useRef<boolean>(false);
   const transcriptSavedRef = useRef<boolean>(false);
   const reconnectAttemptRef = useRef<number>(0);
-  const adaptiveSilenceMsRef = useRef<number>(AUTO_SUBMIT_FALLBACK_MS);
+  const adaptiveSilenceMsRef = useRef<number>(AUTO_SUBMIT_BASE_DELAY_MS);
   const currentQuestionTextRef = useRef<string>('');
   const hasTranscriptContentRef = useRef<boolean>(false);
+  const answerWindowStartMsRef = useRef<number>(0);
+  const acceptAsrTurnsRef = useRef<boolean>(false);
 
   const asrWantedRef = useRef<boolean>(false);
   const asrConnectedRef = useRef<boolean>(false);
@@ -201,7 +226,7 @@ export default function InterviewRoomPage() {
   const messagesRef = useRef<Message[]>([]);
 
   const [resumeText, setResumeText] = useState('');
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1';
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
   const clearSilenceTimeout = useCallback(() => {
     if (silenceTimeoutRef.current) {
@@ -256,6 +281,15 @@ export default function InterviewRoomPage() {
     const hasContent = combined.length > 0;
     hasTranscriptContentRef.current = hasContent;
     setHasTranscriptContent(hasContent);
+  }, []);
+
+  const getBufferedAnswerText = useCallback(() => {
+    const finalText = finalSegmentsRef.current
+      .map((segment) => segment.text)
+      .join(' ')
+      .trim();
+    const interimText = interimTranscriptRef.current.trim();
+    return [finalText, interimText].filter(Boolean).join(' ').trim();
   }, []);
 
   const resetCurrentAnswerBuffers = useCallback(() => {
@@ -473,25 +507,37 @@ export default function InterviewRoomPage() {
     }
   }, [clearHeartbeat, pauseAudioStreaming]);
 
-  const scheduleAutoSubmit = useCallback(() => {
+  const scheduleAutoSubmit = useCallback((forceOnEndpoint = false) => {
+    if (!AUTO_SUBMIT_ENABLED) {
+      clearSilenceTimeout();
+      return;
+    }
     clearSilenceTimeout();
     if (!hasTranscriptContentRef.current) return;
 
+    const timeoutMs = clamp(adaptiveSilenceMsRef.current + 2800, AUTO_SUBMIT_BASE_DELAY_MS, AUTO_SUBMIT_MAX_DELAY_MS);
     silenceTimeoutRef.current = setTimeout(() => {
+      const bufferedText = getBufferedAnswerText();
+      const words = wordCount(bufferedText);
+      const minimumWords = forceOnEndpoint ? 8 : AUTO_SUBMIT_MIN_WORDS;
+      const idleForMs = Date.now() - lastSpeechTimeRef.current;
+
       if (
         !autoSubmitInProgressRef.current &&
         hasTranscriptContentRef.current &&
         isListeningRef.current &&
         !isAISpeakingRef.current &&
-        !interviewEndedRef.current
+        !interviewEndedRef.current &&
+        idleForMs >= AUTO_SUBMIT_RECENT_SPEECH_GUARD_MS &&
+        words >= minimumWords
       ) {
         autoSubmitInProgressRef.current = true;
         void (submitAnswerRef.current?.() || Promise.resolve()).finally(() => {
           autoSubmitInProgressRef.current = false;
         });
       }
-    }, Math.max(AUTO_SUBMIT_FALLBACK_MS, adaptiveSilenceMsRef.current + 150));
-  }, [clearSilenceTimeout]);
+    }, timeoutMs);
+  }, [clearSilenceTimeout, getBufferedAnswerText]);
 
   const appendFinalSegment = useCallback((segment: ASRSegment) => {
     const cleanText = segment.text.trim();
@@ -509,7 +555,7 @@ export default function InterviewRoomPage() {
 
     lastSpeechTimeRef.current = Date.now();
     syncTranscriptDisplay();
-    scheduleAutoSubmit();
+    scheduleAutoSubmit(false);
   }, [scheduleAutoSubmit, syncTranscriptDisplay]);
 
   const handleAsrMessage = useCallback((payload: any) => {
@@ -535,18 +581,16 @@ export default function InterviewRoomPage() {
     }
 
     if (payload.type === 'proxy_endpoint' && payload.action === 'finalize') {
+      if (!AUTO_SUBMIT_ENABLED) {
+        return;
+      }
       if (
         isListeningRef.current &&
         !isAISpeakingRef.current &&
         !interviewEndedRef.current &&
         (finalSegmentsRef.current.length > 0 || interimTranscriptRef.current.trim().length > 0)
       ) {
-        if (!autoSubmitInProgressRef.current) {
-          autoSubmitInProgressRef.current = true;
-          void (submitAnswerRef.current?.() || Promise.resolve()).finally(() => {
-            autoSubmitInProgressRef.current = false;
-          });
-        }
+        scheduleAutoSubmit(true);
       }
       return;
     }
@@ -558,6 +602,18 @@ export default function InterviewRoomPage() {
     }
 
     if (payload.type === 'Turn') {
+      if (!isListeningRef.current || !acceptAsrTurnsRef.current || interviewEndedRef.current) {
+        return;
+      }
+
+      const receivedAtMs =
+        typeof payload.proxy_received_at_ms === 'number'
+          ? payload.proxy_received_at_ms
+          : Date.now();
+      if (receivedAtMs + 150 < answerWindowStartMsRef.current) {
+        return;
+      }
+
       const transcriptText = String(payload.transcript || '').trim();
       const confidenceValue =
         typeof payload.proxy_confidence === 'number'
@@ -587,7 +643,7 @@ export default function InterviewRoomPage() {
         interimTranscriptRef.current = transcriptText;
         if (transcriptText) {
           lastSpeechTimeRef.current = Date.now();
-          scheduleAutoSubmit();
+          scheduleAutoSubmit(false);
         }
         syncTranscriptDisplay();
       }
@@ -751,6 +807,8 @@ export default function InterviewRoomPage() {
   const startListening = useCallback(async () => {
     await ensureASRSession();
     resetCurrentAnswerBuffers();
+    answerWindowStartMsRef.current = Date.now();
+    acceptAsrTurnsRef.current = true;
     lastSpeechTimeRef.current = Date.now();
     setIsListening(true);
     isListeningRef.current = true;
@@ -759,6 +817,7 @@ export default function InterviewRoomPage() {
 
   const stopListening = useCallback(() => {
     clearSilenceTimeout();
+    acceptAsrTurnsRef.current = false;
     setIsListening(false);
     isListeningRef.current = false;
     pauseAudioStreaming(true);
@@ -788,12 +847,15 @@ export default function InterviewRoomPage() {
       }));
 
       resetCurrentAnswerBuffers();
+      resetAudioStats();
+      answerWindowStartMsRef.current = Date.now();
+      acceptAsrTurnsRef.current = true;
       setIsListening(true);
       isListeningRef.current = true;
       pauseAudioStreaming(false);
 
       const sampleStart = Date.now();
-      while (Date.now() - sampleStart < 7000) {
+      while (Date.now() - sampleStart < 8500) {
         await waitMs(200);
         const transcriptLength = [
           finalSegmentsRef.current.map((segment) => segment.text).join(' ').trim(),
@@ -803,7 +865,7 @@ export default function InterviewRoomPage() {
           .join(' ')
           .trim().length;
 
-        if (transcriptLength >= 14) {
+        if (transcriptLength >= 8) {
           break;
         }
       }
@@ -829,15 +891,19 @@ export default function InterviewRoomPage() {
       const micGainScore = clamp(Math.round((micPeak / 0.07) * 100), 0, 100);
       const noiseScore = clamp(Math.round((1 - backgroundNoise / 0.03) * 100), 0, 100);
 
-      const micOk = micPeak >= 0.008;
-      const sampleOk = sampleSentence.length >= 8;
+      const sampleWords = wordCount(sampleSentence);
+      const micOk = micPeak >= 0.006;
+      const sampleOk = sampleWords >= 3;
       const confidenceOk = sampleConfidence >= 0.35 || confidences.length === 0;
-      const ready = micOk && sampleOk && confidenceOk;
+      const speechDetected = micPeak >= Math.max(backgroundNoise * 2.2, 0.012);
+      const ready = micOk && ((sampleOk && confidenceOk) || speechDetected);
 
       setReadinessStatus({
         status: ready ? 'passed' : 'failed',
         message: ready
-          ? 'Readiness check passed. You can start the interview.'
+          ? sampleOk
+            ? 'Readiness check passed. You can start the interview.'
+            : 'Readiness check passed with partial transcript capture. You can start the interview.'
           : 'Readiness check failed. Check microphone level and speak the sample sentence clearly, then retry.',
         micGainScore,
         noiseScore,
@@ -1004,6 +1070,31 @@ export default function InterviewRoomPage() {
     startListening,
   ]);
 
+  const sanitizeAdaptiveFeedback = useCallback((rawFeedback: string, isLastQuestion: boolean): string => {
+    let cleaned = String(rawFeedback || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleaned) return '';
+
+    // Remove question echo snippets such as: for "...."
+    cleaned = cleaned.replace(/\s*for\s*["“][^"”]+["”]\.?\s*/gi, ' ');
+
+    // Remove transitional phrase at source to avoid repetitive narration.
+    cleaned = cleaned.replace(/\s*moving to the next question\.?\s*/gi, ' ');
+
+    cleaned = cleaned
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([.,!?])/g, '$1')
+      .trim();
+
+    if (!cleaned) {
+      return isLastQuestion ? '' : 'Thanks, I captured your response.';
+    }
+
+    return cleaned;
+  }, []);
+
   const getAdaptiveFeedback = useCallback(async (answerText: string): Promise<AdaptiveFeedbackResult> => {
     const fallbackForNoIdea = looksLikeNoIdeaAnswer(answerText);
 
@@ -1018,7 +1109,7 @@ export default function InterviewRoomPage() {
             shouldRetryCurrentQuestion: true,
           }
         : {
-            feedback: 'Thanks, I captured your response. Moving to the next question.',
+            feedback: 'Thanks, I captured your response.',
             shouldRetryCurrentQuestion: false,
           };
 
@@ -1126,12 +1217,16 @@ export default function InterviewRoomPage() {
     resetCurrentAnswerBuffers();
 
     const adaptiveFeedback = await getAdaptiveFeedback(answerText);
-    if (adaptiveFeedback.feedback) {
-      addMessage('ai', adaptiveFeedback.feedback, {
+    const totalQuestions = session?.questions_generated?.length || 0;
+    const isLastQuestion = totalQuestions > 0 && currentQuestionIndex >= totalQuestions - 1;
+    const sanitizedFeedback = sanitizeAdaptiveFeedback(adaptiveFeedback.feedback || '', isLastQuestion);
+
+    if (sanitizedFeedback) {
+      addMessage('ai', sanitizedFeedback, {
         transcript_source: 'ai',
         is_final: true,
       });
-      await speakText(adaptiveFeedback.feedback, { gender: 'female' });
+      await speakText(sanitizedFeedback, { gender: 'female' });
     }
 
     if (adaptiveFeedback.shouldRetryCurrentQuestion) {
@@ -1179,6 +1274,8 @@ export default function InterviewRoomPage() {
     normalizeQuestionKey,
     questionSimilarity,
     resetCurrentAnswerBuffers,
+    sanitizeAdaptiveFeedback,
+    session?.questions_generated?.length,
     speakText,
     startListening,
     stopListening,
@@ -1243,19 +1340,24 @@ export default function InterviewRoomPage() {
     const setupCamera = async () => {
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            channelCount: 1,
+          video: {
+            facingMode: 'user',
           },
+          audio: false,
         });
         streamRef.current = mediaStream;
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
+          videoRef.current.onloadedmetadata = () => {
+            void videoRef.current?.play().catch(() => {
+              // ignore autoplay rejection
+            });
+          };
         }
+        setCameraUnavailable(false);
       } catch {
-        console.error('Failed to access camera and microphone.');
+        console.error('Failed to access camera preview.');
+        setCameraUnavailable(true);
       }
     };
 
@@ -1332,7 +1434,7 @@ export default function InterviewRoomPage() {
       is_final: true,
       flags: ['welcome_message'],
     });
-    await speakText(welcomeMessage, { gender: 'male' });
+    await speakText(welcomeMessage, { gender: 'female' });
 
     await askQuestion(0);
   };
@@ -1418,6 +1520,15 @@ export default function InterviewRoomPage() {
               playsInline
               className="w-full h-full object-cover"
             />
+
+            {cameraUnavailable && (
+              <div className="absolute inset-0 bg-black/70 flex items-center justify-center p-6 text-center">
+                <div>
+                  <p className="text-sm text-red-300">Camera preview unavailable.</p>
+                  <p className="text-xs text-gray-300 mt-2">Allow camera permission in browser settings and reload this page.</p>
+                </div>
+              </div>
+            )}
 
             {isAISpeaking && (
               <div className="absolute top-4 left-4 bg-blue-600 px-4 py-2 rounded-full flex items-center gap-2">

@@ -4,11 +4,13 @@ Comprehensive CRUD, bulk operations, and email integration
 """
 
 import logging
+import json
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -35,6 +37,81 @@ from app.utils.file_parser import CandidateImportParser, FileParseError, BulkImp
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/candidates", tags=["candidates"])
+
+
+MAX_RESUME_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_RESUME_TEXT_LENGTH = 50_000
+
+
+def _split_name(raw_name: Optional[str], fallback_email: str) -> tuple[str, str]:
+    """Split a full name into first/last with sane defaults."""
+    if raw_name:
+        tokens = [token for token in str(raw_name).strip().split() if token]
+        if tokens:
+            first = tokens[0]
+            last = " ".join(tokens[1:]) if len(tokens) > 1 else "Candidate"
+            return first[:255], last[:255]
+
+    local_part = fallback_email.split("@")[0] if "@" in fallback_email else fallback_email
+    normalized = re.sub(r"[^a-zA-Z0-9]+", " ", local_part).strip()
+    tokens = [token for token in normalized.split() if token]
+    if not tokens:
+        return "Candidate", "User"
+    first = tokens[0].title()[:255]
+    last = " ".join(token.title() for token in tokens[1:])[:255] if len(tokens) > 1 else "User"
+    return first, last
+
+
+def _extract_resume_text_from_upload(content: bytes, filename: str, content_type: str) -> str:
+    """Extract resume text from PDF, DOCX, or TXT uploads."""
+    lower_name = (filename or "").lower()
+    content_type = (content_type or "").lower()
+
+    if lower_name.endswith(".txt") or "text/plain" in content_type:
+        return content.decode("utf-8", errors="ignore").strip()
+
+    if lower_name.endswith(".pdf") or "application/pdf" in content_type:
+        import io
+        import PyPDF2
+
+        text = ""
+        try:
+            reader = PyPDF2.PdfReader(io.BytesIO(content))
+            for page in reader.pages:
+                text += page.extract_text() or ""
+        except Exception:
+            # Fallback parser for PDFs where PyPDF2 fails.
+            import pdfplumber
+
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                for page in pdf.pages:
+                    text += page.extract_text() or ""
+        return text.strip()
+
+    if (
+        lower_name.endswith(".docx")
+        or "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in content_type
+    ):
+        import io
+        import docx
+
+        doc = docx.Document(io.BytesIO(content))
+        return "\n".join(p.text for p in doc.paragraphs if p.text).strip()
+
+    if lower_name.endswith(".doc"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Legacy .doc files are not supported. Please upload PDF, DOCX, or TXT.",
+        )
+
+    # Last-resort fallback for text-like files.
+    extracted = content.decode("utf-8", errors="ignore").strip()
+    if extracted:
+        return extracted
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Unsupported resume format. Please upload PDF, DOCX, or TXT.",
+    )
 
 
 # ============================================================================
@@ -114,6 +191,160 @@ async def create_candidate(
         raise HTTPException(status_code=500, detail="Error creating candidate")
 
 
+@router.post(
+    "/import/resume",
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a candidate directly from resume upload",
+    description="Extract candidate profile fields from resume and create candidate in one step.",
+)
+async def create_candidate_from_resume(
+    resume: UploadFile = File(..., description="Resume file (PDF, DOCX, or TXT)"),
+    position_override: Optional[str] = Form(None),
+    domain_override: Optional[str] = Form(None),
+    send_invitation: bool = Form(False),
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a candidate by parsing an uploaded resume."""
+    from app.services.ai_service import extract_candidate_profile_from_resume, generate_ats_report_enhanced
+    from app.utils.cache import invalidate_cache
+
+    try:
+        content = await resume.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded resume file is empty.",
+            )
+        if len(content) > MAX_RESUME_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Resume file exceeds 10MB limit.",
+            )
+
+        resume_text = _extract_resume_text_from_upload(
+            content=content,
+            filename=resume.filename or "",
+            content_type=resume.content_type or "",
+        )
+        if not resume_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract text from the uploaded resume.",
+            )
+
+        extracted_profile = await extract_candidate_profile_from_resume(
+            resume_text=resume_text,
+            hinted_position=position_override or "",
+            hinted_domain=domain_override or "",
+        )
+
+        extracted_email = str(extracted_profile.get("email") or "").strip().lower()
+        if not extracted_email or "@" not in extracted_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract a valid candidate email from resume. Please add candidate manually.",
+            )
+
+        first_name, last_name = _split_name(
+            raw_name=extracted_profile.get("full_name") or extracted_profile.get("name"),
+            fallback_email=extracted_email,
+        )
+
+        position = (position_override or extracted_profile.get("position") or "").strip() or None
+        domain = (domain_override or extracted_profile.get("domain") or "").strip() or None
+
+        raw_experience = extracted_profile.get("experience_years")
+        experience_years = None
+        try:
+            if raw_experience is not None and str(raw_experience).strip() != "":
+                experience_years = max(0, min(80, int(float(raw_experience))))
+        except Exception:
+            experience_years = None
+
+        qualifications = str(extracted_profile.get("qualifications") or "").strip() or None
+        phone = str(extracted_profile.get("phone") or "").strip() or None
+
+        candidate = await CandidateService.create_candidate(
+            session=session,
+            company_id=current_user.company_id,
+            email=extracted_email,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            domain=domain,
+            position=position,
+            experience_years=experience_years,
+            qualifications=qualifications,
+            source=CandidateSource.DIRECT,
+            created_by=current_user.id,
+        )
+
+        # Persist extracted resume text for downstream verdict generation and HR views.
+        candidate.resume_text = resume_text[:MAX_RESUME_TEXT_LENGTH]
+
+        # Optional ATS enrichment; don't fail candidate creation if ATS evaluation fails.
+        try:
+            ats_result = await generate_ats_report_enhanced(
+                resume_text=resume_text,
+                job_description=position or "",
+            )
+            ats_score = int(ats_result.get("score", 0) or 0)
+            candidate.ats_score = max(0, min(100, ats_score))
+            candidate.ats_report = json.dumps(ats_result)
+        except Exception as ats_err:
+            logger.warning("ATS enrichment failed for resume import: %s", ats_err)
+
+        if send_invitation:
+            await EmailService.queue_email(
+                session=session,
+                company_id=current_user.company_id,
+                recipient_email=candidate.email,
+                template_id="candidate_invitation",
+                subject=f"Invitation to interview at {current_user.company_id}",
+                body="<p>You have been invited to participate in our interview process.</p>",
+                email_type=EmailType.CANDIDATE_INVITE,
+                variables={
+                    "candidate_name": candidate.full_name,
+                    "login_link": "https://app.example.com/login",
+                },
+                recipient_id=candidate.id,
+                priority=EmailPriority.HIGH,
+            )
+
+        await session.commit()
+        await session.refresh(candidate)
+
+        await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
+
+        return {
+            "candidate": CandidateResponse.model_validate(candidate),
+            "extracted_profile": {
+                "email": extracted_email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone,
+                "position": position,
+                "domain": domain,
+                "experience_years": experience_years,
+                "qualifications": qualifications,
+            },
+            "resume_filename": resume.filename,
+            "ats_score": candidate.ats_score,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error creating candidate from resume: %s", str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error importing candidate from resume",
+        )
+
+
 @router.get(
     "/{candidate_id}",
     response_model=CandidateResponse,
@@ -166,7 +397,7 @@ async def list_candidates(
     - **skip**: Pagination offset
     - **limit**: Number of results per page
     """
-    from app.utils.cache import get_cached, set_cached, CACHE_TTL_SHORT
+    from app.utils.cache import get_cached, set_cached, CACHE_TTL_SHORT, invalidate_cache
     
     try:
         # Parse status if provided
@@ -180,6 +411,15 @@ async def list_candidates(
                     detail=f"Invalid status: {status}"
                 )
         
+        # Self-heal stale pipeline statuses from latest interview verdicts.
+        reconciled_count = await CandidateService.reconcile_candidate_pipeline_statuses(
+            session=session,
+            company_id=current_user.company_id,
+        )
+        if reconciled_count > 0:
+            await session.commit()
+            await invalidate_cache(f"candidates:list:{current_user.company_id}:*")
+
         # Build cache key
         cache_key = f"candidates:list:{current_user.company_id}:{status}:{domain}:{skip}:{limit}"
         

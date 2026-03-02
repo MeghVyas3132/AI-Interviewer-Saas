@@ -161,7 +161,7 @@ export default function InterviewLandingPage() {
       try {
         const formData = new FormData();
         formData.append('file', resumeFile);
-        const parseResponse = await fetch(`${API_BASE_URL}/ai/parse-resume`, {
+        const parseResponse = await fetch(`${API_BASE_URL}/ai/parse-resume-public`, {
           method: 'POST',
           body: formData,
         });
@@ -218,11 +218,12 @@ export default function InterviewLandingPage() {
           `Position: ${session.position} at ${session.company_name}` : 
           'General interview position';
         
+        const atsResumeText = sanitizedResumeText.slice(0, 12000);
         const response = await fetch(`${API_BASE_URL}/ai/ats`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            resume_text: sanitizedResumeText,
+            resume_text: atsResumeText,
             job_description: jobDescription,
             interview_id: session?.id
           })

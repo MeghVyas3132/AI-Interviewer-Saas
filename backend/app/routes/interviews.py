@@ -30,6 +30,24 @@ router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 MAX_INTERVIEW_QUESTIONS = 10
 
 
+def _pick_intro_question(position: str, questions: list[str]) -> str:
+    for question in questions:
+        lowered = question.lower()
+        if "tell me about yourself" in lowered or "introduce yourself" in lowered:
+            return question
+    return f"Tell me about yourself and your experience relevant to {position}."
+
+
+def _pick_closing_question(position: str, questions: list[str], intro_question: str) -> str:
+    for question in questions:
+        if question == intro_question:
+            continue
+        lowered = question.lower()
+        if "fit this role" in lowered or "fit for this role" in lowered or "why should we hire" in lowered:
+            return question
+    return f"Why do you think you're a strong fit for this {position} role?"
+
+
 @router.get("/by-token/{token}")
 async def get_interview_by_token(
     token: str,
@@ -100,13 +118,23 @@ async def get_interview_by_token(
                     seen_questions.add(question_text)
                     all_questions.append(question_text)
 
-            # Use exactly 10 questions when more are available.
-            # Seed by interview token so the random subset remains stable for this interview.
-            if len(all_questions) > MAX_INTERVIEW_QUESTIONS:
+            position = candidate.position if candidate and candidate.position else "this role"
+            intro_question = _pick_intro_question(position, all_questions)
+            closing_question = _pick_closing_question(position, all_questions, intro_question)
+
+            middle_pool = [
+                question for question in all_questions
+                if question not in {intro_question, closing_question}
+            ]
+            middle_slots = max(0, MAX_INTERVIEW_QUESTIONS - 2)
+            if len(middle_pool) > middle_slots:
+                # Seed by interview token so order remains stable per interview.
                 rng = random.Random(interview.ai_interview_token)
-                questions_generated = rng.sample(all_questions, MAX_INTERVIEW_QUESTIONS)
+                middle_questions = rng.sample(middle_pool, middle_slots)
             else:
-                questions_generated = all_questions
+                middle_questions = middle_pool
+
+            questions_generated = [intro_question, *middle_questions, closing_question][:MAX_INTERVIEW_QUESTIONS]
         
         # If no questions in job template, generate default questions based on position
         if not questions_generated:
@@ -117,7 +145,7 @@ async def get_interview_by_token(
                 "Describe a challenging project you've worked on and how you handled it.",
                 "What are your greatest strengths and how do they apply to this role?",
                 "Where do you see yourself professionally in the next 3-5 years?",
-                "Do you have any questions for us about the role or company?",
+                f"Why do you think you're a strong fit for this {position} role?",
             ]
         
         return {

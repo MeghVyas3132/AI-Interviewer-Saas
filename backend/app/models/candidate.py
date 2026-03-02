@@ -42,6 +42,7 @@ class CandidateStatus(str, Enum):
     FAILED = "failed"               # AI verdict: FAIL or manually rejected
     REVIEW = "review"               # AI verdict: REVIEW - needs manual review
     AUTO_REJECTED = "auto_rejected" # Auto-rejected due to low score
+    AI_REJECTED = "ai_rejected"     # Legacy value kept for backward compatibility
     
     # Legacy statuses (UPPERCASE in DB - for backward compatibility)
     APPLIED = "APPLIED"

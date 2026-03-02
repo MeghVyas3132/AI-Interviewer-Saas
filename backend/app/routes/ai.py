@@ -334,15 +334,34 @@ async def parse_resume(
     
     Returns: { text: string }
     """
+    return await _parse_resume_file(file)
+
+
+@router.post("/parse-resume-public")
+async def parse_resume_public(
+    file: UploadFile = File(...),
+):
+    """
+    Public resume parsing endpoint for token-based interview flows.
+    Does not require auth; extracts text only and stores nothing.
+    """
+    return await _parse_resume_file(file)
+
+
+async def _parse_resume_file(file: UploadFile) -> dict:
+    """Shared resume text extraction logic."""
     try:
         content = await file.read()
+        if len(content) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Resume file is too large. Please upload a file under 8MB.")
+
         filename = file.filename.lower() if file.filename else ""
-        
+
         # Handle text files
         if filename.endswith('.txt') or file.content_type == 'text/plain':
             text = content.decode('utf-8', errors='ignore')
             return {"text": text}
-        
+
         # Handle PDF files
         if filename.endswith('.pdf') or file.content_type == 'application/pdf':
             try:
@@ -365,10 +384,10 @@ async def parse_resume(
                     return {"text": text.strip()}
                 except ImportError:
                     raise HTTPException(
-                        status_code=500, 
+                        status_code=500,
                         detail="PDF parsing not available. Please paste your resume text instead."
                     )
-        
+
         # Handle Word files
         if filename.endswith('.docx') or file.content_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
             try:
@@ -382,18 +401,18 @@ async def parse_resume(
                     status_code=500,
                     detail="Word document parsing not available. Please paste your resume text instead."
                 )
-        
+
         if filename.endswith('.doc'):
             raise HTTPException(
                 status_code=400,
                 detail="Legacy .doc format not supported. Please convert to .docx or paste the text."
             )
-        
+
         raise HTTPException(
             status_code=400,
             detail="Unsupported file format. Please upload PDF, Word (.docx), or text file."
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -694,4 +713,3 @@ async def update_ai_config(
         await session.rollback()
         logger.error(f"Error updating AI config: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update AI config: {str(e)}")
-

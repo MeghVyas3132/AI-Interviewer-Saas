@@ -190,6 +190,20 @@ export default function CandidateProfileModal({
     }
   }
 
+  const getEmployeeVerdictColor = (verdict?: string) => {
+    const normalized = (verdict || '').trim().toUpperCase()
+    if (['PASS', 'APPROVE', 'APPROVED', 'ACCEPT', 'ACCEPTED', 'HIRE', 'HIRED'].includes(normalized)) {
+      return 'bg-green-100 text-green-800'
+    }
+    if (['FAIL', 'REJECT', 'REJECTED', 'DECLINE', 'DECLINED'].includes(normalized)) {
+      return 'bg-red-100 text-red-800'
+    }
+    if (['REVIEW', 'NEUTRAL', 'PENDING'].includes(normalized)) {
+      return 'bg-yellow-100 text-yellow-800'
+    }
+    return 'bg-gray-100 text-gray-800'
+  }
+
   const formatDuration = (seconds?: number) => {
     if (!seconds) return '-'
     const mins = Math.floor(seconds / 60)
@@ -548,10 +562,8 @@ export default function CandidateProfileModal({
 
                           {/* Show employee verdict if submitted */}
                           {interview.employee_verdict && (
-                            <div className={`mt-3 p-2 rounded-lg text-center font-semibold ${
-                              interview.employee_verdict === 'APPROVED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              Employee Verdict: {interview.employee_verdict}
+                            <div className={`mt-3 p-2 rounded-lg text-center font-semibold ${getEmployeeVerdictColor(interview.employee_verdict)}`}>
+                              Employee Verdict: {interview.employee_verdict.toUpperCase()}
                             </div>
                           )}
                         </div>

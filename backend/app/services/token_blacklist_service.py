@@ -6,6 +6,7 @@ Implements Redis-based token blacklist with automatic expiration.
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
 
 from app.utils.redis_client import redis_client
 from app.utils.jwt_helper import verify_token
@@ -15,6 +16,18 @@ logger = logging.getLogger(__name__)
 
 class TokenBlacklistService:
     """Service for managing token blacklist."""
+
+    @staticmethod
+    def _token_key(token: str, payload: dict) -> str:
+        """
+        Build a stable blacklist key.
+        Prefer jti when present; otherwise hash full token to avoid collisions.
+        """
+        token_id = payload.get("jti")
+        if token_id:
+            return f"token_blacklist:{token_id}"
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        return f"token_blacklist:sha256:{token_hash}"
 
     @staticmethod
     async def add_to_blacklist(token: str, expires_in_minutes: int = 15) -> bool:
@@ -35,8 +48,7 @@ class TokenBlacklistService:
                 logger.warning("Attempt to blacklist invalid token")
                 return False
             
-            token_id = payload.get("jti", token[:20])  # Use jti if available, else token prefix
-            key = f"token_blacklist:{token_id}"
+            key = TokenBlacklistService._token_key(token, payload)
             
             # Add to blacklist with TTL
             ttl = expires_in_minutes * 60
@@ -64,8 +76,7 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            token_id = payload.get("jti", token[:20])
-            key = f"token_blacklist:{token_id}"
+            key = TokenBlacklistService._token_key(token, payload)
             
             exists = await redis_client.exists(key)
             return bool(exists)
@@ -90,8 +101,7 @@ class TokenBlacklistService:
             if not payload:
                 return False
             
-            token_id = payload.get("jti", token[:20])
-            key = f"token_blacklist:{token_id}"
+            key = TokenBlacklistService._token_key(token, payload)
             
             await redis_client.delete(key)
             logger.info("Token removed from blacklist")

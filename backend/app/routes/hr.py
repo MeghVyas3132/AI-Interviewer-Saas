@@ -9,6 +9,7 @@ HR capabilities:
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from app.core.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus
 from app.models.user import User, UserRole
+from app.services.candidate_service import CandidateService
 from app.utils.cache import invalidate_cache
 
 router = APIRouter(prefix="/api/v1/hr", tags=["hr"])
@@ -184,6 +186,64 @@ def _build_qa_pairs(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             current_question = None
 
     return qa_pairs
+
+
+def _is_generic_qa_feedback(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return True
+    generic_snippets = (
+        "answer addressed the question well and demonstrated practical understanding.",
+        "answer was clear and relevant to the question.",
+        "answer partially addressed the question and lacked depth in key areas.",
+        "maintain this quality and keep structure concise.",
+        "add measurable outcomes or concrete trade-offs to strengthen the response.",
+    )
+    return any(snippet in normalized for snippet in generic_snippets)
+
+
+def _build_contextual_qa_feedback(question: str, answer: str, score: int) -> Dict[str, str]:
+    q = (question or "").lower()
+    a = (answer or "").lower()
+    keywords = [token for token in re.findall(r"[a-zA-Z][a-zA-Z0-9+#/.\-]{2,}", q) if token not in {
+        "what", "when", "where", "which", "would", "could", "should", "with", "from", "your",
+        "that", "this", "about", "explain", "describe", "design", "implement", "for", "and", "the",
+    }][:6]
+    missing_keywords = [token for token in keywords if token not in a]
+    uncertain = any(phrase in a for phrase in ("don't know", "not sure", "no idea", "can't recall", "unsure"))
+
+    if "kubernetes" in q or "pods" in q:
+        focus = "Kubernetes troubleshooting"
+    elif "ci/cd" in q or "pipeline" in q or "release" in q:
+        focus = "delivery pipeline design"
+    elif "secret" in q or "vault" in q or "credential" in q:
+        focus = "security and secret management"
+    elif "observability" in q or "metrics" in q or "logs" in q or "traces" in q:
+        focus = "observability strategy"
+    elif "cost" in q or "optimiz" in q:
+        focus = "cost optimization decisions"
+    else:
+        focus = "the question objective"
+
+    if uncertain or score < 50:
+        opinion = f"The answer on {focus} showed uncertainty and missed key implementation details."
+    elif score < 70:
+        opinion = f"The answer on {focus} was partially relevant but missed depth on {', '.join(missing_keywords[:2]) or 'critical technical details'}."
+    elif score < 85:
+        opinion = f"The answer on {focus} was relevant and structured, but trade-offs and concrete impact could be stronger."
+    else:
+        opinion = f"The answer on {focus} was strong, practical, and aligned well with production expectations."
+
+    if uncertain or score < 50:
+        improvement = f"Provide a step-by-step approach for {focus}, including tools, validation checks, and fallback handling."
+    elif missing_keywords:
+        improvement = f"Improve by explicitly covering {', '.join(missing_keywords[:2])} and connecting them to a real project example."
+    elif score >= 85:
+        improvement = "Maintain this quality and add measurable outcome metrics to make the impact explicit."
+    else:
+        improvement = "Add one concrete production example with metrics and trade-off analysis."
+
+    return {"opinion": opinion, "improvement": improvement}
 
 
 @router.get("/metrics")
@@ -745,21 +805,14 @@ async def get_hr_candidate_detailed_profile(
                     else:
                         rating = "POOR"
 
+                contextual_feedback = _build_contextual_qa_feedback(question, answer, score_value)
                 opinion = str(matched.get("opinion", "")).strip()
-                if not opinion:
-                    opinion = (
-                        "Answer addressed the question well and demonstrated practical understanding."
-                        if score_value >= 70
-                        else "Answer was partially relevant but lacked depth or concrete implementation detail."
-                    )
+                if _is_generic_qa_feedback(opinion):
+                    opinion = contextual_feedback["opinion"]
 
                 improvement = str(matched.get("improvement", "")).strip()
-                if not improvement:
-                    improvement = (
-                        "Add measurable outcomes or concrete trade-offs to strengthen the response."
-                        if score_value < 85
-                        else "Maintain this quality and keep structure concise."
-                    )
+                if _is_generic_qa_feedback(improvement):
+                    improvement = contextual_feedback["improvement"]
 
                 normalized_qa_evaluations.append({
                     "question": question,
@@ -998,6 +1051,7 @@ async def save_interview_transcript(
                 )
 
             await db.commit()
+            await invalidate_cache(f"candidates:list:{interview.company_id}:*")
         except Exception:
             logger.exception(
                 "Failed to persist transcript payload for interview %s. Falling back to status-only completion.",
@@ -1025,6 +1079,7 @@ async def save_interview_transcript(
                     {"candidate_id": str(interview.candidate_id)},
                 )
             await db.commit()
+            await invalidate_cache(f"candidates:list:{interview.company_id}:*")
         
         # Trigger AI analysis asynchronously (non-blocking)
         ai_verdict = None
@@ -1091,6 +1146,25 @@ async def save_interview_transcript(
                         }
                     )
 
+                    # Synchronize candidate pipeline stage with verdict outcome.
+                    if interview.candidate_id:
+                        candidate_status = CandidateService.derive_candidate_status_from_interview_outcome(
+                            ai_recommendation=ai_verdict.get("recommendation"),
+                            employee_verdict=interview.employee_verdict,
+                            ai_verdict_payload=ai_verdict,
+                            overall_score=ai_verdict.get("overall_score"),
+                        )
+                        if candidate_status:
+                            await db.execute(
+                                text(
+                                    "UPDATE candidates SET status = :status, updated_at = now() WHERE id = :candidate_id"
+                                ),
+                                {
+                                    "status": candidate_status.value,
+                                    "candidate_id": str(interview.candidate_id),
+                                },
+                            )
+
                     # Persist/refresh AI report row used by employee dashboard.
                     report_query = select(AIReport).filter(
                         and_(
@@ -1126,6 +1200,7 @@ async def save_interview_transcript(
                         )
 
                     await db.commit()
+                    await invalidate_cache(f"candidates:list:{interview.company_id}:*")
             except Exception as ai_error:
                 # Don't fail the whole request if AI analysis fails
                 logger.exception(

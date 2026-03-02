@@ -13,6 +13,8 @@ const HEARTBEAT_TIMEOUT_MS = 45000;
 const CLIENT_INACTIVITY_CLOSE_MS = 90000;
 const AUDIO_QUEUE_LIMIT = 60;
 const BASELINE_ENERGY_THRESHOLD = Number(process.env.VAD_ENERGY_THRESHOLD || 0.0085);
+const MIN_ASSEMBLY_CHUNK_MS = Number(process.env.MIN_ASSEMBLY_CHUNK_MS || 50);
+const TARGET_ASSEMBLY_CHUNK_MS = Number(process.env.TARGET_ASSEMBLY_CHUNK_MS || 80);
 
 if (!ASSEMBLYAI_API_KEY) {
   console.error('ERROR: ASSEMBLYAI_API_KEY environment variable is not set.');
@@ -181,6 +183,7 @@ wss.on('connection', (clientWs, req) => {
     beginReceived: false,
     phraseHints: [],
     audioQueue: [],
+    pendingAssemblyAudio: Buffer.alloc(0),
     lastClientMessageAt: Date.now(),
     lastClientAudioAt: Date.now(),
     lastAssemblyMessageAt: Date.now(),
@@ -221,8 +224,45 @@ wss.on('connection', (clientWs, req) => {
     if (!state.assemblyReady || assemblyWs.readyState !== WebSocket.OPEN) return;
     while (state.audioQueue.length > 0) {
       const chunk = state.audioQueue.shift();
-      assemblyWs.send(chunk);
+      enqueueAudioForAssembly(chunk);
     }
+    flushPendingAssemblyAudio(true);
+  };
+
+  const bytesPerMs = (sampleRate * 2) / 1000; // pcm_s16le mono => 2 bytes/sample
+  const minAssemblyChunkBytes = Math.max(2, Math.floor(bytesPerMs * clamp(MIN_ASSEMBLY_CHUNK_MS, 50, 1000)));
+  const targetAssemblyChunkBytes = Math.max(
+    minAssemblyChunkBytes,
+    Math.floor(bytesPerMs * clamp(TARGET_ASSEMBLY_CHUNK_MS, 50, 1000)),
+  );
+
+  const flushPendingAssemblyAudio = (force = false) => {
+    if (!state.assemblyReady || assemblyWs.readyState !== WebSocket.OPEN) return;
+    if (state.pendingAssemblyAudio.length === 0) return;
+    if (!force && state.pendingAssemblyAudio.length < minAssemblyChunkBytes) return;
+
+    while (state.pendingAssemblyAudio.length >= targetAssemblyChunkBytes) {
+      const packet = state.pendingAssemblyAudio.subarray(0, targetAssemblyChunkBytes);
+      assemblyWs.send(packet);
+      state.pendingAssemblyAudio = state.pendingAssemblyAudio.subarray(targetAssemblyChunkBytes);
+    }
+
+    if (state.pendingAssemblyAudio.length >= minAssemblyChunkBytes) {
+      assemblyWs.send(state.pendingAssemblyAudio);
+      state.pendingAssemblyAudio = Buffer.alloc(0);
+    }
+  };
+
+  const enqueueAudioForAssembly = (chunkBuffer) => {
+    if (!chunkBuffer || chunkBuffer.length === 0) return;
+
+    if (state.pendingAssemblyAudio.length === 0) {
+      state.pendingAssemblyAudio = Buffer.from(chunkBuffer);
+    } else {
+      state.pendingAssemblyAudio = Buffer.concat([state.pendingAssemblyAudio, chunkBuffer]);
+    }
+
+    flushPendingAssemblyAudio(false);
   };
 
   const updateVADWithAudioChunk = (chunkBuffer) => {
@@ -344,7 +384,7 @@ wss.on('connection', (clientWs, req) => {
     updateVADWithAudioChunk(chunkBuffer);
 
     if (state.assemblyReady && assemblyWs.readyState === WebSocket.OPEN) {
-      assemblyWs.send(chunkBuffer);
+      enqueueAudioForAssembly(chunkBuffer);
     } else {
       state.audioQueue.push(chunkBuffer);
       if (state.audioQueue.length > AUDIO_QUEUE_LIMIT) {
@@ -421,6 +461,7 @@ wss.on('connection', (clientWs, req) => {
       clearInterval(state.watchdogTimer);
       state.watchdogTimer = null;
     }
+    state.pendingAssemblyAudio = Buffer.alloc(0);
   };
 
   state.pingTimer = setInterval(() => {
