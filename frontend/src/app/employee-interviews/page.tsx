@@ -8,6 +8,8 @@ import { Card } from '@/components/Card'
 import { KanbanCandidatePipeline } from '@/components/KanbanCandidatePipeline'
 import CandidateProfileModal from '@/components/CandidateProfileModal'
 import { AIConfigManager } from '@/components/ai-admin'
+import { ToastContainer, useToast } from '@/components/Toast'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 interface AssignedCandidate {
   id: string
@@ -103,6 +105,19 @@ export default function EmployeeDashboardPage() {
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [selectedProfileCandidateId, setSelectedProfileCandidateId] = useState<string | null>(null)
 
+  // Toast notifications
+  const toast = useToast()
+
+  // Confirmation dialog
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean
+    title: string
+    message: string
+    confirmLabel: string
+    variant: 'danger' | 'warning' | 'info'
+    onConfirm: () => void
+  }>({ open: false, title: '', message: '', confirmLabel: 'Confirm', variant: 'warning', onConfirm: () => {} })
+
   const handleOpenCandidateProfile = (candidateId: string) => {
     setSelectedProfileCandidateId(candidateId)
     setShowProfileModal(true)
@@ -197,10 +212,9 @@ export default function EmployeeDashboardPage() {
       setCandidates(candidates.map(c =>
         c.id === candidateId ? { ...c, job_role_id: jobId } : c
       ))
-      setSuccess('Job role assigned successfully')
-      setTimeout(() => setSuccess(''), 3000)
+      toast.success('Job Role Assigned', 'The job role has been assigned to the candidate.')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to assign job role')
+      toast.error('Assignment Failed', err.response?.data?.detail || 'Failed to assign job role.')
     }
   }
 
@@ -224,19 +238,15 @@ export default function EmployeeDashboardPage() {
       if (newStatus === 'failed') {
         const deletionScheduled = response.scheduled_deletion
         if (deletionScheduled) {
-          setSuccess('Candidate marked as FAILED. They will be automatically deleted in 10 minutes.')
-          // Show longer for rejection warning
-          setTimeout(() => setSuccess(''), 8000)
+          toast.warning('Candidate Marked as Failed', 'They will be automatically deleted in 10 minutes.')
         } else {
-          setSuccess('Candidate marked as FAILED.')
-          setTimeout(() => setSuccess(''), 3000)
+          toast.warning('Candidate Marked as Failed')
         }
       } else {
-        setSuccess('Status updated successfully')
-        setTimeout(() => setSuccess(''), 3000)
+        toast.success('Status Updated', 'Candidate status has been updated.')
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to update status')
+      toast.error('Update Failed', err.response?.data?.detail || 'Failed to update candidate status.')
     }
   }
 
@@ -247,17 +257,34 @@ export default function EmployeeDashboardPage() {
 
     // Check if candidate has a job role assigned - required for AI interview
     if (!selectedCandidate.job_role_id) {
-      setError('Please assign a job role to this candidate before scheduling an interview. The AI interviewer needs a job role to ask relevant questions.')
+      toast.error('Job Role Required', 'Please assign a job role to this candidate before scheduling. The AI interviewer needs a job role to ask relevant questions.')
       return
     }
 
     // Check if candidate already has a scheduled interview
     if (selectedCandidate.scheduled_at) {
-      const confirmed = window.confirm(
-        `This candidate already has an interview scheduled for ${new Date(selectedCandidate.scheduled_at).toLocaleString()}. Do you want to schedule another?`
-      )
-      if (!confirmed) return
+      const scheduledDate = new Date(selectedCandidate.scheduled_at)
+      const formattedDate = scheduledDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      const formattedTime = scheduledDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      setConfirmDialog({
+        open: true,
+        title: 'Interview Already Scheduled',
+        message: `${selectedCandidate.first_name} ${selectedCandidate.last_name} already has an interview scheduled for ${formattedDate} at ${formattedTime}. Would you like to schedule an additional interview?`,
+        confirmLabel: 'Schedule Anyway',
+        variant: 'warning',
+        onConfirm: () => {
+          setConfirmDialog(prev => ({ ...prev, open: false }))
+          submitScheduleInterview()
+        },
+      })
+      return
     }
+
+    submitScheduleInterview()
+  }
+
+  const submitScheduleInterview = async () => {
+    if (!selectedCandidate) return
 
     try {
       setScheduling(true)
@@ -301,10 +328,9 @@ export default function EmployeeDashboardPage() {
       setShowScheduleModal(false)
       setSelectedCandidate(null)
       setScheduleForm({ round: 'screening', scheduled_time: '', notes: '' })
-      setSuccess('Interview scheduled successfully')
-      setTimeout(() => setSuccess(''), 3000)
+      toast.success('Interview Scheduled', `Interview for ${selectedCandidate.first_name} ${selectedCandidate.last_name} has been scheduled successfully.`)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to schedule interview')
+      toast.error('Scheduling Failed', err.response?.data?.detail || 'Failed to schedule interview. Please try again.')
     } finally {
       setScheduling(false)
     }
@@ -312,37 +338,45 @@ export default function EmployeeDashboardPage() {
 
   // Cancel interview
   const handleCancelInterview = async (candidateId: string, interviewId: string) => {
-    if (!window.confirm('Are you sure you want to cancel this interview?')) {
-      return
-    }
+    const candidate = candidates.find(c => c.id === candidateId)
+    const candidateName = candidate ? `${candidate.first_name} ${candidate.last_name}` : 'this candidate'
 
-    try {
-      setError('')
-      await apiClient.delete(`/employee/my-candidates/${candidateId}/interviews/${interviewId}`)
+    setConfirmDialog({
+      open: true,
+      title: 'Cancel Interview',
+      message: `Are you sure you want to cancel the interview for ${candidateName}? This action cannot be undone.`,
+      confirmLabel: 'Cancel Interview',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }))
+        try {
+          setError('')
+          await apiClient.delete(`/employee/my-candidates/${candidateId}/interviews/${interviewId}`)
 
-      // Update candidates list - remove scheduled_at
-      setCandidates(prevCandidates => prevCandidates.map(c => {
-        if (c.id === candidateId) {
-          return {
-            ...c,
-            scheduled_at: undefined,
-            interview_token: undefined,
-            interview_id: undefined
-          }
+          // Update candidates list - remove scheduled_at
+          setCandidates(prevCandidates => prevCandidates.map(c => {
+            if (c.id === candidateId) {
+              return {
+                ...c,
+                scheduled_at: undefined,
+                interview_token: undefined,
+                interview_id: undefined
+              }
+            }
+            return c
+          }))
+
+          // Refresh interviews list
+          const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
+          const interviewsList = normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : [])
+          setInterviews(interviewsList)
+
+          toast.success('Interview Cancelled', `The interview for ${candidateName} has been cancelled.`)
+        } catch (err: any) {
+          toast.error('Cancellation Failed', err.response?.data?.detail || 'Failed to cancel interview. Please try again.')
         }
-        return c
-      }))
-
-      // Refresh interviews list
-      const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
-      const interviewsList = normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : [])
-      setInterviews(interviewsList)
-
-      setSuccess('Interview cancelled successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to cancel interview')
-    }
+      },
+    })
   }
 
   // View interview questions
@@ -355,7 +389,7 @@ export default function EmployeeDashboardPage() {
       setJobQuestions(Array.isArray(questions) ? questions : [])
     } catch (err: any) {
       setJobQuestions([])
-      setError('Failed to load questions for this job')
+      toast.error('Loading Failed', 'Failed to load questions for this job.')
     } finally {
       setLoadingQuestions(false)
     }
@@ -373,7 +407,7 @@ export default function EmployeeDashboardPage() {
       }>(`/employee/my-candidates/${candidateId}/create-ai-interview`, {})
       
       if (response.success && response.ai_service_url) {
-        setSuccess('AI Interview created! Opening interview room...')
+        toast.success('AI Interview Created', 'Opening the interview room in a new tab...')
         // Open AI Interview in new tab
         window.open(response.ai_service_url, '_blank')
         
@@ -381,9 +415,8 @@ export default function EmployeeDashboardPage() {
         const interviewsRes = await apiClient.get<Interview[]>('/employee/my-interviews')
         setInterviews(normalizeInterviewRows(Array.isArray(interviewsRes) ? interviewsRes : []))
       }
-      setTimeout(() => setSuccess(''), 5000)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create AI interview')
+      toast.error('Interview Creation Failed', err.response?.data?.detail || 'Failed to create AI interview.')
     }
   }
 
@@ -413,6 +446,20 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toast.toasts} onDismiss={toast.dismissToast} />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+      />
+
       {/* Navigation */}
       <nav className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
