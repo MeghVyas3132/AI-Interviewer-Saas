@@ -2,7 +2,9 @@
  * Application constants
  */
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
+  : 'http://localhost:8000/api/v1'
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'AI Interviewer'
 
 export const USER_ROLES = {
