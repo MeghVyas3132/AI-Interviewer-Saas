@@ -18,7 +18,7 @@ const googleAIPlugin = googleAI({
 
 export const ai = genkit({
   plugins: [googleAIPlugin],
-  model: 'googleai/gemini-1.5-flash',
+  model: 'googleai/gemini-2.0-flash',
   config: {
     temperature: 0.7, // Balanced creativity and consistency
     topP: 0.9, // Good balance for diverse responses
@@ -33,7 +33,7 @@ export const ai = genkit({
 function createGenkitInstance(apiKey: string) {
   return genkit({
     plugins: [googleAI({ apiKey })],
-    model: 'googleai/gemini-1.5-flash',
+    model: 'googleai/gemini-2.0-flash',
     config: {
       temperature: 0.7,
       topP: 0.9,
@@ -70,7 +70,7 @@ export const aiWithRotation = {
       // Create a temporary genkit instance with the current API key
       const tempAI = genkit({
         plugins: [googleAI({ apiKey })],
-        model: 'googleai/gemini-1.5-flash',
+        model: 'googleai/gemini-2.0-flash',
         config: {
           temperature: 0.7,
           topP: 0.9,
@@ -86,7 +86,7 @@ export const aiWithRotation = {
     return withApiKeyRotation(async (apiKey: string) => {
       const tempAI = genkit({
         plugins: [googleAI({ apiKey })],
-        model: 'googleai/gemini-1.5-flash',
+        model: 'googleai/gemini-2.0-flash',
         config: {
           temperature: 0.7,
           topP: 0.9,
