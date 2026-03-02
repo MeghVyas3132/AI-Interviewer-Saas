@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.schemas.auth_schema import LoginRequest, RefreshTokenRequest, TokenResponse, UserLoginResponse, RegisterRequest
 from app.services.auth_service import AuthService
@@ -208,7 +209,7 @@ async def resend_verification(
         await EmailVerificationService.resend_verification_email(
             session,
             request.email,
-            frontend_url="http://localhost:3000",
+            frontend_url=settings.frontend_url,
         )
         await session.commit()
         return {"message": "Verification email sent. Check your inbox."}
