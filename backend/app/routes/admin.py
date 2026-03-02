@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.models.user import User, UserRole
 from app.schemas.company_schema import (
@@ -432,7 +433,7 @@ async def approve_request(
         await session.commit()
         # Queue a welcome / approval email to the requester via Celery
         try:
-            login_link = "http://localhost:3000/auth/login"  # TODO: read from config
+            login_link = f"{settings.frontend_url}/auth/login"
             await AsyncEmailService.queue_email(
                 session=session,
                 company_id=company.id,
