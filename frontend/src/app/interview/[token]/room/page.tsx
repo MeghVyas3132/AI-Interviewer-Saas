@@ -355,6 +355,7 @@ export default function InterviewRoomPage() {
       'tessa',
       'fiona',
       'google uk english female',
+      'google us english',
     ];
 
     const maleMatchers = [
@@ -376,6 +377,12 @@ export default function InterviewRoomPage() {
     const preferred = normalized.find(({ name }) => preferredMatchers.some((matcher) => name.includes(matcher)));
     if (preferred) return preferred.voice;
 
+    // For female, try any English voice that doesn't match male matchers
+    if (gender === 'female') {
+      const nonMale = normalized.find(({ name }) => name.includes('en') && !maleMatchers.some((m) => name.includes(m)));
+      if (nonMale) return nonMale.voice;
+    }
+
     const fallbackMatchers = gender === 'male' ? femaleMatchers : maleMatchers;
     const fallback = normalized.find(({ name }) => fallbackMatchers.some((matcher) => name.includes(matcher)));
     return fallback?.voice || voices[0];
@@ -383,6 +390,19 @@ export default function InterviewRoomPage() {
 
   const speakText = useCallback(async (text: string, options?: { gender?: 'male' | 'female' }) => {
     const desiredGender = options?.gender || 'female';
+
+    // Ensure voices are loaded before speaking (Chrome loads them asynchronously)
+    if ('speechSynthesis' in window && speechSynthesis.getVoices().length === 0) {
+      await new Promise<void>((resolve) => {
+        const onVoicesChanged = () => {
+          speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+          resolve();
+        };
+        speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+        // Timeout fallback in case event never fires
+        setTimeout(resolve, 1500);
+      });
+    }
 
     await new Promise<void>((resolve) => {
       setIsAISpeaking(true);
@@ -1337,6 +1357,18 @@ export default function InterviewRoomPage() {
   useEffect(() => {
     isAISpeakingRef.current = isAISpeaking;
   }, [isAISpeaking]);
+
+  // Pre-load speech synthesis voices on mount
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      speechSynthesis.getVoices();
+      const onVoicesChanged = () => {
+        speechSynthesis.getVoices();
+      };
+      speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+      return () => speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+    }
+  }, []);
 
   useEffect(() => {
     const setupCamera = async () => {
