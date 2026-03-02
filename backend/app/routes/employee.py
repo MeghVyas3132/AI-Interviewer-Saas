@@ -19,6 +19,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.middleware.auth import get_current_user
 from app.models.candidate import Candidate, CandidateStatus, Interview, InterviewStatus, InterviewRound
 from app.models.user import User, UserRole
@@ -841,7 +842,7 @@ async def schedule_interview(
                 "scheduled_time": scheduled_time.isoformat(),
                 "status": "scheduled",
                 "ai_interview_token": token,
-                "interview_url": f"http://localhost:3000/interview/{token}",
+                "interview_url": f"{settings.frontend_url}/interview/{token}",
                 "is_reschedule": is_reschedule
             }
         }
@@ -1240,7 +1241,7 @@ async def create_ai_interview_for_candidate(
         return {
             "success": True,
             "token": token,
-            "interview_url": f"http://localhost:3000/interview/{token}",  # Use main frontend URL
+            "interview_url": f"{settings.frontend_url}/interview/{token}",  # Use main frontend URL
             "message": "AI Interview created successfully. Candidate can start immediately.",
             "interview_id": str(new_interview.id),
             "questions_count": len(questions)
