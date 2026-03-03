@@ -1404,6 +1404,19 @@ export default function InterviewRoomPage() {
     };
   }, []);
 
+  // Re-attach camera stream to video element after loading completes
+  // (the video element is not in the DOM while loading=true)
+  useEffect(() => {
+    if (!loading && videoRef.current && streamRef.current && !videoRef.current.srcObject) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.onloadedmetadata = () => {
+        void videoRef.current?.play().catch(() => {
+          // ignore autoplay rejection
+        });
+      };
+    }
+  }, [loading]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
