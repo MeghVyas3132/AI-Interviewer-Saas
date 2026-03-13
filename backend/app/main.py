@@ -91,9 +91,18 @@ def create_app() -> FastAPI:
     #     app.add_middleware(RateLimitMiddleware)
 
     # 5. CORS (outermost - handles preflight requests first)
+    # Normalize origins: include trailing-dot variants to handle DNS canonical names
+    cors_origins = []
+    for origin in settings.cors_origins:
+        cors_origins.append(origin)
+        # Add trailing-dot variant if not already present
+        if not origin.endswith('.'):
+            cors_origins.append(origin + '.')
+    cors_origins = list(set(cors_origins))  # deduplicate
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],

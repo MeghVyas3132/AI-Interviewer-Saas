@@ -194,7 +194,8 @@ const getFallbackQuestionPool = (jobRole: string, company: string): string[] => 
 const enforceUniqueNextQuestion = (
   proposedQuestion: string,
   input: InterviewAgentInput,
-  isInterviewOver: boolean
+  isInterviewOver: boolean,
+  fallbackPool?: string[]
 ): string => {
   if (isInterviewOver) return proposedQuestion;
   const candidate = (proposedQuestion || '').trim();
@@ -214,8 +215,10 @@ const enforceUniqueNextQuestion = (
     return candidate;
   }
 
-  const fallbackPool = getFallbackQuestionPool(input.jobRole, input.company);
-  for (const fallback of fallbackPool) {
+  const fallbackQuestions = (fallbackPool && fallbackPool.length > 0)
+    ? fallbackPool
+    : getFallbackQuestionPool(input.jobRole, input.company);
+  for (const fallback of fallbackQuestions) {
     const fallbackDuplicate = previousQuestions.some(previous => {
       return (
         normalizeQuestionForMatch(previous) === normalizeQuestionForMatch(fallback) ||
@@ -228,6 +231,661 @@ const enforceUniqueNextQuestion = (
   }
 
   return 'Let us take a different angle. Can you share a specific example from your experience?';
+};
+
+const FOLLOWUP_BUDGET_MAX = 3;
+const RESUME_MIN_QUESTIONS = 3;
+const RESUME_MAX_QUESTIONS = 5;
+const BRIDGE_SIMILARITY_THRESHOLD = 0.75;
+
+type ResumeAnchorType = 'experience' | 'project' | 'skill' | 'claim';
+type QuestionKind = 'intro' | 'resume' | 'core' | 'followup' | 'closing' | 'candidate' | 'wrapup' | 'other';
+type FollowupIntent = 'specificity' | 'ownership' | 'depth' | 'impact';
+
+interface ResumeAnchor {
+  type: ResumeAnchorType;
+  title: string;
+  evidenceLine: string;
+  company?: string;
+  role?: string;
+}
+
+interface ResumeProfile {
+  skills: string[];
+  experiences: { role?: string; company?: string; line: string }[];
+  projects: { name?: string; line: string }[];
+  claims: string[];
+  riskFlags: string[];
+}
+
+const normalizeForCompare = (value: string): string =>
+  (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const extractResumeProfile = (resumeText: string): ResumeProfile => {
+  const profile: ResumeProfile = {
+    skills: [],
+    experiences: [],
+    projects: [],
+    claims: [],
+    riskFlags: [],
+  };
+
+  const lines = (resumeText || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  let currentSection: 'skills' | 'experience' | 'projects' | 'education' | 'certifications' | null = null;
+  const sectionLines: Record<string, string[]> = {
+    skills: [],
+    experience: [],
+    projects: [],
+    education: [],
+    certifications: [],
+  };
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (/^(work experience|experience|employment|professional experience)\b/.test(lower)) {
+      currentSection = 'experience';
+      const parts = line.split(':');
+      if (parts.length > 1 && parts[1].trim()) {
+        sectionLines.experience.push(parts.slice(1).join(':').trim());
+      }
+      continue;
+    }
+    if (/^projects?\b/.test(lower)) {
+      currentSection = 'projects';
+      const parts = line.split(':');
+      if (parts.length > 1 && parts[1].trim()) {
+        sectionLines.projects.push(parts.slice(1).join(':').trim());
+      }
+      continue;
+    }
+    if (/^skills?\b/.test(lower)) {
+      currentSection = 'skills';
+      const parts = line.split(':');
+      if (parts.length > 1 && parts[1].trim()) {
+        sectionLines.skills.push(parts.slice(1).join(':').trim());
+      }
+      continue;
+    }
+    if (/^education\b/.test(lower)) {
+      currentSection = 'education';
+      continue;
+    }
+    if (/^certifications?\b/.test(lower)) {
+      currentSection = 'certifications';
+      const parts = line.split(':');
+      if (parts.length > 1 && parts[1].trim()) {
+        sectionLines.certifications.push(parts.slice(1).join(':').trim());
+      }
+      continue;
+    }
+
+    if (currentSection) {
+      sectionLines[currentSection].push(line);
+    }
+  }
+
+  const skillCandidates = sectionLines.skills.length > 0 ? sectionLines.skills : lines.filter(line => line.toLowerCase().includes('skill'));
+  for (const line of skillCandidates) {
+    const parts = line.split(/[,;/•|]/).map(part => part.trim()).filter(Boolean);
+    for (const part of parts) {
+      if (part.length > 1 && !profile.skills.includes(part)) {
+        profile.skills.push(part);
+      }
+    }
+  }
+
+  for (const line of sectionLines.experience) {
+    const match = line.match(/(.+?)\s+(at|@)\s+(.+?)(\(|-|,|$)/i);
+    if (match) {
+      profile.experiences.push({ role: match[1].trim(), company: match[3].trim(), line });
+    } else {
+      profile.experiences.push({ line });
+    }
+  }
+
+  for (const line of sectionLines.projects) {
+    const match = line.match(/^(.*?)(?:\s+-|:)\s+/);
+    if (match) {
+      profile.projects.push({ name: match[1].trim(), line });
+    } else {
+      profile.projects.push({ line });
+    }
+  }
+
+  const claimRegex = /(improved|reduced|increased|saved|scaled|led|managed|delivered|optimized|boosted|cut|decreased)\b/i;
+  for (const line of lines) {
+    if ((/\d/.test(line) && claimRegex.test(line)) || /%\b/.test(line)) {
+      profile.claims.push(line);
+    }
+  }
+
+  const presentCount = lines.filter(line => line.toLowerCase().includes('present')).length;
+  if (presentCount > 1) {
+    profile.riskFlags.push('multiple_current_roles');
+  }
+
+  return profile;
+};
+
+const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeAnchor[] => {
+  const anchors: ResumeAnchor[] = [];
+  const lines = (resumeText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+  const findEvidence = (term: string): string => {
+    const lowerTerm = term.toLowerCase();
+    const hit = lines.find(line => line.toLowerCase().includes(lowerTerm));
+    return hit || term;
+  };
+
+  profile.experiences.slice(0, 4).forEach(exp => {
+    const title = exp.role && exp.company ? `${exp.role} at ${exp.company}` : exp.line;
+    anchors.push({
+      type: 'experience',
+      title,
+      evidenceLine: exp.line,
+      company: exp.company,
+      role: exp.role,
+    });
+  });
+
+  profile.projects.slice(0, 4).forEach(project => {
+    const title = project.name ? project.name : project.line;
+    anchors.push({
+      type: 'project',
+      title,
+      evidenceLine: project.line,
+    });
+  });
+
+  profile.skills.slice(0, 8).forEach(skill => {
+    anchors.push({
+      type: 'skill',
+      title: skill,
+      evidenceLine: findEvidence(skill),
+    });
+  });
+
+  profile.claims.slice(0, 4).forEach(claim => {
+    anchors.push({
+      type: 'claim',
+      title: claim,
+      evidenceLine: claim,
+    });
+  });
+
+  return anchors;
+};
+
+const selectResumeAnchors = (anchors: ResumeAnchor[]): ResumeAnchor[] => {
+  const experience = anchors.filter(anchor => anchor.type === 'experience');
+  const projects = anchors.filter(anchor => anchor.type === 'project');
+  const skills = anchors.filter(anchor => anchor.type === 'skill');
+  const claims = anchors.filter(anchor => anchor.type === 'claim');
+
+  const selected = [
+    ...experience.slice(0, 2),
+    ...projects.slice(0, 2),
+    ...skills.slice(0, 1),
+    ...claims.slice(0, 1),
+  ];
+
+  const unique: ResumeAnchor[] = [];
+  const seen = new Set<string>();
+  for (const anchor of selected) {
+    const key = normalizeForCompare(anchor.title);
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(anchor);
+    }
+  }
+  return unique;
+};
+
+const isIntroQuestion = (question: string): boolean =>
+  /tell me about yourself|walk me through your background|introduce yourself/i.test(question || '');
+
+const isClosingQuestion = (question: string): boolean =>
+  /why (do|are) you (fit|a good fit)|why should we choose you|why are you a good fit/i.test(question || '');
+
+const isCandidateQuestion = (question: string): boolean =>
+  /do you have any questions for us|any questions for us|questions for me|questions for the team/i.test(question || '');
+
+const isFollowupCue = (question: string): boolean =>
+  /(tell me more|elaborate|expand|go deeper|walk me through|what specifically|could you clarify|can you clarify|can you expand|can you share a concrete example|what part did you personally|what was your contribution|why did you choose)/i.test(question || '');
+
+const isResumeCue = (question: string, resumeAnchors: ResumeAnchor[]): boolean => {
+  if (!question) return false;
+  const normalizedQuestion = normalizeForCompare(question);
+  if (normalizedQuestion.includes('resume') || normalizedQuestion.includes('you mentioned')) return true;
+  const anchorTerms = resumeAnchors.map(anchor => normalizeForCompare(anchor.title)).filter(Boolean);
+  return anchorTerms.some(term => term && normalizedQuestion.includes(term));
+};
+
+const isFollowupQuestion = (question: string, previousQuestion?: string): boolean => {
+  if (isFollowupCue(question)) return true;
+  if (!previousQuestion) return false;
+  return questionSimilarity(question, previousQuestion) >= 0.6;
+};
+
+const classifyQuestion = (
+  question: string,
+  resumeAnchors: ResumeAnchor[],
+  previousQuestion?: string
+): QuestionKind => {
+  if (isIntroQuestion(question)) return 'intro';
+  if (isClosingQuestion(question)) return 'closing';
+  if (isCandidateQuestion(question)) return 'candidate';
+  if (isFollowupQuestion(question, previousQuestion)) return 'followup';
+  if (isResumeCue(question, resumeAnchors)) return 'resume';
+  return 'core';
+};
+
+const detectAnswerQuality = (answer: string): { low: FollowupIntent | null } => {
+  const text = (answer || '').trim();
+  if (!text) return { low: 'specificity' };
+
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const hasNumbers = /\d/.test(text);
+  const hasExamples = /(for example|for instance|e\.g\.)/i.test(text);
+  const hasOwnership = /\b(i|my|me|mine)\b/i.test(text);
+  const hasWe = /\bwe|our|us\b/i.test(text);
+  const hasDepth = /(trade-?off|architecture|design|system|pipeline|scalab|latency|performance|database|api|algorithm|debug|testing|framework|infrastructure)/i.test(text);
+  const hasImpact = /(improved|reduced|increased|impact|resulted|delivered|saved|percent|%|revenue|cost|time|latency|users)/i.test(text) || hasNumbers;
+
+  if (wordCount < 25 && !hasExamples) return { low: 'specificity' };
+  if (!hasOwnership && hasWe) return { low: 'ownership' };
+  if (!hasDepth) return { low: 'depth' };
+  if (!hasImpact) return { low: 'impact' };
+  return { low: null };
+};
+
+const buildFollowupQuestion = (intent: FollowupIntent): string => {
+  switch (intent) {
+    case 'ownership':
+      return 'What part did you personally own in that work?';
+    case 'depth':
+      return 'What trade-offs did you consider, and why did you choose that approach?';
+    case 'impact':
+      return 'What measurable outcome came from that effort?';
+    case 'specificity':
+    default:
+      return 'Can you share a concrete example?';
+  }
+};
+
+const buildResumeQuestion = (anchor: ResumeAnchor, intent: FollowupIntent | 'clarification' | 'timeline'): string => {
+  const anchorLabel = anchor.title || 'that';
+  switch (anchor.type) {
+    case 'experience':
+      if (intent === 'ownership') {
+        return `I noticed in your resume you mentioned ${anchorLabel} - what did you personally own there?`;
+      }
+      if (intent === 'depth') {
+        return `In your ${anchorLabel} experience, what trade-offs did you consider and why?`;
+      }
+      if (intent === 'impact') {
+        return `What changed measurably because of your work at ${anchor.company || anchorLabel}?`;
+      }
+      if (intent === 'timeline') {
+        return `How did you transition into your role at ${anchor.company || anchorLabel}?`;
+      }
+      return `You mentioned ${anchorLabel}. What exactly did you build or deliver there?`;
+    case 'project':
+      if (intent === 'ownership') {
+        return `In the ${anchorLabel} project, which parts did you personally implement?`;
+      }
+      if (intent === 'depth') {
+        return `Why did you choose the approach you used in ${anchorLabel}?`;
+      }
+      if (intent === 'impact') {
+        return `What measurable impact did ${anchorLabel} have?`;
+      }
+      if (intent === 'timeline') {
+        return `How did the timeline for ${anchorLabel} evolve from start to finish?`;
+      }
+      return `I noticed in your resume you mentioned ${anchorLabel} - what exactly did you build?`;
+    case 'skill':
+      if (intent === 'ownership') {
+        return `You list ${anchorLabel}. What part did you personally own when using it?`;
+      }
+      if (intent === 'depth') {
+        return `How did you apply ${anchorLabel} in a real project, and what trade-offs did you face?`;
+      }
+      if (intent === 'impact') {
+        return `What measurable result did you achieve using ${anchorLabel}?`;
+      }
+      if (intent === 'timeline') {
+        return `When did you start using ${anchorLabel}, and how has your usage evolved?`;
+      }
+      return `You list ${anchorLabel}. Can you walk me through a concrete example of using it?`;
+    case 'claim':
+    default:
+      return `I noticed this on your resume: "${anchorLabel}". Can you unpack the specific work behind that?`;
+  }
+};
+
+const stripLeadingAcknowledgement = (question: string): string => {
+  const trimmed = (question || '').trim();
+  if (!trimmed) return trimmed;
+  const patterns = [
+    /^thanks[,!\s-]+/i,
+    /^thank you[,!\s-]+/i,
+    /^got it[,!\s-]+/i,
+    /^understood[,!\s-]+/i,
+    /^great[,!\s-]+/i,
+    /^appreciate (that|it)[,!\s-]+/i,
+  ];
+  let result = trimmed;
+  for (const pattern of patterns) {
+    if (pattern.test(result)) {
+      result = result.replace(pattern, '').trim();
+    }
+  }
+  return result || trimmed;
+};
+
+const selectBridge = (candidates: string[], recentQuestions: string[]): string => {
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeForCompare(candidate);
+    const usedRecently = recentQuestions.some(question => {
+      const normalizedQuestion = normalizeForCompare(question);
+      return (
+        normalizedQuestion.startsWith(normalizedCandidate) ||
+        normalizedQuestion.includes(normalizedCandidate) ||
+        questionSimilarity(candidate, question) >= BRIDGE_SIMILARITY_THRESHOLD
+      );
+    });
+    if (!usedRecently) {
+      return candidate;
+    }
+  }
+  return '';
+};
+
+const applyBridge = (bridge: string, question: string): string => {
+  if (!bridge) return question;
+  const trimmedQuestion = question.trim();
+  if (!trimmedQuestion) return bridge;
+  return `${bridge} ${trimmedQuestion}`;
+};
+
+const isExamInterview = (input: InterviewAgentInput): boolean => {
+  const role = (input.jobRole || '').toLowerCase();
+  return (
+    role.includes('neet') ||
+    role.includes('jee') ||
+    role.includes('cat') ||
+    role.includes('mba') ||
+    role.includes('gmat') ||
+    role.includes('gre') ||
+    role.includes('exam') ||
+    !!input.examId ||
+    !!input.subcategoryId
+  );
+};
+
+const getQuestionCategory = (kind: QuestionKind, lastKind: QuestionKind): 'general-knowledge' | 'academics' | 'work-experience' | 'about-self' => {
+  if (kind === 'intro' || kind === 'closing' || kind === 'candidate') {
+    return 'about-self';
+  }
+  if (kind === 'resume') return 'work-experience';
+  if (kind === 'followup') {
+    return lastKind === 'resume' ? 'work-experience' : 'general-knowledge';
+  }
+  return 'general-knowledge';
+};
+
+const parseReferenceQuestions = (referenceQuestions: string | undefined): string[] => {
+  if (!referenceQuestions) return [];
+  return referenceQuestions
+    .split('\n')
+    .map(line => line.replace(/^\[[^\]]+\]\s*/g, '').trim())
+    .filter(Boolean);
+};
+
+const selectCoreQuestion = (
+  referenceQuestions: string[],
+  historyQuestions: string[],
+  jobRole: string,
+  company: string
+): string => {
+  const normalizedHistory = historyQuestions.map(question => normalizeForCompare(question));
+  for (const question of referenceQuestions) {
+    if (!normalizedHistory.includes(normalizeForCompare(question))) {
+      return question;
+    }
+  }
+  const fallbackPool = getFallbackQuestionPool(jobRole, company);
+  for (const fallback of fallbackPool) {
+    if (!normalizedHistory.includes(normalizeForCompare(fallback))) {
+      return fallback;
+    }
+  }
+  return 'Tell me about a project where you had to balance quality and speed.';
+};
+
+const selectUnusedAnchor = (anchors: ResumeAnchor[], historyQuestions: string[]): ResumeAnchor | undefined => {
+  const normalizedHistory = historyQuestions.map(question => normalizeForCompare(question));
+  for (const anchor of anchors) {
+    const key = normalizeForCompare(anchor.title);
+    const used = normalizedHistory.some(question => {
+      if (key && question.includes(key)) return true;
+      if (anchor.company && question.includes(normalizeForCompare(anchor.company))) return true;
+      if (anchor.role && question.includes(normalizeForCompare(anchor.role))) return true;
+      return false;
+    });
+    if (!used) return anchor;
+  }
+  return anchors[0];
+};
+
+const orchestrateJobInterviewNextQuestion = (
+  flowInput: InterviewAgentInput,
+  referenceQuestions: string | undefined
+) => {
+  const flags = {
+    resumeProbe: process.env.INTERVIEW_RESUME_PROBE_ENABLED !== 'false',
+    followup: process.env.INTERVIEW_FOLLOWUP_ENABLED !== 'false',
+    dynamicAck: process.env.INTERVIEW_DYNAMIC_ACK_ENABLED !== 'false',
+  };
+
+  const minQuestionsRequired = flowInput.minQuestionsRequired || 8;
+  const isCurrentReal = flowInput.isCurrentQuestionReal !== undefined ? flowInput.isCurrentQuestionReal : true;
+  const totalRealAnswered = (flowInput.realQuestionCount || 0) + (isCurrentReal ? 1 : 0);
+  const remainingSlots = Math.max(0, minQuestionsRequired - totalRealAnswered);
+
+  const historyQuestions = flowInput.conversationHistory.map(entry => entry.question || '').filter(Boolean);
+  const recentAiQuestions = historyQuestions.slice(-3);
+
+  const resumeText = flowInput.resumeText || '';
+  const resumeHasData = flowInput.hasResumeData ?? (resumeText.trim().length > 50);
+  const resumeProfile = resumeHasData ? extractResumeProfile(resumeText) : null;
+  const resumeAnchors = resumeProfile ? selectResumeAnchors(buildResumeAnchors(resumeProfile, resumeText)) : [];
+  const resumeEnabled = flags.resumeProbe && resumeHasData;
+
+  const classifications: QuestionKind[] = [];
+  historyQuestions.forEach((question, idx) => {
+    classifications.push(classifyQuestion(question, resumeAnchors, historyQuestions[idx - 1]));
+  });
+
+  const lastKind = classifications.length > 0 ? classifications[classifications.length - 1] : 'other';
+  const introAsked = classifications.includes('intro');
+  const closingAsked = classifications.includes('closing');
+  const candidateAsked = classifications.includes('candidate');
+  const resumeAsked = classifications.filter(kind => kind === 'resume').length;
+  const followupAsked = classifications.filter(kind => kind === 'followup').length;
+  const coreAsked = classifications.filter(kind => kind === 'core').length;
+
+  if (remainingSlots <= 0) {
+    return {
+      nextQuestion: 'Thanks for your time today. That concludes the interview.',
+      isInterviewOver: true,
+      kind: 'wrapup' as QuestionKind,
+      questionCategory: getQuestionCategory('wrapup', lastKind),
+      bridge: '',
+    };
+  }
+
+  if (lastKind === 'candidate') {
+    return {
+      nextQuestion: 'Thanks for your time today. That concludes the interview.',
+      isInterviewOver: true,
+      kind: 'wrapup' as QuestionKind,
+      questionCategory: getQuestionCategory('wrapup', lastKind),
+      bridge: '',
+    };
+  }
+
+  const reservedForEnd = (closingAsked ? 0 : 1) + (candidateAsked ? 0 : 1);
+  const slotsForMain = Math.max(0, remainingSlots - reservedForEnd);
+
+  let resumeTarget = resumeEnabled
+    ? Math.min(RESUME_MAX_QUESTIONS, Math.max(RESUME_MIN_QUESTIONS, resumeAnchors.length || 1))
+    : 0;
+  if (resumeEnabled && resumeAnchors.length < RESUME_MIN_QUESTIONS) {
+    resumeTarget = resumeAnchors.length || 1;
+  }
+
+  const coreTarget = Math.max(1, minQuestionsRequired - (resumeTarget + 3));
+  let resumeRemaining = resumeEnabled ? Math.max(0, resumeTarget - resumeAsked) : 0;
+  let coreRemaining = Math.max(0, coreTarget - coreAsked);
+
+  const minCoreKeep = coreRemaining > 0 ? 1 : 0;
+  const maxResumeAllowed = Math.max(0, slotsForMain - minCoreKeep);
+  if (resumeRemaining > maxResumeAllowed) {
+    resumeRemaining = maxResumeAllowed;
+  }
+  const maxCoreAllowed = Math.max(0, slotsForMain - resumeRemaining);
+  if (coreRemaining > maxCoreAllowed) {
+    coreRemaining = maxCoreAllowed;
+  }
+
+  const spareSlots = slotsForMain - (resumeRemaining + coreRemaining);
+
+  const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupAsked);
+  const followupEligible = flags.followup && followupBudgetRemaining > 0 && lastKind !== 'followup' && lastKind !== 'closing' && lastKind !== 'candidate' && spareSlots > 0;
+  const qualityCheck = detectAnswerQuality(flowInput.currentTranscript || '');
+  const shouldFollowup = followupEligible && qualityCheck.low !== null;
+
+  if (!introAsked) {
+    return {
+      nextQuestion: 'Tell me about yourself.',
+      isInterviewOver: false,
+      kind: 'intro' as QuestionKind,
+      questionCategory: getQuestionCategory('intro', lastKind),
+      bridge: '',
+    };
+  }
+
+  if (remainingSlots <= reservedForEnd) {
+    if (!closingAsked) {
+      return {
+        nextQuestion: 'Why do you fit for this role?',
+        isInterviewOver: false,
+        kind: 'closing' as QuestionKind,
+        questionCategory: getQuestionCategory('closing', lastKind),
+        bridge: '',
+      };
+    }
+    if (!candidateAsked) {
+      return {
+        nextQuestion: 'Do you have any questions for us?',
+        isInterviewOver: false,
+        kind: 'candidate' as QuestionKind,
+        questionCategory: getQuestionCategory('candidate', lastKind),
+        bridge: '',
+      };
+    }
+  }
+
+  if (shouldFollowup) {
+    const followupQuestion = buildFollowupQuestion(qualityCheck.low!);
+    const bridge = flags.dynamicAck
+      ? selectBridge(
+          [
+            'Got it - let\'s go deeper on that.',
+            'Understood. Walk me through your approach.',
+            'Helpful context. Can you expand a bit on that?',
+          ],
+          recentAiQuestions
+        )
+      : '';
+    return {
+      nextQuestion: applyBridge(bridge, followupQuestion),
+      isInterviewOver: false,
+      kind: 'followup' as QuestionKind,
+      questionCategory: getQuestionCategory('followup', lastKind),
+      bridge,
+    };
+  }
+
+  if (resumeRemaining > 0 && resumeEnabled) {
+    const intents: Array<FollowupIntent | 'clarification' | 'timeline'> = ['clarification', 'ownership', 'depth', 'impact', 'timeline'];
+    const intent = intents[resumeAsked % intents.length] || 'clarification';
+    const anchor = selectUnusedAnchor(resumeAnchors, historyQuestions);
+    const resumeQuestion = anchor
+      ? buildResumeQuestion(anchor, intent)
+      : 'I could not pull a specific item from your resume. Could you share one project or responsibility you are proud of?';
+    return {
+      nextQuestion: resumeQuestion,
+      isInterviewOver: false,
+      kind: 'resume' as QuestionKind,
+      questionCategory: getQuestionCategory('resume', lastKind),
+      bridge: '',
+    };
+  }
+
+  if (coreRemaining > 0) {
+    const coreQuestion = selectCoreQuestion(
+      parseReferenceQuestions(referenceQuestions),
+      historyQuestions,
+      flowInput.jobRole || 'General',
+      flowInput.company || ''
+    );
+    return {
+      nextQuestion: coreQuestion,
+      isInterviewOver: false,
+      kind: 'core' as QuestionKind,
+      questionCategory: getQuestionCategory('core', lastKind),
+      bridge: '',
+    };
+  }
+
+  if (!closingAsked) {
+    return {
+      nextQuestion: 'Why do you fit for this role?',
+      isInterviewOver: false,
+      kind: 'closing' as QuestionKind,
+      questionCategory: getQuestionCategory('closing', lastKind),
+      bridge: '',
+    };
+  }
+
+  if (!candidateAsked) {
+    return {
+      nextQuestion: 'Do you have any questions for us?',
+      isInterviewOver: false,
+      kind: 'candidate' as QuestionKind,
+      questionCategory: getQuestionCategory('candidate', lastKind),
+      bridge: '',
+    };
+  }
+
+  return {
+    nextQuestion: 'Thanks for your time today. That concludes the interview.',
+    isInterviewOver: true,
+    kind: 'wrapup' as QuestionKind,
+    questionCategory: getQuestionCategory('wrapup', lastKind),
+    bridge: '',
+  };
 };
 
 export async function interviewAgent(input: InterviewAgentInput): Promise<InterviewAgentOutput> {
@@ -460,7 +1118,16 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         const result = await prompt(promptInput);
         const output = result.output;
 
-        if (output?.nextQuestion) {
+        if (output && !isExamInterview(flowInput)) {
+          const orchestration = orchestrateJobInterviewNextQuestion(flowInput, referenceQuestions);
+          output.nextQuestion = enforceUniqueNextQuestion(
+            orchestration.nextQuestion,
+            flowInput,
+            orchestration.isInterviewOver
+          );
+          output.isInterviewOver = orchestration.isInterviewOver;
+          output.questionCategory = orchestration.questionCategory;
+        } else if (output?.nextQuestion) {
           output.nextQuestion = enforceUniqueNextQuestion(
             output.nextQuestion,
             flowInput,
@@ -1791,7 +2458,16 @@ const interviewAgentFlow = ai.defineFlow(
     
     const {output} = await prompt(promptInput);
 
-    if (output?.nextQuestion) {
+    if (output && !isExamInterview(input)) {
+      const orchestration = orchestrateJobInterviewNextQuestion(input, referenceQuestions);
+      output.nextQuestion = enforceUniqueNextQuestion(
+        orchestration.nextQuestion,
+        input,
+        orchestration.isInterviewOver
+      );
+      output.isInterviewOver = orchestration.isInterviewOver;
+      output.questionCategory = orchestration.questionCategory;
+    } else if (output?.nextQuestion) {
       output.nextQuestion = enforceUniqueNextQuestion(
         output.nextQuestion,
         input,
