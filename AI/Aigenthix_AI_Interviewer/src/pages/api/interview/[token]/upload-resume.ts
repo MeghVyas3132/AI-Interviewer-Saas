@@ -131,6 +131,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    const enforceWindow = process.env.INTERVIEW_ENFORCE_WINDOW === 'true';
+
     // Check if session has expired
     // Use scheduled_end_time if available, otherwise use expires_at
     const currentTime = new Date().getTime();
@@ -142,7 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       actualExpiryTime = new Date(session.expires_at).getTime();
     }
     
-    if (currentTime > actualExpiryTime) {
+    if (enforceWindow && currentTime > actualExpiryTime) {
       return res.status(400).json({ 
         success: false, 
         error: session.scheduled_end_time
@@ -698,4 +700,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
-

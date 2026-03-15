@@ -25,8 +25,12 @@ router = APIRouter(prefix="/api/v1/ai", tags=["AI Interviewer"])
 
 # AI service base URL (internal Docker network or env var)
 # The AI service runs as Genkit embedded in the Next.js app or as a separate service
-# For now, we point to the Next.js app which has Genkit API routes
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai-service:3000/api")
+# We normalize to ensure /api is present for the proxy endpoints below.
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai-service:3000")
+if AI_SERVICE_URL.endswith("/"):
+    AI_SERVICE_URL = AI_SERVICE_URL[:-1]
+if not AI_SERVICE_URL.endswith("/api"):
+    AI_SERVICE_URL = f"{AI_SERVICE_URL}/api"
 
 async def proxy_to_ai_service(path: str, method: str = "POST", data=None, params=None, headers=None):
     url = f"{AI_SERVICE_URL}{path}"

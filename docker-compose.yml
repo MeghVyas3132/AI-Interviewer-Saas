@@ -18,6 +18,7 @@ services:
       retries: 5
     networks:
       - app-network
+    restart: unless-stopped
 
   # Redis Service
   redis:
@@ -32,6 +33,7 @@ services:
       retries: 5
     networks:
       - app-network
+    restart: unless-stopped
 
   # Backend Service
   backend:
@@ -48,7 +50,7 @@ services:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:3001","http://localhost:9002","http://localhost:9004"]'
-      SECRET_KEY: your-super-secret-256bit-key-for-prod-deployment-12345678
+      SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: HS256
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY}
@@ -61,7 +63,7 @@ services:
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       # AI Interview Coach Service integration
       AI_INTERVIEW_SERVICE_URL: http://ai-interviewer-coach:3000
-      SYNC_API_KEY: ai-interviewer-sync-key-2024
+      SYNC_API_KEY: ${SYNC_API_KEY}
     ports:
       - "8000:8000"
     healthcheck:
@@ -71,6 +73,7 @@ services:
       retries: 3
     networks:
       - app-network
+    restart: unless-stopped
 
   # Frontend Service (HR Dashboard)
   frontend:
@@ -89,6 +92,7 @@ services:
       - "3000:3000"
     networks:
       - app-network
+    restart: unless-stopped
 
   # AI Service (Candidate Interface) - Internal only, accessed via frontend proxy
   ai-service:
@@ -106,13 +110,23 @@ services:
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       PORT: 3000
       # Google Gemini API Key - required for AI interview agent
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-your_gemini_api_key_here}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      # OpenAI API Keys (preferred if set)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY_2: ${OPENAI_API_KEY_2}
+      OPENAI_API_KEY_3: ${OPENAI_API_KEY_3}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      # Groq OpenAI-compatible API (optional)
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      # LLM provider selection: auto|openai|groq|gemini
+      INTERVIEW_LLM_PROVIDER: ${INTERVIEW_LLM_PROVIDER:-auto}
       # Backend URL for AI service to notify on interview completion
       BACKEND_URL: http://backend:8000/api/v1
       NEXT_PUBLIC_BACKEND_URL: http://backend:8000/api/v1
-    # Port 3001 removed - AI service is accessed internally via frontend proxy
-    # ports:
-    #   - "3001:3000"
+    restart: unless-stopped
     volumes:
       - ./AI/Aigenthix_AI_Interviewer:/app
       - /app/node_modules
@@ -128,13 +142,14 @@ services:
     container_name: ai_interviewer_ws_proxy
     command: node ws-proxy-server.js
     environment:
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-8579e234fc6147ba8be07d23c0b153ec}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
       # Allow WS proxy to know AI service URL if it needs to call backend
       AI_SERVICE_URL: ${AI_SERVICE_URL}
     ports:
       - "9003:9003"
     networks:
       - app-network
+    restart: unless-stopped
 
   # Celery worker for background tasks (emails, imports, AI processing if needed)
   celery_worker:
@@ -158,6 +173,7 @@ services:
     command: ["celery", "-A", "app.core.celery_config.celery_app", "worker", "-Q", "default,email_default,email_high,bulk_import", "-l", "info"]
     networks:
       - app-network
+    restart: unless-stopped
 
 networks:
   app-network:

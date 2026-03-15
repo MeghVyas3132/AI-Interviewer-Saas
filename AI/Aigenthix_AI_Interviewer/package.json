@@ -68,7 +68,7 @@
     "mailparser": "^3.9.0",
     "mammoth": "^1.11.0",
     "mongoose": "^8.19.2",
-    "next": "15.3.3",
+    "next": "^15.5.12",
     "nodemailer": "^6.10.1",
     "patch-package": "^8.0.0",
     "pdf-parse": "^2.4.5",

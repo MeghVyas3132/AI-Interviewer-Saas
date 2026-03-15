@@ -49,5 +49,5 @@ EXPOSE 8000
 # HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 #   CMD curl -f http://localhost:8000/health || exit 1
 
-# Run command - Use startup script for robust migration handling
-CMD ["./startup.sh"]
+# Run command - Use startup script for robust migration handling (override via START_COMMAND)
+CMD ["sh", "-c", "${START_COMMAND:-./startup.sh}"]

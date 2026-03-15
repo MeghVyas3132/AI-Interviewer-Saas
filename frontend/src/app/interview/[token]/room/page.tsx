@@ -41,6 +41,7 @@ interface AdaptiveFeedbackResult {
   feedback: string;
   nextQuestion?: string;
   shouldRetryCurrentQuestion: boolean;
+  isInterviewOver?: boolean;
 }
 
 interface ReadinessStatus {
@@ -90,6 +91,15 @@ function wordCount(value: string): number {
 function looksLikeNoIdeaAnswer(value: string): boolean {
   const text = value.toLowerCase();
   return /(i don't know|i do not know|not sure|no idea|can't recall|cannot recall|skip this)/.test(text);
+}
+
+function combineFeedbackWithQuestion(feedback: string, question: string): string {
+  const cleanedFeedback = (feedback || '').trim();
+  const cleanedQuestion = (question || '').trim();
+  if (!cleanedFeedback) return cleanedQuestion;
+  if (!cleanedQuestion) return cleanedFeedback;
+  const separator = /[.!?]$/.test(cleanedFeedback) ? ' ' : '. ';
+  return `${cleanedFeedback}${separator}${cleanedQuestion}`;
 }
 
 function getWsProxyBaseUrl(): string {
@@ -189,6 +199,7 @@ export default function InterviewRoomPage() {
   const isListeningRef = useRef<boolean>(false);
   const interviewEndedRef = useRef<boolean>(false);
   const isAISpeakingRef = useRef<boolean>(false);
+  const pendingFeedbackRef = useRef<string | null>(null);
   const transcriptSaveInFlightRef = useRef<boolean>(false);
   const transcriptSavedRef = useRef<boolean>(false);
   const reconnectAttemptRef = useRef<number>(0);
@@ -995,7 +1006,7 @@ export default function InterviewRoomPage() {
     }
   }, [API_BASE_URL, elapsedTime, sanitizeResumeForPayload, session?.id, token]);
 
-  const askExplicitQuestion = useCallback(async (question: string, nextIndex: number) => {
+  const askExplicitQuestion = useCallback(async (question: string, nextIndex: number, displayText?: string) => {
     const normalized = normalizeQuestionKey(question);
     if (!normalized) return;
 
@@ -1017,12 +1028,15 @@ export default function InterviewRoomPage() {
     currentQuestionTextRef.current = question;
 
     setCurrentQuestionIndex(nextIndex);
-    addMessage('ai', question, {
+    pendingFeedbackRef.current = null;
+    const messageText = (displayText || question).trim();
+    if (!messageText) return;
+    addMessage('ai', messageText, {
       transcript_source: 'ai',
       is_final: true,
     });
 
-    await speakText(question, { gender: 'female' });
+    await speakText(messageText, { gender: 'female' });
     await startListening();
   }, [addMessage, normalizeQuestionKey, questionSimilarity, speakText, startListening]);
 
@@ -1075,11 +1089,16 @@ export default function InterviewRoomPage() {
       setCurrentQuestionIndex(selectedIndex);
     }
 
-    addMessage('ai', question, {
+    const pendingFeedback = (pendingFeedbackRef.current || '').trim();
+    pendingFeedbackRef.current = null;
+    const messageText = pendingFeedback
+      ? combineFeedbackWithQuestion(pendingFeedback, question)
+      : question;
+    addMessage('ai', messageText, {
       transcript_source: 'ai',
       is_final: true,
     });
-    await speakText(question, { gender: 'female' });
+    await speakText(messageText, { gender: 'female' });
     await startListening();
   }, [
     addMessage,
@@ -1243,15 +1262,14 @@ export default function InterviewRoomPage() {
     const isLastQuestion = totalQuestions > 0 && currentQuestionIndex >= totalQuestions - 1;
     const sanitizedFeedback = sanitizeAdaptiveFeedback(adaptiveFeedback.feedback || '', isLastQuestion);
 
-    if (sanitizedFeedback) {
-      addMessage('ai', sanitizedFeedback, {
-        transcript_source: 'ai',
-        is_final: true,
-      });
-      await speakText(sanitizedFeedback, { gender: 'female' });
-    }
-
     if (adaptiveFeedback.shouldRetryCurrentQuestion) {
+      if (sanitizedFeedback) {
+        addMessage('ai', sanitizedFeedback, {
+          transcript_source: 'ai',
+          is_final: true,
+        });
+        await speakText(sanitizedFeedback, { gender: 'female' });
+      }
       await startListening();
       return;
     }
@@ -1260,6 +1278,19 @@ export default function InterviewRoomPage() {
     setCurrentQuestionIndex(nextIndex);
 
     const adaptiveNextQuestion = adaptiveFeedback.nextQuestion;
+    if (adaptiveFeedback.isInterviewOver) {
+      const closingMessage = 'Interview complete. Please click End to finish.';
+      addMessage('ai', closingMessage, {
+        transcript_source: 'ai',
+        is_final: true,
+      });
+      await speakText(closingMessage, { gender: 'female' });
+      setInterviewEnded(true);
+      interviewEndedRef.current = true;
+      await saveTranscript();
+      return;
+    }
+
     if (adaptiveNextQuestion) {
       const normalizedAdaptive = normalizeQuestionKey(adaptiveNextQuestion);
       let duplicate = false;
@@ -1276,11 +1307,17 @@ export default function InterviewRoomPage() {
       }
 
       if (!duplicate && normalizedAdaptive) {
-        await askExplicitQuestion(adaptiveNextQuestion, nextIndex);
+        const combinedMessage = sanitizedFeedback
+          ? combineFeedbackWithQuestion(sanitizedFeedback, adaptiveNextQuestion)
+          : adaptiveNextQuestion;
+        await askExplicitQuestion(adaptiveNextQuestion, nextIndex, combinedMessage);
         return;
       }
     }
 
+    if (sanitizedFeedback) {
+      pendingFeedbackRef.current = sanitizedFeedback;
+    }
     clearPendingNextQuestion();
     pendingNextQuestionTimeoutRef.current = setTimeout(() => {
       void askQuestion(nextIndex);

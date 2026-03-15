@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
-const PROXY_PORT = Number(process.env.WS_PROXY_PORT || 9003);
+const PROXY_PORT = Number(process.env.PORT || process.env.WS_PROXY_PORT || 9003);
 
 const DEFAULT_SAMPLE_RATE = 16000;
 const HEARTBEAT_INTERVAL_MS = 15000;

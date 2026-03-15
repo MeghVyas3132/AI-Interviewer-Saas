@@ -15,6 +15,7 @@ import { getCATQuestionInsights, getSampleCATQuestions } from '@/lib/postgres-qu
 import { getCachedQuestions, generateCacheKey } from '@/ai/question-cache';
 import { generateCurrentAffairsQuestion } from './current-affairs-generator';
 import { getExamConfigByExamAndSubcategory } from '@/lib/postgres-data-store';
+import { withOpenAIApiKeyRotation, initializeOpenAIApiKeyManager } from '@/lib/openai-api-key-manager';
 
 const InterviewHistorySchema = z.object({
     question: z.string(),
@@ -26,6 +27,7 @@ const InterviewHistorySchema = z.object({
     currentAffairsTopic: z.string().optional().describe('Topic of the current affairs question (if applicable)'),
     currentAffairsCategory: z.string().optional().describe('Category of the current affairs question (if applicable)'),
 });
+type InterviewHistory = z.infer<typeof InterviewHistorySchema>;
 
 const InterviewAgentInputSchema = z.object({
   jobRole: z.string().describe('The job role the user is interviewing for.'),
@@ -265,6 +267,13 @@ const normalizeForCompare = (value: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const sanitizeAnchorLabel = (value: string): string => {
+  return (value || '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 const extractResumeProfile = (resumeText: string): ResumeProfile => {
   const profile: ResumeProfile = {
     skills: [],
@@ -386,38 +395,44 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
   };
 
   profile.experiences.slice(0, 4).forEach(exp => {
-    const title = exp.role && exp.company ? `${exp.role} at ${exp.company}` : exp.line;
+    const title = sanitizeAnchorLabel(exp.role && exp.company ? `${exp.role} at ${exp.company}` : exp.line);
+    const evidenceLine = sanitizeAnchorLabel(exp.line);
     anchors.push({
       type: 'experience',
       title,
-      evidenceLine: exp.line,
+      evidenceLine,
       company: exp.company,
       role: exp.role,
     });
   });
 
   profile.projects.slice(0, 4).forEach(project => {
-    const title = project.name ? project.name : project.line;
+    const title = sanitizeAnchorLabel(project.name ? project.name : project.line);
     anchors.push({
       type: 'project',
       title,
-      evidenceLine: project.line,
+      evidenceLine: sanitizeAnchorLabel(project.line),
     });
   });
 
   profile.skills.slice(0, 8).forEach(skill => {
-    anchors.push({
-      type: 'skill',
-      title: skill,
-      evidenceLine: findEvidence(skill),
-    });
+    const title = sanitizeAnchorLabel(skill);
+    if (title) {
+      anchors.push({
+        type: 'skill',
+        title,
+        evidenceLine: sanitizeAnchorLabel(findEvidence(skill)),
+      });
+    }
   });
 
   profile.claims.slice(0, 4).forEach(claim => {
+    const title = sanitizeAnchorLabel(claim);
+    if (!title) return;
     anchors.push({
       type: 'claim',
-      title: claim,
-      evidenceLine: claim,
+      title,
+      evidenceLine: title,
     });
   });
 
@@ -440,6 +455,12 @@ const selectResumeAnchors = (anchors: ResumeAnchor[]): ResumeAnchor[] => {
   const unique: ResumeAnchor[] = [];
   const seen = new Set<string>();
   for (const anchor of selected) {
+    const cleanedTitle = sanitizeAnchorLabel(anchor.title);
+    if (!cleanedTitle || cleanedTitle.length < 3) {
+      continue;
+    }
+    anchor.title = cleanedTitle;
+    anchor.evidenceLine = sanitizeAnchorLabel(anchor.evidenceLine);
     const key = normalizeForCompare(anchor.title);
     if (!seen.has(key)) {
       seen.add(key);
@@ -453,10 +474,15 @@ const isIntroQuestion = (question: string): boolean =>
   /tell me about yourself|walk me through your background|introduce yourself/i.test(question || '');
 
 const isClosingQuestion = (question: string): boolean =>
-  /why (do|are) you (fit|a good fit)|why should we choose you|why are you a good fit/i.test(question || '');
+  /why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|why are you a good fit|why do you think you'?re a strong fit|fit for this role|strong fit/i.test(
+    question || ''
+  );
 
 const isCandidateQuestion = (question: string): boolean =>
   /do you have any questions for us|any questions for us|questions for me|questions for the team/i.test(question || '');
+
+const isWrapupQuestion = (question: string): boolean =>
+  /(that concludes the interview|thanks for your time|interview is complete|this concludes|we are done here)/i.test(question || '');
 
 const isFollowupCue = (question: string): boolean =>
   /(tell me more|elaborate|expand|go deeper|walk me through|what specifically|could you clarify|can you clarify|can you expand|can you share a concrete example|what part did you personally|what was your contribution|why did you choose)/i.test(question || '');
@@ -475,6 +501,37 @@ const isFollowupQuestion = (question: string, previousQuestion?: string): boolea
   return questionSimilarity(question, previousQuestion) >= 0.6;
 };
 
+const isLikelyInterviewQuestion = (text: string): boolean => {
+  const cleaned = (text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return false;
+  if (isIntroQuestion(cleaned) || isClosingQuestion(cleaned) || isCandidateQuestion(cleaned) || isWrapupQuestion(cleaned)) {
+    return true;
+  }
+  if (cleaned.includes('?')) return true;
+
+  const feedbackOnlyPatterns = [
+    /^let['’]s continue\b/i,
+    /^moving on\b/i,
+    /^let['’]s go\b/i,
+    /^got it\b/i,
+    /^understood\b/i,
+    /^helpful context\b/i,
+    /^thanks for your time\b/i,
+    /^interview complete\b/i,
+  ];
+  const matchedFeedback = feedbackOnlyPatterns.find(pattern => pattern.test(cleaned));
+  if (matchedFeedback) {
+    const remainder = cleaned.replace(matchedFeedback, '').trim();
+    if (!remainder) return false;
+    if (remainder.includes('?')) return true;
+    return /^(tell me|describe|explain|walk me through|how would you|how do you|what|why|when|where|which|can you|could you|do you|did you|would you|have you|give me|share|in your|i noticed|you mentioned)\b/i.test(
+      remainder
+    );
+  }
+
+  return /^(tell me|describe|explain|walk me through|how would you|how do you|what|why|when|where|which|can you|could you|do you|did you|would you|have you|give me|share|in your|i noticed|you mentioned)\b/i.test(cleaned);
+};
+
 const classifyQuestion = (
   question: string,
   resumeAnchors: ResumeAnchor[],
@@ -483,8 +540,9 @@ const classifyQuestion = (
   if (isIntroQuestion(question)) return 'intro';
   if (isClosingQuestion(question)) return 'closing';
   if (isCandidateQuestion(question)) return 'candidate';
-  if (isFollowupQuestion(question, previousQuestion)) return 'followup';
+  if (isWrapupQuestion(question)) return 'wrapup';
   if (isResumeCue(question, resumeAnchors)) return 'resume';
+  if (isFollowupQuestion(question, previousQuestion)) return 'followup';
   return 'core';
 };
 
@@ -507,22 +565,98 @@ const detectAnswerQuality = (answer: string): { low: FollowupIntent | null } => 
   return { low: null };
 };
 
-const buildFollowupQuestion = (intent: FollowupIntent): string => {
-  switch (intent) {
+const isDeferralAnswer = (answer: string): boolean => {
+  const text = (answer || '').toLowerCase().trim();
+  if (!text) return true;
+  return (
+    /^no\.?$/.test(text) ||
+    /^no thanks\.?$/.test(text) ||
+    /^skip\.?$/.test(text) ||
+    /^pass\.?$/.test(text) ||
+    /^not sure\.?$/.test(text) ||
+    /^don\'t know\.?$/.test(text) ||
+    /^i don\'t know\.?$/.test(text) ||
+    /please proceed/.test(text) ||
+    /next question/.test(text) ||
+    /move on/.test(text)
+  );
+};
+
+const isTechnicalQuestion = (question: string): boolean => {
+  const text = (question || '').toLowerCase();
+  return /(kubernetes|k8s|docker|ci\/cd|pipeline|deployment|observability|logging|monitoring|terraform|ansible|infrastructure|architecture|design|trade-?off|latency|performance|database|microservices|cloud|aws|gcp|azure)/i.test(
+    text
+  );
+};
+
+const buildAnswerEcho = (answer: string, maxWords = 14): string => {
+  const cleaned = (answer || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const words = cleaned.split(' ');
+  if (words.length <= maxWords) return cleaned;
+  return `${words.slice(0, maxWords).join(' ')}...`;
+};
+
+const normalizeFollowupIntent = (
+  intent: FollowupIntent,
+  lastKind: QuestionKind,
+  previousQuestion: string
+): FollowupIntent => {
+  if (lastKind === 'intro') return 'specificity';
+  if (lastKind === 'resume') {
+    if (intent === 'depth') return 'specificity';
+    return intent;
+  }
+  if (!isTechnicalQuestion(previousQuestion) && intent === 'depth') {
+    return 'specificity';
+  }
+  return intent;
+};
+
+const buildFollowupQuestion = (
+  intent: FollowupIntent,
+  previousQuestion: string,
+  lastKind: QuestionKind,
+  answer: string
+): string => {
+  const normalized = normalizeFollowupIntent(intent, lastKind, previousQuestion);
+  const echo = buildAnswerEcho(answer);
+  const prefix = echo ? `You said: "${echo}". ` : '';
+
+  if (lastKind === 'intro') {
+    return `${prefix}Can you share one concrete example from your DevOps work?`;
+  }
+
+  if (lastKind === 'resume') {
+    switch (normalized) {
+      case 'ownership':
+        return `${prefix}What part did you personally own in that role?`;
+      case 'impact':
+        return `${prefix}What measurable outcome came from that work?`;
+      case 'specificity':
+      default:
+        return `${prefix}Can you share a concrete example from that role?`;
+    }
+  }
+
+  switch (normalized) {
     case 'ownership':
-      return 'What part did you personally own in that work?';
+      return `${prefix}What part did you personally own in that work?`;
     case 'depth':
-      return 'What trade-offs did you consider, and why did you choose that approach?';
+      return `${prefix}What trade-offs did you consider, and why did you choose that approach?`;
     case 'impact':
-      return 'What measurable outcome came from that effort?';
+      return `${prefix}What measurable outcome came from that effort?`;
     case 'specificity':
     default:
-      return 'Can you share a concrete example?';
+      return `${prefix}Can you share a concrete example?`;
   }
 };
 
 const buildResumeQuestion = (anchor: ResumeAnchor, intent: FollowupIntent | 'clarification' | 'timeline'): string => {
-  const anchorLabel = anchor.title || 'that';
+  const anchorLabel = sanitizeAnchorLabel(anchor.title);
+  if (!anchorLabel || anchorLabel.length < 3) {
+    return 'I could not pull a specific item from your resume. Could you share one project or responsibility you are proud of?';
+  }
   switch (anchor.type) {
     case 'experience':
       if (intent === 'ownership') {
@@ -632,6 +766,402 @@ const isExamInterview = (input: InterviewAgentInput): boolean => {
   );
 };
 
+const clampNumber = (value: number, min: number, max: number): number => {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
+};
+
+const hasUsableGeminiKeys = (): boolean => {
+  const rawKeys = [
+    process.env.GOOGLE_API_KEY,
+    process.env.GOOGLE_API_KEY_2,
+    process.env.GOOGLE_API_KEY_3,
+  ].filter(Boolean) as string[];
+
+  return rawKeys.some(key => {
+    const trimmed = key.trim();
+    if (!trimmed) return false;
+    if (trimmed === 'your_gemini_api_key_here') return false;
+    return true;
+  });
+};
+
+const hasUsableOpenAIKeys = (): boolean => {
+  const rawKeys = [
+    process.env.OPENAI_API_KEY,
+    process.env.OPENAI_API_KEY_2,
+    process.env.OPENAI_API_KEY_3,
+  ].filter(Boolean) as string[];
+
+  return rawKeys.some(key => {
+    const trimmed = key.trim();
+    if (!trimmed) return false;
+    return true;
+  });
+};
+
+const hasUsableGroqKey = (): boolean => {
+  const key = (process.env.GROQ_API_KEY || '').trim();
+  if (!key) return false;
+  return true;
+};
+
+type InterviewProvider = 'openai' | 'groq' | 'gemini' | 'none';
+
+const resolveInterviewProvider = (): InterviewProvider => {
+  const preferred = (process.env.INTERVIEW_LLM_PROVIDER || 'auto').toLowerCase();
+  const hasOpenAI = hasUsableOpenAIKeys();
+  const hasGroq = hasUsableGroqKey();
+  const hasGemini = hasUsableGeminiKeys();
+
+  if (preferred === 'openai') return hasOpenAI ? 'openai' : 'none';
+  if (preferred === 'groq') return hasGroq ? 'groq' : 'none';
+  if (preferred === 'gemini') return hasGemini ? 'gemini' : 'none';
+  if (preferred !== 'auto') return 'none';
+
+  if (hasOpenAI) return 'openai';
+  if (hasGroq) return 'groq';
+  if (hasGemini) return 'gemini';
+  return 'none';
+};
+
+const getLastQuestion = (history: InterviewHistory[]): string => {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const question = (history[i]?.question || '').trim();
+    if (question) return question;
+  }
+  return '';
+};
+
+const scoreFromAnswer = (answer: string): number => {
+  const cleaned = (answer || '').trim();
+  if (!cleaned) return 3;
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  const hasMetrics = /\d/.test(cleaned);
+  let score = 4;
+  if (wordCount >= 40) score = 7;
+  else if (wordCount >= 25) score = 6;
+  else if (wordCount >= 15) score = 5;
+  if (hasMetrics) score += 1;
+  return clampNumber(score, 3, 9);
+};
+
+const buildNeutralFeedback = (
+  input: InterviewAgentInput,
+  kind: QuestionKind
+): string => {
+  const historyQuestions = input.conversationHistory.map(entry => entry.question || '').filter(Boolean);
+  const recentAiQuestions = historyQuestions.slice(-3);
+  const followupPool = [
+    'Let’s go a bit deeper on that.',
+    'Can you add a concrete example?',
+    'Walk me through your approach in more detail.',
+  ];
+  const transitionPool = [
+    'Let’s continue.',
+    'Moving on.',
+    'Next question.',
+  ];
+  const pool = kind === 'followup' ? followupPool : transitionPool;
+  const selected = selectBridge(pool, recentAiQuestions);
+  if (selected) return selected;
+  return kind === 'followup' ? 'Can you add a concrete example?' : 'Next question.';
+};
+
+const sanitizeContentFeedback = (
+  feedback: string,
+  input: InterviewAgentInput,
+  kind: QuestionKind
+): string => {
+  const cleaned = (feedback || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return buildNeutralFeedback(input, kind);
+
+  const ackPatterns = [
+    /thanks[,!]? i (?:captured|recorded) your response/i,
+    /thank you[,!]? i (?:captured|recorded) your response/i,
+    /thanks[,!]? i (?:got|received) it/i,
+    /thanks for (?:sharing|answering)/i,
+  ];
+  if (ackPatterns.some(pattern => pattern.test(cleaned))) {
+    return buildNeutralFeedback(input, kind);
+  }
+
+  return cleaned;
+};
+
+const planNextQuestion = (
+  input: InterviewAgentInput,
+  referenceQuestions?: string
+): { orchestration: { nextQuestion: string; isInterviewOver: boolean; kind: QuestionKind; questionCategory: 'general-knowledge' | 'academics' | 'work-experience' | 'about-self' }; nextQuestion: string } => {
+  const historyQuestions = input.conversationHistory.map(entry => entry.question || '').filter(Boolean);
+  const isExam = isExamInterview(input);
+  const orchestration = isExam
+    ? {
+        nextQuestion: selectCoreQuestion(
+          parseReferenceQuestions(referenceQuestions),
+          historyQuestions,
+          input.jobRole || 'General',
+          input.company || ''
+        ),
+        isInterviewOver: false,
+        kind: 'core' as QuestionKind,
+        questionCategory: getQuestionCategory('core', 'other'),
+      }
+    : orchestrateJobInterviewNextQuestion(input, referenceQuestions);
+
+  const nextQuestion = enforceUniqueNextQuestion(
+    orchestration.nextQuestion,
+    input,
+    orchestration.isInterviewOver
+  );
+
+  return { orchestration, nextQuestion };
+};
+
+type LlmEvaluation = Partial<{
+  contentFeedback: string;
+  toneFeedback: string;
+  clarityFeedback: string;
+  ideasScore: number;
+  organizationScore: number;
+  accuracyScore: number;
+  voiceScore: number;
+  grammarScore: number;
+  stopWordsScore: number;
+  overallScore: number;
+  isCorrectAnswer: boolean;
+  shouldRetryQuestion: boolean;
+  hint: string;
+  explanation: string;
+}>;
+
+const parseJsonFromContent = (content: string): LlmEvaluation | null => {
+  if (!content) return null;
+  const trimmed = content.trim();
+  try {
+    return JSON.parse(trimmed) as LlmEvaluation;
+  } catch {
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]) as LlmEvaluation;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const buildEvaluationPrompt = (input: InterviewAgentInput): { system: string; user: string } => {
+  const lastQuestion = getLastQuestion(input.conversationHistory);
+  const answer = (input.currentTranscript || '').trim();
+  const role = (input.jobRole || '').trim() || 'General';
+  const company = (input.company || '').trim();
+  const resumeSnippet = (input.resumeText || '').trim().slice(0, 1200);
+
+  const system = [
+    'You are a professional interview coach.',
+    'Return ONLY valid JSON, no prose.',
+    'Use concise, constructive feedback (1-2 sentences max per field).',
+    'Do NOT include generic acknowledgements like "Thanks, I captured your response."',
+  ].join(' ');
+
+  const userLines = [
+    `Role: ${role}`,
+    company ? `Company: ${company}` : 'Company: (not provided)',
+    lastQuestion ? `Question: ${lastQuestion}` : 'Question: (not provided)',
+    answer ? `Answer: ${answer}` : 'Answer: (empty)',
+    resumeSnippet ? `Resume (excerpt): ${resumeSnippet}` : 'Resume: (not provided)',
+    '',
+    'Return JSON with keys:',
+    'contentFeedback, toneFeedback, clarityFeedback, ideasScore, organizationScore, accuracyScore, voiceScore, grammarScore, stopWordsScore, overallScore, isCorrectAnswer, shouldRetryQuestion, hint, explanation',
+    'Scores are 1-10. Set shouldRetryQuestion to true only if the answer is extremely short or irrelevant.',
+  ];
+
+  return { system, user: userLines.join('\n') };
+};
+
+const callOpenAICompatible = async (options: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  system: string;
+  user: string;
+  useResponseFormat: boolean;
+}): Promise<string> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+
+  const schema = {
+    name: 'interview_feedback',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        contentFeedback: { type: 'string' },
+        toneFeedback: { type: 'string' },
+        clarityFeedback: { type: 'string' },
+        ideasScore: { type: 'number' },
+        organizationScore: { type: 'number' },
+        accuracyScore: { type: 'number' },
+        voiceScore: { type: 'number' },
+        grammarScore: { type: 'number' },
+        stopWordsScore: { type: 'number' },
+        overallScore: { type: 'number' },
+        isCorrectAnswer: { type: 'boolean' },
+        shouldRetryQuestion: { type: 'boolean' },
+        hint: { type: 'string' },
+        explanation: { type: 'string' },
+      },
+      required: [
+        'contentFeedback',
+        'toneFeedback',
+        'clarityFeedback',
+        'ideasScore',
+        'organizationScore',
+        'accuracyScore',
+        'voiceScore',
+        'grammarScore',
+        'stopWordsScore',
+        'overallScore',
+        'isCorrectAnswer',
+        'shouldRetryQuestion',
+      ],
+    },
+  };
+
+  const payload: Record<string, unknown> = {
+    model: options.model,
+    messages: [
+      { role: 'system', content: options.system },
+      { role: 'user', content: options.user },
+    ],
+    temperature: 0.3,
+    max_tokens: 400,
+  };
+
+  if (options.useResponseFormat) {
+    payload.response_format = { type: 'json_schema', json_schema: schema };
+  }
+
+  try {
+    const response = await fetch(`${options.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${options.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const body = await response.text();
+    if (!response.ok) {
+      throw new Error(body || `OpenAI-compatible API error (${response.status})`);
+    }
+
+    const json = JSON.parse(body);
+    return String(json?.choices?.[0]?.message?.content || '').trim();
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const mergeEvaluation = (
+  base: InterviewAgentOutput,
+  evaluation: LlmEvaluation | null,
+  input: InterviewAgentInput,
+  kind: QuestionKind
+): InterviewAgentOutput => {
+  if (!evaluation) {
+    return {
+      ...base,
+      contentFeedback: sanitizeContentFeedback(base.contentFeedback, input, kind),
+    };
+  }
+
+  const updated: InterviewAgentOutput = { ...base };
+
+  if (typeof evaluation.contentFeedback === 'string') {
+    updated.contentFeedback = sanitizeContentFeedback(evaluation.contentFeedback, input, kind);
+  }
+  if (typeof evaluation.toneFeedback === 'string') updated.toneFeedback = evaluation.toneFeedback.trim();
+  if (typeof evaluation.clarityFeedback === 'string') updated.clarityFeedback = evaluation.clarityFeedback.trim();
+
+  const scoreMap: Array<keyof LlmEvaluation & keyof InterviewAgentOutput> = [
+    'ideasScore',
+    'organizationScore',
+    'accuracyScore',
+    'voiceScore',
+    'grammarScore',
+    'stopWordsScore',
+    'overallScore',
+  ];
+  scoreMap.forEach(key => {
+    const value = evaluation[key];
+    if (typeof value === 'number') {
+      updated[key] = clampNumber(value, 1, 10) as any;
+    }
+  });
+
+  if (typeof evaluation.isCorrectAnswer === 'boolean') updated.isCorrectAnswer = evaluation.isCorrectAnswer;
+  if (typeof evaluation.shouldRetryQuestion === 'boolean') updated.shouldRetryQuestion = evaluation.shouldRetryQuestion;
+  if (typeof evaluation.hint === 'string' && evaluation.hint.trim()) updated.hint = evaluation.hint.trim();
+  if (typeof evaluation.explanation === 'string' && evaluation.explanation.trim()) updated.explanation = evaluation.explanation.trim();
+
+  if (base.isInterviewOver) {
+    updated.shouldRetryQuestion = true;
+    updated.contentFeedback = 'Interview complete. Please click End to finish.';
+  }
+
+  return updated;
+};
+
+const buildFallbackOutput = (
+  input: InterviewAgentInput,
+  referenceQuestions?: string
+): InterviewAgentOutput => {
+  const { orchestration, nextQuestion } = planNextQuestion(input, referenceQuestions);
+
+  const baseScore = scoreFromAnswer(input.currentTranscript || '');
+  const presentationScore = clampNumber(Math.round(baseScore / 2), 1, 5);
+  const neutralFeedback = orchestration.isInterviewOver
+    ? 'Interview complete. Please click End to finish.'
+    : buildNeutralFeedback(input, orchestration.kind);
+
+  return {
+    contentFeedback: sanitizeContentFeedback(neutralFeedback, input, orchestration.kind),
+    toneFeedback: 'Tone feedback is limited in fallback mode.',
+    clarityFeedback: 'Clarity feedback is limited in fallback mode.',
+    visualFeedback: 'Visual feedback unavailable in this session.',
+    physicalAppearanceScore: presentationScore,
+    physicalAppearanceJustification: 'Visual signal not available.',
+    bodyLanguageScore: presentationScore,
+    bodyLanguageJustification: 'Visual signal not available.',
+    confidenceScore: presentationScore,
+    confidenceJustification: 'Confidence inferred from response length only.',
+    ideasScore: baseScore,
+    ideasJustification: 'Score based on response length and specificity.',
+    organizationScore: baseScore,
+    organizationJustification: 'Score based on response structure and clarity.',
+    accuracyScore: baseScore,
+    accuracyJustification: 'Accuracy estimated without external validation.',
+    voiceScore: baseScore,
+    voiceJustification: 'Voice score estimated in fallback mode.',
+    grammarScore: baseScore,
+    grammarJustification: 'Grammar score estimated in fallback mode.',
+    stopWordsScore: baseScore,
+    stopWordsJustification: 'Stop word score estimated in fallback mode.',
+    questionCategory: orchestration.questionCategory,
+    overallScore: baseScore,
+    nextQuestion,
+    isInterviewOver: orchestration.isInterviewOver,
+    isCorrectAnswer: true,
+    shouldRetryQuestion: orchestration.isInterviewOver ? true : false,
+    isNextQuestionCurrentAffairs: false,
+  };
+};
+
 const getQuestionCategory = (kind: QuestionKind, lastKind: QuestionKind): 'general-knowledge' | 'academics' | 'work-experience' | 'about-self' => {
   if (kind === 'intro' || kind === 'closing' || kind === 'candidate') {
     return 'about-self';
@@ -697,12 +1227,11 @@ const orchestrateJobInterviewNextQuestion = (
     dynamicAck: process.env.INTERVIEW_DYNAMIC_ACK_ENABLED !== 'false',
   };
 
-  const minQuestionsRequired = flowInput.minQuestionsRequired || 8;
-  const isCurrentReal = flowInput.isCurrentQuestionReal !== undefined ? flowInput.isCurrentQuestionReal : true;
-  const totalRealAnswered = (flowInput.realQuestionCount || 0) + (isCurrentReal ? 1 : 0);
-  const remainingSlots = Math.max(0, minQuestionsRequired - totalRealAnswered);
+  const minQuestionsRequired = Math.max(flowInput.minQuestionsRequired || 8, 10);
 
-  const historyQuestions = flowInput.conversationHistory.map(entry => entry.question || '').filter(Boolean);
+  const historyQuestions = flowInput.conversationHistory
+    .map(entry => entry.question || '')
+    .filter(text => isLikelyInterviewQuestion(text));
   const recentAiQuestions = historyQuestions.slice(-3);
 
   const resumeText = flowInput.resumeText || '';
@@ -717,12 +1246,15 @@ const orchestrateJobInterviewNextQuestion = (
   });
 
   const lastKind = classifications.length > 0 ? classifications[classifications.length - 1] : 'other';
-  const introAsked = classifications.includes('intro');
-  const closingAsked = classifications.includes('closing');
-  const candidateAsked = classifications.includes('candidate');
+  const introAskedCount = classifications.filter(kind => kind === 'intro').length;
   const resumeAsked = classifications.filter(kind => kind === 'resume').length;
   const followupAsked = classifications.filter(kind => kind === 'followup').length;
   const coreAsked = classifications.filter(kind => kind === 'core').length;
+  const introAsked = introAskedCount > 0;
+
+  const mainAnsweredCount = introAskedCount + resumeAsked + coreAsked;
+  const totalRealAnswered = mainAnsweredCount > 0 ? mainAnsweredCount : (flowInput.realQuestionCount || 0);
+  const remainingSlots = Math.max(0, minQuestionsRequired - totalRealAnswered);
 
   if (remainingSlots <= 0) {
     return {
@@ -734,7 +1266,7 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  if (lastKind === 'candidate') {
+  if (lastKind === 'wrapup') {
     return {
       nextQuestion: 'Thanks for your time today. That concludes the interview.',
       isInterviewOver: true,
@@ -744,36 +1276,49 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  const reservedForEnd = (closingAsked ? 0 : 1) + (candidateAsked ? 0 : 1);
-  const slotsForMain = Math.max(0, remainingSlots - reservedForEnd);
+  const slotsForMain = Math.max(0, remainingSlots);
 
-  let resumeTarget = resumeEnabled
-    ? Math.min(RESUME_MAX_QUESTIONS, Math.max(RESUME_MIN_QUESTIONS, resumeAnchors.length || 1))
-    : 0;
-  if (resumeEnabled && resumeAnchors.length < RESUME_MIN_QUESTIONS) {
-    resumeTarget = resumeAnchors.length || 1;
+  const resumeCap = resumeEnabled ? Math.min(RESUME_MAX_QUESTIONS, resumeAnchors.length || 0) : 0;
+  let resumeTarget = resumeEnabled ? Math.min(3, resumeCap) : 0;
+  let followupTarget = 2;
+  let coreTarget = Math.max(0, minQuestionsRequired - 1 - resumeTarget);
+
+  if (!resumeEnabled) {
+    resumeTarget = 0;
   }
 
-  const coreTarget = Math.max(1, minQuestionsRequired - (resumeTarget + 3));
-  let resumeRemaining = resumeEnabled ? Math.max(0, resumeTarget - resumeAsked) : 0;
-  let coreRemaining = Math.max(0, coreTarget - coreAsked);
-
-  const minCoreKeep = coreRemaining > 0 ? 1 : 0;
-  const maxResumeAllowed = Math.max(0, slotsForMain - minCoreKeep);
-  if (resumeRemaining > maxResumeAllowed) {
-    resumeRemaining = maxResumeAllowed;
-  }
-  const maxCoreAllowed = Math.max(0, slotsForMain - resumeRemaining);
-  if (coreRemaining > maxCoreAllowed) {
-    coreRemaining = maxCoreAllowed;
+  const followupCap = Math.min(FOLLOWUP_BUDGET_MAX, followupTarget);
+  if (followupTarget > followupCap) {
+    followupTarget = followupCap;
   }
 
-  const spareSlots = slotsForMain - (resumeRemaining + coreRemaining);
+  if (coreTarget < 0) {
+    coreTarget = 0;
+  }
 
-  const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupAsked);
-  const followupEligible = flags.followup && followupBudgetRemaining > 0 && lastKind !== 'followup' && lastKind !== 'closing' && lastKind !== 'candidate' && spareSlots > 0;
+  if (resumeEnabled && resumeTarget === 0 && resumeAnchors.length > 0) {
+    resumeTarget = 1;
+    coreTarget = Math.max(0, coreTarget - 1);
+  }
+
+  const coreQuotaAsked = coreAsked + introAskedCount;
+  const resumeRemaining = resumeEnabled ? Math.max(0, resumeTarget - resumeAsked) : 0;
+  const followupBudgetRemaining = Math.max(0, followupTarget - followupAsked);
+  const coreRemaining = Math.max(0, coreTarget - coreQuotaAsked);
+  const effectiveCoreRemaining =
+    slotsForMain > 0 && resumeRemaining === 0 && coreRemaining === 0 ? slotsForMain : coreRemaining;
+  const followupEligible =
+    flags.followup &&
+    followupBudgetRemaining > 0 &&
+    remainingSlots > 0 &&
+    lastKind !== 'followup' &&
+    lastKind === 'core' &&
+    remainingSlots > 0;
   const qualityCheck = detectAnswerQuality(flowInput.currentTranscript || '');
-  const shouldFollowup = followupEligible && qualityCheck.low !== null;
+  const shouldFollowup =
+    followupEligible &&
+    qualityCheck.low !== null &&
+    !isDeferralAnswer(flowInput.currentTranscript || '');
 
   if (!introAsked) {
     return {
@@ -785,29 +1330,14 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  if (remainingSlots <= reservedForEnd) {
-    if (!closingAsked) {
-      return {
-        nextQuestion: 'Why do you fit for this role?',
-        isInterviewOver: false,
-        kind: 'closing' as QuestionKind,
-        questionCategory: getQuestionCategory('closing', lastKind),
-        bridge: '',
-      };
-    }
-    if (!candidateAsked) {
-      return {
-        nextQuestion: 'Do you have any questions for us?',
-        isInterviewOver: false,
-        kind: 'candidate' as QuestionKind,
-        questionCategory: getQuestionCategory('candidate', lastKind),
-        bridge: '',
-      };
-    }
-  }
-
   if (shouldFollowup) {
-    const followupQuestion = buildFollowupQuestion(qualityCheck.low!);
+    const previousQuestion = historyQuestions.length > 0 ? historyQuestions[historyQuestions.length - 1] : '';
+    const followupQuestion = buildFollowupQuestion(
+      qualityCheck.low!,
+      previousQuestion,
+      lastKind,
+      flowInput.currentTranscript || ''
+    );
     const bridge = flags.dynamicAck
       ? selectBridge(
           [
@@ -819,7 +1349,7 @@ const orchestrateJobInterviewNextQuestion = (
         )
       : '';
     return {
-      nextQuestion: applyBridge(bridge, followupQuestion),
+      nextQuestion: followupQuestion,
       isInterviewOver: false,
       kind: 'followup' as QuestionKind,
       questionCategory: getQuestionCategory('followup', lastKind),
@@ -827,7 +1357,9 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  if (resumeRemaining > 0 && resumeEnabled) {
+  let nextMainKind: 'resume' | 'core' = resumeRemaining > 0 ? 'resume' : 'core';
+
+  if (nextMainKind === 'resume' && resumeRemaining > 0 && resumeEnabled) {
     const intents: Array<FollowupIntent | 'clarification' | 'timeline'> = ['clarification', 'ownership', 'depth', 'impact', 'timeline'];
     const intent = intents[resumeAsked % intents.length] || 'clarification';
     const anchor = selectUnusedAnchor(resumeAnchors, historyQuestions);
@@ -843,38 +1375,21 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  if (coreRemaining > 0) {
-    const coreQuestion = selectCoreQuestion(
-      parseReferenceQuestions(referenceQuestions),
-      historyQuestions,
-      flowInput.jobRole || 'General',
-      flowInput.company || ''
-    );
+  if (effectiveCoreRemaining > 0) {
+    const referencePool = parseReferenceQuestions(referenceQuestions);
+    const coreQuestion = referencePool.length
+      ? selectCoreQuestion(
+          referencePool,
+          historyQuestions,
+          flowInput.jobRole || 'General',
+          flowInput.company || ''
+        )
+      : '';
     return {
       nextQuestion: coreQuestion,
       isInterviewOver: false,
       kind: 'core' as QuestionKind,
       questionCategory: getQuestionCategory('core', lastKind),
-      bridge: '',
-    };
-  }
-
-  if (!closingAsked) {
-    return {
-      nextQuestion: 'Why do you fit for this role?',
-      isInterviewOver: false,
-      kind: 'closing' as QuestionKind,
-      questionCategory: getQuestionCategory('closing', lastKind),
-      bridge: '',
-    };
-  }
-
-  if (!candidateAsked) {
-    return {
-      nextQuestion: 'Do you have any questions for us?',
-      isInterviewOver: false,
-      kind: 'candidate' as QuestionKind,
-      questionCategory: getQuestionCategory('candidate', lastKind),
       bridge: '',
     };
   }
@@ -889,69 +1404,147 @@ const orchestrateJobInterviewNextQuestion = (
 };
 
 export async function interviewAgent(input: InterviewAgentInput): Promise<InterviewAgentOutput> {
-  // Use API key rotation for all interview agent calls
-  return withApiKeyRotation(async (apiKey: string) => {
-    // Create a temporary genkit instance with the rotated API key
-    const tempAI = genkit({
-      plugins: [googleAI({ apiKey })],
-      model: 'googleai/gemini-2.0-flash',
-      config: {
-        temperature: 0.7,
-        topP: 0.9,
-        maxOutputTokens: 2048,
-      },
-    });
-    
-    // We'll define the prompt inline in the flow below
-    
-    // Re-define the flow with the new instance
-    const tempFlow = tempAI.defineFlow(
-      {
-        name: 'interviewAgentFlow',
-        inputSchema: InterviewAgentInputSchema,
-        outputSchema: InterviewAgentOutputSchema,
-      },
-      async flowInput => {
-        // Extract the flow logic from the original flow
-        // Check if this is a CAT aspirant with college selection
-        const isCATAspirant = flowInput.jobRole === 'cat' && flowInput.college;
-        let catInsights = '';
-        
-        if (isCATAspirant) {
-          try {
-            const insightsPromise = getCATQuestionInsights(flowInput.college!, undefined, flowInput.resumeText);
-            const timeoutPromise = new Promise<string>((_, reject) => 
-              setTimeout(() => reject(new Error('Timeout')), 5000)
-            );
-            catInsights = await Promise.race([insightsPromise, timeoutPromise]);
-            console.log(`Generated CAT insights for interview agent: ${flowInput.college}`);
-          } catch (error) {
-            console.error('Failed to get CAT insights for interview agent:', error);
-            catInsights = 'CAT interview insights not available for this session.';
+  const provider = resolveInterviewProvider();
+
+  if (provider === 'openai' || provider === 'groq') {
+    const { orchestration, nextQuestion } = planNextQuestion(input);
+    const baseOutput = buildFallbackOutput(input);
+    baseOutput.nextQuestion = nextQuestion;
+    baseOutput.isInterviewOver = orchestration.isInterviewOver;
+    baseOutput.questionCategory = orchestration.questionCategory;
+
+    const { system, user } = buildEvaluationPrompt(input);
+    const model =
+      provider === 'openai'
+        ? (process.env.OPENAI_MODEL || 'gpt-4o-mini')
+        : (process.env.GROQ_MODEL || process.env.OPENAI_MODEL || 'llama-3.3-70b-versatile');
+    const baseUrl =
+      provider === 'openai'
+        ? (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1')
+        : (process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1');
+
+    try {
+      let content = '';
+      if (provider === 'openai') {
+        initializeOpenAIApiKeyManager();
+        content = await withOpenAIApiKeyRotation(async (apiKey: string) => {
+          return await callOpenAICompatible({
+            baseUrl,
+            apiKey,
+            model,
+            system,
+            user,
+            useResponseFormat: true,
+          });
+        });
+      } else {
+        const groqKey = (process.env.GROQ_API_KEY || '').trim();
+        if (!groqKey) {
+          throw new Error('GROQ_API_KEY not configured');
+        }
+        try {
+          content = await callOpenAICompatible({
+            baseUrl,
+            apiKey: groqKey,
+            model,
+            system,
+            user,
+            useResponseFormat: true,
+          });
+        } catch (error) {
+          console.warn('Groq response_format failed, retrying without response_format:', error);
+          content = await callOpenAICompatible({
+            baseUrl,
+            apiKey: groqKey,
+            model,
+            system,
+            user,
+            useResponseFormat: false,
+          });
+        }
+      }
+
+      const evaluation = parseJsonFromContent(content);
+      return mergeEvaluation(baseOutput, evaluation, input, orchestration.kind);
+    } catch (error) {
+      console.error('OpenAI-compatible interview evaluation failed, using fallback:', error);
+      return mergeEvaluation(baseOutput, null, input, orchestration.kind);
+    }
+  }
+
+  if (provider !== 'gemini') {
+    console.warn('No usable LLM provider configured. Using deterministic fallback interview response.');
+    return buildFallbackOutput(input);
+  }
+
+  // Use API key rotation for all interview agent calls (Gemini)
+  try {
+    return await withApiKeyRotation(async (apiKey: string) => {
+      // Create a temporary genkit instance with the rotated API key
+      const tempAI = genkit({
+        plugins: [googleAI({ apiKey })],
+        model: 'googleai/gemini-2.0-flash',
+        config: {
+          temperature: 0.7,
+          topP: 0.9,
+          maxOutputTokens: 2048,
+        },
+      });
+      
+      // We'll define the prompt inline in the flow below
+      
+      // Re-define the flow with the new instance
+      const tempFlow = tempAI.defineFlow(
+        {
+          name: 'interviewAgentFlow',
+          inputSchema: InterviewAgentInputSchema,
+          outputSchema: InterviewAgentOutputSchema,
+        },
+        async flowInput => {
+          // Extract the flow logic from the original flow
+          // Check if this is a CAT aspirant with college selection
+          const isCATAspirant = flowInput.jobRole === 'cat' && flowInput.college;
+          let catInsights = '';
+          
+          if (isCATAspirant) {
+            try {
+              const insightsPromise = getCATQuestionInsights(flowInput.college!, undefined, flowInput.resumeText);
+              const timeoutPromise = new Promise<string>((_, reject) => 
+                setTimeout(() => reject(new Error('Timeout')), 5000)
+              );
+              catInsights = await Promise.race([insightsPromise, timeoutPromise]);
+              console.log(`Generated CAT insights for interview agent: ${flowInput.college}`);
+            } catch (error) {
+              console.error('Failed to get CAT insights for interview agent:', error);
+              catInsights = 'CAT interview insights not available for this session.';
+            }
           }
-        }
-        
-        const examId = flowInput.examId;
-        const subcategoryId = flowInput.subcategoryId;
-        console.log(`Interview Agent: Using exam configuration - Exam ID: ${examId}, Subcategory ID: ${subcategoryId}`);
-        
-        let referenceQuestions;
-        let referenceQuestionIds: number[] = [];
-        let questionCategories = ['general'];
-        if (flowInput.jobRole.toLowerCase().includes('neet')) {
-          questionCategories = ['physics', 'chemistry', 'biology', 'medical'];
-        } else if (flowInput.jobRole.toLowerCase().includes('jee')) {
-          questionCategories = ['physics', 'chemistry', 'mathematics', 'engineering'];
-        } else if (flowInput.jobRole.toLowerCase().includes('iit foundation')) {
-          questionCategories = ['physics', 'chemistry', 'mathematics', 'foundation'];
-        } else if (flowInput.jobRole.toLowerCase().includes('cat') || flowInput.jobRole.toLowerCase().includes('mba')) {
-          questionCategories = ['aptitude', 'hr', 'personality', 'business', 'leadership'];
-        }
-        
-        if (isCATAspirant) {
-          try {
-            const detectedBackground = flowInput.resumeText ? await (await import('@/ai/cat-question-reference')).detectAcademicBackground(flowInput.resumeText) : undefined;
-            const catSampleQuestionsPromise = getSampleCATQuestions(flowInput.college!, detectedBackground, 3);
+          
+          const examId = flowInput.examId;
+          const subcategoryId = flowInput.subcategoryId;
+          console.log(`Interview Agent: Using exam configuration - Exam ID: ${examId}, Subcategory ID: ${subcategoryId}`);
+          
+          let referenceQuestions;
+          let referenceQuestionIds: number[] = [];
+          let questionCategories = ['general'];
+          if (flowInput.jobRole.toLowerCase().includes('neet')) {
+            questionCategories = ['physics', 'chemistry', 'biology', 'medical'];
+          } else if (flowInput.jobRole.toLowerCase().includes('jee')) {
+            questionCategories = ['physics', 'chemistry', 'mathematics', 'engineering'];
+          } else if (flowInput.jobRole.toLowerCase().includes('iit foundation')) {
+            questionCategories = ['physics', 'chemistry', 'mathematics', 'foundation'];
+          } else if (flowInput.jobRole.toLowerCase().includes('cat') || flowInput.jobRole.toLowerCase().includes('mba')) {
+            questionCategories = ['aptitude', 'hr', 'personality', 'business', 'leadership'];
+          }
+          
+          if (!isExamInterview(flowInput)) {
+            // Skip DB-backed reference questions for job interviews to avoid schema mismatches.
+            referenceQuestions = '';
+            referenceQuestionIds = [];
+          } else if (isCATAspirant) {
+            try {
+              const detectedBackground = flowInput.resumeText ? await (await import('@/ai/cat-question-reference')).detectAcademicBackground(flowInput.resumeText) : undefined;
+              const catSampleQuestionsPromise = getSampleCATQuestions(flowInput.college!, detectedBackground, 3);
             const catQuestionsTimeoutPromise = new Promise<any[]>((_, reject) => 
               setTimeout(() => reject(new Error('CAT questions query timeout')), 10000)
             );
@@ -1156,9 +1749,13 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
       }
     );
     
-    // Execute the flow with rotation
+      // Execute the flow with rotation
     return await tempFlow(input);
   });
+  } catch (error) {
+    console.error('Interview agent failed; using fallback response:', error);
+    return buildFallbackOutput(input);
+  }
 }
 
 const prompt = ai.definePrompt({
@@ -2284,7 +2881,11 @@ const interviewAgentFlow = ai.defineFlow(
       questionCategories = ['aptitude', 'hr', 'personality', 'business', 'leadership'];
     }
     
-    if (isCATAspirant) {
+    if (!isExamInterview(input)) {
+      // Skip DB-backed reference questions for job interviews to avoid schema mismatches.
+      referenceQuestions = '';
+      referenceQuestionIds = [];
+    } else if (isCATAspirant) {
       // For CAT aspirants, get diverse CAT-specific questions
       try {
         const detectedBackground = input.resumeText ? await (await import('@/ai/cat-question-reference')).detectAcademicBackground(input.resumeText) : undefined;
