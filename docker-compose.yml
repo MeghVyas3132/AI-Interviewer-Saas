@@ -117,6 +117,11 @@ services:
       OPENAI_API_KEY_3: ${OPENAI_API_KEY_3}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-marin}
+      OPENAI_TTS_VOICE_FEMALE: ${OPENAI_TTS_VOICE_FEMALE:-}
+      OPENAI_TTS_VOICE_MALE: ${OPENAI_TTS_VOICE_MALE:-}
+      OPENAI_TTS_RESPONSE_FORMAT: ${OPENAI_TTS_RESPONSE_FORMAT:-mp3}
       # Groq OpenAI-compatible API (optional)
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
@@ -143,6 +148,11 @@ services:
     command: node ws-proxy-server.js
     environment:
       ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
+      ASSEMBLYAI_STREAMING_MODEL: ${ASSEMBLYAI_STREAMING_MODEL:-universal-streaming-english}
+      ASSEMBLYAI_STREAMING_ENCODING: ${ASSEMBLYAI_STREAMING_ENCODING:-pcm_s16le}
+      ASSEMBLYAI_FORMAT_TURNS: ${ASSEMBLYAI_FORMAT_TURNS:-false}
+      PORT: 9003
+      WS_PROXY_PORT: 9003
       # Allow WS proxy to know AI service URL if it needs to call backend
       AI_SERVICE_URL: ${AI_SERVICE_URL}
     ports:

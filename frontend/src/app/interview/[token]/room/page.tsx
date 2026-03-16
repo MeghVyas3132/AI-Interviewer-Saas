@@ -40,6 +40,7 @@ interface ASRSegment {
 interface AdaptiveFeedbackResult {
   feedback: string;
   nextQuestion?: string;
+  nextQuestionKind?: 'intro' | 'resume' | 'core' | 'followup' | 'wrapup' | 'closing' | 'candidate' | 'other';
   shouldRetryCurrentQuestion: boolean;
   isInterviewOver?: boolean;
 }
@@ -60,9 +61,14 @@ const AUTO_SUBMIT_RECENT_SPEECH_GUARD_MS = 1200;
 const AUTO_SUBMIT_ENABLED = false;
 const LONG_SILENCE_PROMPT_MS = 12000;
 const LOW_CONFIDENCE_THRESHOLD = 0.55;
+const MAIN_QUESTION_TARGET = 10;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const MAX_RESUME_PAYLOAD_LENGTH = 50000;
 const WS_RECONNECT_BACKOFF_MS = [400, 900, 1600, 2500, 4000, 6000];
+const MAX_RETRY_PER_QUESTION = 1;
+const RETRY_ELIGIBLE_MAX_WORDS = 10;
+const TTS_429_COOLDOWN_MS = 5 * 60 * 1000;
+const STT_HEALTH_TIMEOUT_MS = 8000;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -102,9 +108,53 @@ function combineFeedbackWithQuestion(feedback: string, question: string): string
   return `${cleanedFeedback}${separator}${cleanedQuestion}`;
 }
 
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isLikelyQuestion(text: string): boolean {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return false;
+  if (cleaned.includes('?')) return true;
+  return /^(tell me|describe|explain|walk me through|how|what|why|when|where|which|can you|could you|do you|did you|would you|have you|give me|share)\b/i.test(cleaned);
+}
+
+function buildGuaranteedWelcome(candidateName: string | undefined, aiFeedback: string): string {
+  const trimmedFeedback = (aiFeedback || '').trim();
+  const safeName = (candidateName || '').trim();
+  const hasWelcome = /\b(welcome|great to meet|glad to have you|let'?s get started)\b/i.test(trimmedFeedback);
+  const hasName = safeName
+    ? new RegExp(`\\b${escapeRegex(safeName.split(' ')[0])}\\b`, 'i').test(trimmedFeedback)
+    : true;
+
+  if (trimmedFeedback && hasWelcome && hasName) {
+    return trimmedFeedback;
+  }
+
+  return safeName
+    ? `Welcome ${safeName}. Let's get started with the interview.`
+    : "Welcome. Let's get started with the interview.";
+}
+
 function getWsProxyBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_WS_PROXY_URL) {
-    return process.env.NEXT_PUBLIC_WS_PROXY_URL;
+  const envUrl = process.env.NEXT_PUBLIC_WS_PROXY_URL;
+  if (envUrl) {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        try {
+          const parsed = new URL(envUrl);
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+            return `${protocol}://${hostname}:9003`;
+          }
+        } catch {
+          // If env URL isn't parseable, fall back to hostname.
+          return `${protocol}://${hostname}:9003`;
+        }
+      }
+    }
+    return envUrl;
   }
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -171,11 +221,15 @@ export default function InterviewRoomPage() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
+  const [isAIThinking, setIsAIThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [draftAnswer, setDraftAnswer] = useState('');
+  const [answerEdited, setAnswerEdited] = useState(false);
   const [hasTranscriptContent, setHasTranscriptContent] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [endpointState, setEndpointState] = useState<'idle' | 'speech' | 'silence_grace' | 'finalize'>('idle');
+  const [sttHealthState, setSttHealthState] = useState<'idle' | 'healthy' | 'unhealthy'>('idle');
   const [cameraUnavailable, setCameraUnavailable] = useState(false);
   const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>({
     status: 'idle',
@@ -206,8 +260,14 @@ export default function InterviewRoomPage() {
   const adaptiveSilenceMsRef = useRef<number>(AUTO_SUBMIT_BASE_DELAY_MS);
   const currentQuestionTextRef = useRef<string>('');
   const hasTranscriptContentRef = useRef<boolean>(false);
+  const answerEditedRef = useRef<boolean>(false);
   const answerWindowStartMsRef = useRef<number>(0);
   const acceptAsrTurnsRef = useRef<boolean>(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const tts429CooldownUntilRef = useRef<number>(0);
+  const questionRetryCountRef = useRef<Map<string, number>>(new Map());
+  const lastTranscriptAtRef = useRef<number>(0);
+  const asrAudioChunkCountRef = useRef<number>(0);
 
   const asrWantedRef = useRef<boolean>(false);
   const asrConnectedRef = useRef<boolean>(false);
@@ -235,6 +295,10 @@ export default function InterviewRoomPage() {
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
+
+  useEffect(() => {
+    answerEditedRef.current = answerEdited;
+  }, [answerEdited]);
 
   const [resumeText, setResumeText] = useState('');
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
@@ -291,6 +355,9 @@ export default function InterviewRoomPage() {
     const combined = [finalText, interimText].filter(Boolean).join(' ');
 
     setTranscript(combined);
+    if (!answerEditedRef.current) {
+      setDraftAnswer(combined);
+    }
     const hasContent = combined.length > 0;
     hasTranscriptContentRef.current = hasContent;
     setHasTranscriptContent(hasContent);
@@ -311,6 +378,8 @@ export default function InterviewRoomPage() {
     hasTranscriptContentRef.current = false;
     setTranscript('');
     setHasTranscriptContent(false);
+    setDraftAnswer('');
+    setAnswerEdited(false);
   }, []);
 
   const updateAudioStats = useCallback((rms: number, peak: number) => {
@@ -344,12 +413,33 @@ export default function InterviewRoomPage() {
     });
   }, []);
 
+  const buildConversationHistory = useCallback((messageList: Message[]) => {
+    const turns: Array<{ question: string; answer: string }> = [];
+    let pendingQuestion = '';
+
+    for (const item of messageList) {
+      if (item.role === 'ai') {
+        const aiText = (item.content || '').trim();
+        if (aiText) {
+          pendingQuestion = aiText;
+        }
+        continue;
+      }
+
+      const answer = (item.content || '').trim();
+      if (!answer) continue;
+      turns.push({
+        question: pendingQuestion,
+        answer,
+      });
+      pendingQuestion = '';
+    }
+
+    return turns;
+  }, []);
+
   const pauseAudioStreaming = useCallback((paused: boolean) => {
     shouldStreamAudioRef.current = !paused;
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'speech_state', state: paused ? 'paused' : 'listening' }));
-    }
   }, []);
 
   const pickVoiceByGender = useCallback((gender: 'male' | 'female') => {
@@ -400,61 +490,134 @@ export default function InterviewRoomPage() {
   }, []);
 
   const speakText = useCallback(async (text: string, options?: { gender?: 'male' | 'female' }) => {
+    const cleaned = (text || '').trim();
+    if (!cleaned) return;
+
     const desiredGender = options?.gender || 'female';
+    setIsAISpeaking(true);
+    isAISpeakingRef.current = true;
+    pauseAudioStreaming(true);
 
-    // Ensure voices are loaded before speaking (Chrome loads them asynchronously)
-    if ('speechSynthesis' in window && speechSynthesis.getVoices().length === 0) {
-      await new Promise<void>((resolve) => {
-        const onVoicesChanged = () => {
-          speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
-          resolve();
-        };
-        speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
-        // Timeout fallback in case event never fires
-        setTimeout(resolve, 1500);
-      });
-    }
-
-    await new Promise<void>((resolve) => {
-      setIsAISpeaking(true);
-      isAISpeakingRef.current = true;
-      pauseAudioStreaming(true);
-
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
       if ('speechSynthesis' in window && speechSynthesis.speaking) {
         speechSynthesis.cancel();
       }
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      synthRef.current = utterance;
+      const speakWithBrowserFallback = async () => {
+        if (!('speechSynthesis' in window)) {
+          console.warn('[TTS] Browser speech synthesis is not available.');
+          return;
+        }
 
-      const selectedVoice = pickVoiceByGender(desiredGender);
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
+        if (speechSynthesis.getVoices().length === 0) {
+          await new Promise<void>((resolve) => {
+            const onVoicesChanged = () => {
+              speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+              resolve();
+            };
+            speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+            setTimeout(resolve, 1200);
+          });
+        }
+
+        await new Promise<void>((resolve) => {
+          const utterance = new SpeechSynthesisUtterance(cleaned);
+          synthRef.current = utterance;
+
+          const selectedVoice = pickVoiceByGender(desiredGender);
+          if (selectedVoice) {
+            utterance.voice = selectedVoice;
+          }
+
+          utterance.rate = desiredGender === 'male' ? 0.95 : 0.92;
+          utterance.pitch = desiredGender === 'male' ? 0.95 : 1.05;
+
+          utterance.onend = () => resolve();
+          utterance.onerror = () => resolve();
+          speechSynthesis.speak(utterance);
+        });
+      };
+
+      const isIn429Cooldown = Date.now() < tts429CooldownUntilRef.current;
+      if (!isIn429Cooldown) {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: cleaned, voice: desiredGender }),
+        });
+
+        if (response.ok) {
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.startsWith('audio/')) {
+            const blob = await response.blob();
+            const audioUrl = URL.createObjectURL(blob);
+            await new Promise<void>((resolve) => {
+              const audio = new Audio(audioUrl);
+              audioRef.current = audio;
+              audio.onended = () => resolve();
+              audio.onerror = () => resolve();
+              audio.play().catch(() => resolve());
+            });
+            URL.revokeObjectURL(audioUrl);
+            return;
+          }
+
+          try {
+            const payload = await response.json();
+            const audioUrl = payload?.audioUrl;
+            if (audioUrl) {
+              await new Promise<void>((resolve) => {
+                const audio = new Audio(audioUrl);
+                audioRef.current = audio;
+                audio.onended = () => resolve();
+                audio.onerror = () => resolve();
+                audio.play().catch(() => resolve());
+              });
+              return;
+            }
+          } catch {
+            // Ignore non-JSON responses and continue to browser fallback.
+          }
+        } else {
+          let errorDetail = '';
+          try {
+            const payload = await response.json();
+            errorDetail = payload?.error || payload?.message || '';
+          } catch {
+            try {
+              errorDetail = await response.text();
+            } catch {
+              errorDetail = '';
+            }
+          }
+
+          if (response.status === 429) {
+            tts429CooldownUntilRef.current = Date.now() + TTS_429_COOLDOWN_MS;
+            console.warn(
+              `[TTS] Upstream rate limited (429). Falling back to browser voice for ${Math.round(TTS_429_COOLDOWN_MS / 1000)}s.`,
+              errorDetail || '(no error payload)',
+            );
+          } else {
+            console.warn(`[TTS] Upstream request failed (${response.status}).`, errorDetail || '(no error payload)');
+          }
+        }
+      } else {
+        const waitSeconds = Math.max(1, Math.ceil((tts429CooldownUntilRef.current - Date.now()) / 1000));
+        console.warn(`[TTS] Skipping OpenAI call during cooldown (${waitSeconds}s remaining).`);
       }
 
-      utterance.rate = desiredGender === 'male' ? 0.95 : 0.92;
-      utterance.pitch = desiredGender === 'male' ? 0.95 : 1.05;
-
-      utterance.onend = () => {
-        setIsAISpeaking(false);
-        isAISpeakingRef.current = false;
-        if (isListeningRef.current && !interviewEndedRef.current) {
-          pauseAudioStreaming(false);
-        }
-        resolve();
-      };
-
-      utterance.onerror = () => {
-        setIsAISpeaking(false);
-        isAISpeakingRef.current = false;
-        if (isListeningRef.current && !interviewEndedRef.current) {
-          pauseAudioStreaming(false);
-        }
-        resolve();
-      };
-
-      speechSynthesis.speak(utterance);
-    });
+      await speakWithBrowserFallback();
+    } finally {
+      setIsAISpeaking(false);
+      isAISpeakingRef.current = false;
+      if (isListeningRef.current && !interviewEndedRef.current) {
+        pauseAudioStreaming(false);
+      }
+    }
   }, [pauseAudioStreaming, pickVoiceByGender]);
 
   const ensureHeartbeat = useCallback(() => {
@@ -463,7 +626,7 @@ export default function InterviewRoomPage() {
     heartbeatTimerRef.current = setInterval(() => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'heartbeat', client_ts: Date.now() }));
+      // Do not forward custom heartbeat frames to AssemblyAI.
     }, HEARTBEAT_INTERVAL_MS);
   }, []);
 
@@ -595,10 +758,6 @@ export default function InterviewRoomPage() {
     if (!payload || typeof payload !== 'object') return;
 
     if (payload.type === 'heartbeat' || payload.type === 'heartbeat_request') {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'heartbeat', client_ts: Date.now() }));
-      }
       return;
     }
 
@@ -634,7 +793,13 @@ export default function InterviewRoomPage() {
       return;
     }
 
-    if (payload.type === 'Turn') {
+    const payloadType = String(payload.type || payload.message_type || '').trim();
+    const isTurnMessage =
+      payloadType === 'Turn' ||
+      payloadType === 'PartialTranscript' ||
+      payloadType === 'FinalTranscript';
+
+    if (isTurnMessage) {
       if (!isListeningRef.current || !acceptAsrTurnsRef.current || interviewEndedRef.current) {
         return;
       }
@@ -647,7 +812,7 @@ export default function InterviewRoomPage() {
         return;
       }
 
-      const transcriptText = String(payload.transcript || '').trim();
+      const transcriptText = String(payload.transcript || payload.text || '').trim();
       const confidenceValue =
         typeof payload.proxy_confidence === 'number'
           ? clamp(payload.proxy_confidence, 0, 1)
@@ -655,13 +820,20 @@ export default function InterviewRoomPage() {
             ? clamp(payload.confidence, 0, 1)
             : null;
 
-      if (payload.end_of_turn === true) {
+      const isFinalTurn =
+        payload.end_of_turn === true ||
+        payloadType === 'FinalTranscript';
+
+      if (isFinalTurn) {
         interimTranscriptRef.current = '';
         if (transcriptText) {
           const segmentId =
             (typeof payload.segment_id === 'string' && payload.segment_id) ||
+            (typeof payload.id === 'string' && payload.id) ||
             (typeof payload.turn_order === 'number' ? `turn-${payload.turn_order}` : `segment-${++asrSegmentCounterRef.current}`);
 
+          lastTranscriptAtRef.current = Date.now();
+          setSttHealthState('healthy');
           appendFinalSegment({
             segmentId,
             text: transcriptText,
@@ -676,6 +848,8 @@ export default function InterviewRoomPage() {
         interimTranscriptRef.current = transcriptText;
         if (transcriptText) {
           lastSpeechTimeRef.current = Date.now();
+          lastTranscriptAtRef.current = Date.now();
+          setSttHealthState('healthy');
           scheduleAutoSubmit(false);
         }
         syncTranscriptDisplay();
@@ -699,15 +873,7 @@ export default function InterviewRoomPage() {
       ws.onopen = () => {
         wsRef.current = ws;
         asrConnectedRef.current = true;
-
-        const phraseHints = buildPhraseHints(session);
-        ws.send(
-          JSON.stringify({
-            type: 'session_config',
-            phrase_hints: phraseHints,
-            energy_threshold: 0.0085,
-          }),
-        );
+        console.info('[AssemblyAI] WS proxy connected', wsUrl);
 
         ensureHeartbeat();
         resolve();
@@ -716,6 +882,9 @@ export default function InterviewRoomPage() {
       ws.onmessage = (event) => {
         try {
           const parsed = JSON.parse(String(event.data || '{}'));
+          if (parsed?.type === 'PartialTranscript' || parsed?.type === 'FinalTranscript' || parsed?.type === 'Turn') {
+            console.debug('[AssemblyAI] Transcript event', parsed.type);
+          }
           handleAsrMessage(parsed);
         } catch {
           // Ignore unparsable messages
@@ -724,11 +893,23 @@ export default function InterviewRoomPage() {
 
       ws.onerror = () => {
         asrConnectedRef.current = false;
+        if (isListeningRef.current) {
+          setSttHealthState('unhealthy');
+        }
+        console.warn('[AssemblyAI] WS proxy error');
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         asrConnectedRef.current = false;
         wsRef.current = null;
+        if (isListeningRef.current) {
+          setSttHealthState('unhealthy');
+        }
+        console.warn('[AssemblyAI] WS proxy closed', {
+          code: event.code,
+          reason: event.reason || 'n/a',
+          wasClean: event.wasClean,
+        });
 
         if (!asrWantedRef.current || interviewEndedRef.current) {
           return;
@@ -820,6 +1001,13 @@ export default function InterviewRoomPage() {
 
       const pcm = data.pcm as ArrayBuffer;
       if (pcm && pcm.byteLength > 0) {
+        asrAudioChunkCountRef.current += 1;
+        if (asrAudioChunkCountRef.current === 1 || asrAudioChunkCountRef.current % 60 === 0) {
+          console.debug('[AssemblyAI] Sent audio chunk', {
+            count: asrAudioChunkCountRef.current,
+            bytes: pcm.byteLength,
+          });
+        }
         ws.send(pcm);
       }
     };
@@ -840,7 +1028,10 @@ export default function InterviewRoomPage() {
   const startListening = useCallback(async () => {
     await ensureASRSession();
     resetCurrentAnswerBuffers();
+    asrAudioChunkCountRef.current = 0;
     answerWindowStartMsRef.current = Date.now();
+    lastTranscriptAtRef.current = 0;
+    setSttHealthState('healthy');
     acceptAsrTurnsRef.current = true;
     lastSpeechTimeRef.current = Date.now();
     setIsListening(true);
@@ -853,6 +1044,7 @@ export default function InterviewRoomPage() {
     acceptAsrTurnsRef.current = false;
     setIsListening(false);
     isListeningRef.current = false;
+    setSttHealthState('idle');
     pauseAudioStreaming(true);
   }, [clearSilenceTimeout, pauseAudioStreaming]);
 
@@ -1026,6 +1218,7 @@ export default function InterviewRoomPage() {
 
     askedQuestionKeysRef.current.add(normalized);
     currentQuestionTextRef.current = question;
+    questionRetryCountRef.current.set(normalized, 0);
 
     setCurrentQuestionIndex(nextIndex);
     pendingFeedbackRef.current = null;
@@ -1084,6 +1277,7 @@ export default function InterviewRoomPage() {
     const question = questions[selectedIndex];
     askedQuestionKeysRef.current.add(normalizeQuestionKey(question));
     currentQuestionTextRef.current = question;
+    questionRetryCountRef.current.set(normalizeQuestionKey(question), 0);
 
     if (selectedIndex !== currentQuestionIndex) {
       setCurrentQuestionIndex(selectedIndex);
@@ -1129,38 +1323,18 @@ export default function InterviewRoomPage() {
       .replace(/\s+([.,!?])/g, '$1')
       .trim();
 
-    if (!cleaned) {
-      return isLastQuestion ? '' : 'Thanks, I captured your response.';
-    }
-
     return cleaned;
   }, []);
 
-  const getAdaptiveFeedback = useCallback(async (answerText: string): Promise<AdaptiveFeedbackResult> => {
-    const fallbackForNoIdea = looksLikeNoIdeaAnswer(answerText);
-
-    const fallback: AdaptiveFeedbackResult = fallbackForNoIdea
-      ? {
-          feedback: 'Thanks for being honest. Share what you would try first, even if you are not fully sure.',
-          shouldRetryCurrentQuestion: true,
-        }
-      : answerText.trim().length < 35
-        ? {
-            feedback: 'I captured a short answer. Please add one concrete example or detail before we move ahead.',
-            shouldRetryCurrentQuestion: true,
-          }
-        : {
-            feedback: 'Thanks, I captured your response.',
-            shouldRetryCurrentQuestion: false,
-          };
-
+  const requestAiTurn = useCallback(async (
+    eventType: 'start' | 'answer' | 'silence_prompt' | 'low_confidence' | 'system',
+    answerText: string,
+  ): Promise<AdaptiveFeedbackResult> => {
+    setIsAIThinking(true);
     try {
-      const conversationHistory = messagesRef.current
-        .filter((item) => item.role === 'ai' || item.role === 'user')
-        .map((item) => ({
-          question: item.role === 'ai' ? item.content : '',
-          answer: item.role === 'user' ? item.content : '',
-        }));
+      const conversationHistory = buildConversationHistory(
+        messagesRef.current.filter((item) => item.role === 'ai' || item.role === 'user'),
+      );
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 9000);
@@ -1169,13 +1343,19 @@ export default function InterviewRoomPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          currentQuestion: currentQuestionTextRef.current || (session?.questions_generated?.[currentQuestionIndex] || ''),
+          currentQuestion: currentQuestionTextRef.current || '',
           answer: answerText,
           jobTitle: session?.position || '',
           company: session?.company_name || '',
           resumeText: resumeText || '',
           conversationHistory,
-          questionsAnswered: currentQuestionIndex + 1,
+          questionsAnswered: conversationHistory.filter((item) => item.answer).length,
+          questionAttempts: (() => {
+            const key = normalizeQuestionKey(currentQuestionTextRef.current || '');
+            return key ? questionRetryCountRef.current.get(key) || 0 : 0;
+          })(),
+          referenceQuestions: session?.questions_generated || [],
+          eventType,
         }),
         signal: controller.signal,
       });
@@ -1183,38 +1363,44 @@ export default function InterviewRoomPage() {
       clearTimeout(timeout);
 
       if (!response.ok) {
-        return fallback;
+        return { feedback: '', shouldRetryCurrentQuestion: false };
       }
 
       const payload = await response.json();
       const feedback = String(payload.contentFeedback || '').trim();
       const nextQuestion = String(payload.nextQuestion || '').trim();
       const shouldRetryCurrentQuestion = Boolean(payload.shouldRetryQuestion);
+      const isInterviewOver = Boolean(payload.isInterviewOver);
+      const nextQuestionKind = payload.nextQuestionKind as AdaptiveFeedbackResult['nextQuestionKind'];
 
-      if (!feedback) {
-        return {
-          ...fallback,
-          nextQuestion: nextQuestion || undefined,
-          shouldRetryCurrentQuestion,
-        };
-      }
+      console.info('[InterviewAgent] turn result', {
+        eventType,
+        answerWords: wordCount(answerText),
+        shouldRetryCurrentQuestion,
+        nextQuestionKind,
+        isInterviewOver,
+      });
 
       return {
         feedback,
         nextQuestion: nextQuestion || undefined,
+        nextQuestionKind,
         shouldRetryCurrentQuestion,
+        isInterviewOver,
       };
     } catch {
-      return fallback;
+      return { feedback: '', shouldRetryCurrentQuestion: false };
+    } finally {
+      setIsAIThinking(false);
     }
-  }, [currentQuestionIndex, resumeText, session?.company_name, session?.position, session?.questions_generated]);
+  }, [buildConversationHistory, normalizeQuestionKey, resumeText, session?.company_name, session?.position, session?.questions_generated]);
 
   const submitAnswer = useCallback(async () => {
     if (interviewEndedRef.current || isAISpeakingRef.current) return;
 
     const finalText = finalSegmentsRef.current.map((segment) => segment.text).join(' ').trim();
     const interimText = interimTranscriptRef.current.trim();
-    const answerText = [finalText, interimText].filter(Boolean).join(' ').trim();
+    const answerText = (draftAnswer || [finalText, interimText].filter(Boolean).join(' ')).trim();
 
     if (!answerText) return;
 
@@ -1229,14 +1415,16 @@ export default function InterviewRoomPage() {
     clearSilenceTimeout();
 
     if (avgConfidence !== null && avgConfidence < LOW_CONFIDENCE_THRESHOLD && answerText.length < 20) {
-      const lowConfidencePrompt = 'I did not catch that clearly. Please repeat your answer in one or two complete sentences.';
-      addMessage('ai', lowConfidencePrompt, {
-        transcript_source: 'system',
-        is_final: true,
-        confidence: avgConfidence,
-        flags: ['low_confidence_reprompt'],
-      });
-      await speakText(lowConfidencePrompt, { gender: 'female' });
+      const lowConfidence = await requestAiTurn('low_confidence', answerText);
+      if (lowConfidence.feedback) {
+        addMessage('ai', lowConfidence.feedback, {
+          transcript_source: 'system',
+          is_final: true,
+          confidence: avgConfidence,
+          flags: ['low_confidence_reprompt'],
+        });
+        await speakText(lowConfidence.feedback, { gender: 'female' });
+      }
       await startListening();
       return;
     }
@@ -1257,12 +1445,32 @@ export default function InterviewRoomPage() {
 
     resetCurrentAnswerBuffers();
 
-    const adaptiveFeedback = await getAdaptiveFeedback(answerText);
-    const totalQuestions = session?.questions_generated?.length || 0;
-    const isLastQuestion = totalQuestions > 0 && currentQuestionIndex >= totalQuestions - 1;
-    const sanitizedFeedback = sanitizeAdaptiveFeedback(adaptiveFeedback.feedback || '', isLastQuestion);
+    const adaptiveFeedback = await requestAiTurn('answer', answerText);
+    const sanitizedFeedback = sanitizeAdaptiveFeedback(adaptiveFeedback.feedback || '', false);
+    const currentQuestionKey = normalizeQuestionKey(currentQuestionTextRef.current || '');
+    const priorRetries = currentQuestionKey
+      ? questionRetryCountRef.current.get(currentQuestionKey) || 0
+      : 0;
+    const answerWords = wordCount(answerText);
+    const retryEligibleAnswer = looksLikeNoIdeaAnswer(answerText) || answerWords <= RETRY_ELIGIBLE_MAX_WORDS;
+    const shouldRetryCurrentQuestion = Boolean(
+      adaptiveFeedback.shouldRetryCurrentQuestion &&
+      retryEligibleAnswer &&
+      priorRetries < MAX_RETRY_PER_QUESTION,
+    );
 
-    if (adaptiveFeedback.shouldRetryCurrentQuestion) {
+    if (adaptiveFeedback.shouldRetryCurrentQuestion && !shouldRetryCurrentQuestion) {
+      console.info('[InterviewAgent] Ignoring retry to prevent loop.', {
+        priorRetries,
+        answerWords,
+        retryEligibleAnswer,
+      });
+    }
+
+    if (shouldRetryCurrentQuestion) {
+      if (currentQuestionKey) {
+        questionRetryCountRef.current.set(currentQuestionKey, priorRetries + 1);
+      }
       if (sanitizedFeedback) {
         addMessage('ai', sanitizedFeedback, {
           transcript_source: 'ai',
@@ -1274,67 +1482,49 @@ export default function InterviewRoomPage() {
       return;
     }
 
-    const nextIndex = currentQuestionIndex + 1;
-    setCurrentQuestionIndex(nextIndex);
-
     const adaptiveNextQuestion = adaptiveFeedback.nextQuestion;
     if (adaptiveFeedback.isInterviewOver) {
-      const closingMessage = 'Interview complete. Please click End to finish.';
-      addMessage('ai', closingMessage, {
-        transcript_source: 'ai',
-        is_final: true,
-      });
-      await speakText(closingMessage, { gender: 'female' });
+      const finalMessage = combineFeedbackWithQuestion(sanitizedFeedback, adaptiveNextQuestion || '');
+      if (finalMessage) {
+        addMessage('ai', finalMessage, {
+          transcript_source: 'ai',
+          is_final: true,
+        });
+        await speakText(finalMessage, { gender: 'female' });
+      }
       setInterviewEnded(true);
       interviewEndedRef.current = true;
       await saveTranscript();
       return;
     }
 
+    const combinedMessage = combineFeedbackWithQuestion(sanitizedFeedback, adaptiveNextQuestion || '');
+    if (combinedMessage) {
+      addMessage('ai', combinedMessage, {
+        transcript_source: 'ai',
+        is_final: true,
+      });
+      await speakText(combinedMessage, { gender: 'female' });
+    }
+
     if (adaptiveNextQuestion) {
-      const normalizedAdaptive = normalizeQuestionKey(adaptiveNextQuestion);
-      let duplicate = false;
-      if (normalizedAdaptive) {
-        duplicate = askedQuestionKeysRef.current.has(normalizedAdaptive);
-        if (!duplicate) {
-          for (const askedKey of askedQuestionKeysRef.current) {
-            if (questionSimilarity(normalizedAdaptive, askedKey) >= 0.84) {
-              duplicate = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!duplicate && normalizedAdaptive) {
-        const combinedMessage = sanitizedFeedback
-          ? combineFeedbackWithQuestion(sanitizedFeedback, adaptiveNextQuestion)
-          : adaptiveNextQuestion;
-        await askExplicitQuestion(adaptiveNextQuestion, nextIndex, combinedMessage);
-        return;
+      currentQuestionTextRef.current = adaptiveNextQuestion;
+      questionRetryCountRef.current.delete(currentQuestionKey);
+      const shouldCountMain = !adaptiveFeedback.nextQuestionKind ||
+        ['intro', 'resume', 'core'].includes(adaptiveFeedback.nextQuestionKind);
+      if (shouldCountMain) {
+        setCurrentQuestionIndex((prev) => prev + 1);
       }
     }
-
-    if (sanitizedFeedback) {
-      pendingFeedbackRef.current = sanitizedFeedback;
-    }
-    clearPendingNextQuestion();
-    pendingNextQuestionTimeoutRef.current = setTimeout(() => {
-      void askQuestion(nextIndex);
-    }, 400);
+    await startListening();
   }, [
     addMessage,
-    askExplicitQuestion,
-    askQuestion,
-    clearPendingNextQuestion,
     clearSilenceTimeout,
-    currentQuestionIndex,
-    getAdaptiveFeedback,
+    draftAnswer,
     normalizeQuestionKey,
-    questionSimilarity,
+    requestAiTurn,
     resetCurrentAnswerBuffers,
     sanitizeAdaptiveFeedback,
-    session?.questions_generated?.length,
     speakText,
     startListening,
     stopListening,
@@ -1386,6 +1576,28 @@ export default function InterviewRoomPage() {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
+
+  useEffect(() => {
+    if (!interviewStarted || interviewEnded) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (!isListeningRef.current || isAISpeakingRef.current) {
+        return;
+      }
+
+      const now = Date.now();
+      const answerStartedAt = answerWindowStartMsRef.current || now;
+      const sinceAnswerStart = now - answerStartedAt;
+      const sinceLastTranscript = lastTranscriptAtRef.current ? now - lastTranscriptAtRef.current : Number.POSITIVE_INFINITY;
+
+      const unhealthy = sinceAnswerStart >= STT_HEALTH_TIMEOUT_MS && sinceLastTranscript >= STT_HEALTH_TIMEOUT_MS;
+      setSttHealthState(unhealthy ? 'unhealthy' : 'healthy');
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [interviewEnded, interviewStarted]);
 
   useEffect(() => {
     interviewEndedRef.current = interviewEnded;
@@ -1478,18 +1690,21 @@ export default function InterviewRoomPage() {
       }
 
       lastLongSilencePromptRef.current = Date.now();
-      const prompt = 'Take your time. I am listening when you are ready to continue.';
-      addMessage('ai', prompt, {
-        transcript_source: 'system',
-        is_final: true,
-        flags: ['long_silence_prompt'],
-      });
-
-      void speakText(prompt, { gender: 'female' });
+      void (async () => {
+        const promptTurn = await requestAiTurn('silence_prompt', '');
+        const promptText = promptTurn.feedback || '';
+        if (!promptText) return;
+        addMessage('ai', promptText, {
+          transcript_source: 'system',
+          is_final: true,
+          flags: ['long_silence_prompt'],
+        });
+        await speakText(promptText, { gender: 'female' });
+      })();
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [addMessage, interviewEnded, interviewStarted, speakText]);
+  }, [addMessage, interviewEnded, interviewStarted, requestAiTurn, speakText]);
 
   useEffect(() => {
     return () => {
@@ -1506,27 +1721,47 @@ export default function InterviewRoomPage() {
     }
 
     setInterviewStarted(true);
+    setCurrentQuestionIndex(0);
     transcriptSavedRef.current = false;
     interviewEndedRef.current = false;
     askedQuestionKeysRef.current.clear();
+    questionRetryCountRef.current.clear();
     asrWantedRef.current = true;
+    const startTurn = await requestAiTurn('start', '');
 
-    const welcomeMessage = `Hello ${session?.candidate_name}. Welcome to your interview for the ${session?.position} position at ${session?.company_name}. I will ask a series of questions. Please answer clearly and with practical examples.`;
+    const welcomeText = buildGuaranteedWelcome(session?.candidate_name, startTurn.feedback || '');
+    const firstQuestion = isLikelyQuestion(startTurn.nextQuestion || '')
+      ? (startTurn.nextQuestion || '').trim()
+      : 'Tell me about yourself and your experience relevant to this role.';
+    const messageText = combineFeedbackWithQuestion(welcomeText, firstQuestion);
+    if (messageText) {
+      addMessage('ai', messageText, {
+        transcript_source: 'ai',
+        is_final: true,
+        flags: ['welcome_message'],
+      });
+      await speakText(messageText, { gender: 'female' });
+    }
 
-    addMessage('ai', welcomeMessage, {
-      transcript_source: 'ai',
-      is_final: true,
-      flags: ['welcome_message'],
-    });
-    await speakText(welcomeMessage, { gender: 'female' });
-
-    await askQuestion(0);
+    currentQuestionTextRef.current = firstQuestion;
+    questionRetryCountRef.current.set(normalizeQuestionKey(firstQuestion), 0);
+    const shouldCountMain = !startTurn.nextQuestionKind || ['intro', 'resume', 'core'].includes(startTurn.nextQuestionKind);
+    if (shouldCountMain) {
+      setCurrentQuestionIndex(1);
+    }
+    await startListening();
   };
 
   const endInterview = async () => {
     stopListening();
     clearPendingNextQuestion();
-    speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if ('speechSynthesis' in window) {
+      speechSynthesis.cancel();
+    }
 
     const endMessage = 'The interview has ended. Thank you for your time.';
     addMessage('ai', endMessage, {
@@ -1547,6 +1782,8 @@ export default function InterviewRoomPage() {
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const hasAnswerContent = Boolean(draftAnswer.trim()) || hasTranscriptContent;
 
   if (loading) {
     return (
@@ -1580,15 +1817,25 @@ export default function InterviewRoomPage() {
               <p className="text-xs text-gray-400">Duration</p>
               <p className="text-lg font-mono">{formatTime(elapsedTime)}</p>
             </div>
-            {session?.questions_generated && (
-              <div className="text-center">
-                <p className="text-xs text-gray-400">Question</p>
-                <p className="text-lg">{Math.min(currentQuestionIndex + 1, session.questions_generated.length)}/{session.questions_generated.length}</p>
-              </div>
-            )}
+            <div className="text-center">
+              <p className="text-xs text-gray-400">Question</p>
+              <p className="text-lg">{Math.min(currentQuestionIndex, MAIN_QUESTION_TARGET)}/{MAIN_QUESTION_TARGET}</p>
+            </div>
             <div className="text-center">
               <p className="text-xs text-gray-400">Speech State</p>
               <p className="text-sm uppercase tracking-wide">{endpointState.replace('_', ' ')}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-400">STT Health</p>
+              <p className={`text-sm font-medium ${
+                sttHealthState === 'unhealthy'
+                  ? 'text-red-400'
+                  : sttHealthState === 'healthy'
+                    ? 'text-emerald-400'
+                    : 'text-gray-300'
+              }`}>
+                {sttHealthState}
+              </p>
             </div>
           </div>
         </div>
@@ -1715,23 +1962,50 @@ export default function InterviewRoomPage() {
                 </div>
               </div>
             ))}
+            {isAIThinking && (
+              <div className="flex justify-start">
+                <div className="max-w-[70%] p-3 rounded-xl bg-blue-900/60 text-white text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 bg-white/80 rounded-full animate-pulse"></span>
+                    <span>AI is thinking…</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
           {interviewStarted && !interviewEnded && (
             <div className="p-4 border-t border-gray-700">
-              {isListening && transcript && (
-                <div className="mb-3 p-3 bg-gray-700 rounded-lg text-sm">
-                  <p className="text-gray-300 italic">{transcript}</p>
-                </div>
-              )}
+              <div className="mb-3">
+                <label className="text-xs uppercase tracking-wide text-gray-400">Your Answer (Click to Edit)</label>
+                <textarea
+                  value={draftAnswer}
+                  onChange={(event) => {
+                    setDraftAnswer(event.target.value);
+                    if (!answerEdited) {
+                      setAnswerEdited(true);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (!answerEdited) {
+                      setAnswerEdited(true);
+                    }
+                  }}
+                  placeholder={isListening ? 'Listening… your answer will appear here.' : 'Type or edit your answer here before submitting.'}
+                  className="mt-2 w-full min-h-[96px] max-h-40 overflow-y-auto rounded-lg bg-gray-700/80 p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {isListening && transcript && !answerEdited && (
+                  <p className="mt-2 text-xs text-gray-400 italic">Live transcript is updating while you speak.</p>
+                )}
+              </div>
 
               <div className="flex gap-2">
                 <button
                   onClick={submitAnswer}
-                  disabled={!hasTranscriptContent || isAISpeaking}
+                  disabled={!hasAnswerContent || isAISpeaking}
                   className={`flex-1 py-3 rounded-xl font-semibold transition ${
-                    hasTranscriptContent && !isAISpeaking
+                    hasAnswerContent && !isAISpeaking
                       ? 'bg-green-600 hover:bg-green-700'
                       : 'bg-gray-600 cursor-not-allowed'
                   }`}

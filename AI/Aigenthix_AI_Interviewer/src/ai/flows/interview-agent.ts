@@ -37,6 +37,9 @@ const InterviewAgentInputSchema = z.object({
   language: z.string().describe('The language for the interview and feedback.'),
   conversationHistory: z.array(InterviewHistorySchema).describe('The history of questions and answers so far.'),
   currentTranscript: z.string().describe("The user's latest answer to the most recent question."),
+  currentQuestion: z.string().optional().describe('The most recent interview question that the candidate answered.'),
+  eventType: z.enum(['start', 'answer', 'silence_prompt', 'low_confidence', 'system']).optional().describe('The type of interview event driving this response.'),
+  referenceQuestions: z.array(z.string()).optional().describe('Optional list of AI-generated job questions to use as a reference pool.'),
   videoFrameDataUri: z.string().optional().describe(
     "A single video frame captured when the user finishes their answer, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'. Use this to analyze visual presentation."
   ),
@@ -89,6 +92,8 @@ const InterviewAgentOutputSchema = z.object({
   overallScore: z.number().describe('Overall score for this answer (1-10)'),
   nextQuestion: z.string().describe('The next interview question to ask. If the interview is over, this should be a concluding remark or disqualification message.'),
   isInterviewOver: z.boolean().describe('Set to true if this is the final remark and the interview should conclude.'),
+  nextQuestionKind: z.enum(['intro', 'resume', 'core', 'followup', 'wrapup', 'closing', 'candidate', 'other']).optional()
+    .describe('Classification for the next question being asked.'),
   isDisqualified: z.boolean().optional().describe('Set to true if the candidate exited or stopped the interview before answering at least 5 real questions.'),
   // New fields for enhanced guidance
   isCorrectAnswer: z.boolean().describe('Whether the current answer is correct'),
@@ -163,33 +168,76 @@ const questionSimilarity = (a: string, b: string): number => {
   return union === 0 ? 0 : overlap / union;
 };
 
-const getFallbackQuestionPool = (jobRole: string, company: string): string[] => {
-  const roleContext = `${jobRole} ${company}`.toLowerCase();
-  if (roleContext.includes('hr') || roleContext.includes('interview')) {
-    return [
-      'Tell me about a time you resolved a conflict in your team.',
-      'How do you prioritize your work when deadlines overlap?',
-      'Describe a situation where you had to adapt quickly to change.'
-    ];
+const PROFANITY_TERMS = [
+  'fuck',
+  'shit',
+  'bitch',
+  'asshole',
+  'dick',
+  'cunt',
+  'motherfucker',
+  'bastard',
+  'slut',
+  'whore',
+  'fucker',
+  'fucking',
+  'bullshit',
+];
+
+const profanityRegex = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'i');
+const profanityGlobalRegex = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'gi');
+
+const containsProfanity = (text: string): boolean => {
+  if (!text) return false;
+  return profanityRegex.test(text);
+};
+
+const redactProfanity = (text: string): string => {
+  if (!text) return text;
+  return text.replace(profanityGlobalRegex, match => '*'.repeat(match.length));
+};
+
+const sanitizeInterviewInput = (input: InterviewAgentInput): InterviewAgentInput => {
+  return {
+    ...input,
+    currentTranscript: redactProfanity(input.currentTranscript || ''),
+    conversationHistory: (input.conversationHistory || []).map(entry => ({
+      ...entry,
+      answer: redactProfanity(entry.answer || ''),
+    })),
+  };
+};
+
+const scrubResumeLeakage = (text: string, resumeText: string): string => {
+  const output = (text || '').trim();
+  const resume = (resumeText || '').trim();
+  if (!output || !resume) return output;
+
+  const resumeLines = resume
+    .split(/\\r?\\n/)
+    .map(line => line.trim())
+    .filter(line => line.length >= 24);
+
+  let sanitized = output;
+  for (const line of resumeLines) {
+    const pattern = new RegExp(line.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'gi');
+    sanitized = sanitized.replace(pattern, '');
   }
-  if (
-    roleContext.includes('neet') ||
-    roleContext.includes('jee') ||
-    roleContext.includes('cat') ||
-    roleContext.includes('gmat') ||
-    roleContext.includes('gre') ||
-    roleContext.includes('exam')
-  ) {
-    return [
-      'What is your strategy when a timed question looks difficult at first glance?',
-      'How do you minimize careless mistakes during time pressure?',
-      'When do you decide to skip and return to a question later?'
-    ];
-  }
+
+  return sanitized.replace(/\\s{2,}/g, ' ').trim();
+};
+
+const getFallbackQuestionPool = (): string[] => {
   return [
-    'Describe a challenging technical problem you solved and how you approached it.',
-    'How do you debug issues when the root cause is unclear?',
-    'Tell me about a project decision where you had to balance speed and quality.'
+    'Walk me through a system you built end-to-end, including architecture and trade-offs.',
+    'Describe a production incident you handled and how you diagnosed and fixed it.',
+    'How do you design CI/CD for a service that requires zero-downtime deployments?',
+    'Explain how you monitor and scale a backend service under load.',
+    'Tell me about a time you improved reliability or latency. What metrics moved?',
+    'How do you secure secrets and manage configuration across environments?',
+    'Describe your approach to infrastructure as code and state management.',
+    'How do you design logging, metrics, and alerting for a production system?',
+    'Walk me through a performance bottleneck you identified and how you resolved it.',
   ];
 };
 
@@ -216,33 +264,51 @@ const enforceUniqueNextQuestion = (
   if (!isDuplicate) {
     return candidate;
   }
-
-  const fallbackQuestions = (fallbackPool && fallbackPool.length > 0)
+  const pool = (fallbackPool && fallbackPool.length > 0)
     ? fallbackPool
-    : getFallbackQuestionPool(input.jobRole, input.company);
-  for (const fallback of fallbackQuestions) {
-    const fallbackDuplicate = previousQuestions.some(previous => {
+    : getFallbackQuestionPool();
+  for (const fallback of pool) {
+    const cleanedFallback = (fallback || '').trim();
+    if (!cleanedFallback) continue;
+    const isFallbackDuplicate = previousQuestions.some(previous => {
+      const prevKey = normalizeQuestionForMatch(previous);
+      const fallbackKey = normalizeQuestionForMatch(cleanedFallback);
       return (
-        normalizeQuestionForMatch(previous) === normalizeQuestionForMatch(fallback) ||
-        questionSimilarity(previous, fallback) >= NEXT_QUESTION_SIMILARITY_THRESHOLD
+        prevKey === fallbackKey ||
+        questionSimilarity(previous, cleanedFallback) >= NEXT_QUESTION_SIMILARITY_THRESHOLD
       );
     });
-    if (!fallbackDuplicate) {
-      return fallback;
+    if (!isFallbackDuplicate) {
+      return cleanedFallback;
     }
   }
 
-  return 'Let us take a different angle. Can you share a specific example from your experience?';
+  return candidate;
 };
 
-const FOLLOWUP_BUDGET_MAX = 3;
-const RESUME_MIN_QUESTIONS = 3;
-const RESUME_MAX_QUESTIONS = 5;
-const BRIDGE_SIMILARITY_THRESHOLD = 0.75;
+const FOLLOWUP_BUDGET_MAX = 2;
+const MAIN_QUESTION_TARGET = 10;
+const RESUME_QUESTION_TARGET = 3;
+const RESUME_SEQUENCE_ORDER: ResumeAnchorType[] = ['experience', 'project', 'skill'];
 
 type ResumeAnchorType = 'experience' | 'project' | 'skill' | 'claim';
 type QuestionKind = 'intro' | 'resume' | 'core' | 'followup' | 'closing' | 'candidate' | 'wrapup' | 'other';
 type FollowupIntent = 'specificity' | 'ownership' | 'depth' | 'impact';
+
+interface NextQuestionPlan {
+  kind: QuestionKind;
+  isInterviewOver: boolean;
+  questionCategory: 'general-knowledge' | 'academics' | 'work-experience' | 'about-self';
+  followupIntent?: FollowupIntent;
+  resumeAnchor?: ResumeAnchor;
+  corePool: string[];
+  mainQuestionsAsked: number;
+  mainQuestionsTarget: number;
+  resumeTarget: number;
+  coreTarget: number;
+  followupBudgetRemaining: number;
+  reason: string;
+}
 
 interface ResumeAnchor {
   type: ResumeAnchorType;
@@ -251,6 +317,199 @@ interface ResumeAnchor {
   company?: string;
   role?: string;
 }
+
+const SOFT_SKILL_PATTERNS: RegExp[] = [
+  /\bteamwork\b/i,
+  /\btime management\b/i,
+  /\bcreative thinking\b/i,
+  /\bcommunication\b/i,
+  /\bleadership\b/i,
+  /\bproblem solving\b/i,
+  /\badaptability\b/i,
+  /\bcollaboration\b/i,
+  /\binterpersonal\b/i,
+  /\bcritical thinking\b/i,
+  /\bdecision making\b/i,
+  /\bself[-\s]?motivated\b/i,
+  /\bquick learner\b/i,
+  /\bhard[-\s]?working\b/i,
+  /\bdetail[-\s]?oriented\b/i,
+  /\bflexible\b/i,
+  /\bwork ethic\b/i,
+];
+
+const LOCATION_PATTERNS: RegExp[] = [
+  /\bremote\b/i,
+  /\bhybrid\b/i,
+  /\bon[-\s]?site\b/i,
+  /\brelocat(e|ion)\b/i,
+  /\blocation\b/i,
+  /\bbased in\b/i,
+  /\bunited states\b/i,
+  /\busa\b/i,
+  /\buk\b/i,
+  /\bunited kingdom\b/i,
+  /\bcanada\b/i,
+  /\baustralia\b/i,
+  /\bgermany\b/i,
+  /\bsingapore\b/i,
+  /\bindia\b/i,
+  /\bbangalore\b/i,
+  /\bbengaluru\b/i,
+  /\bmumbai\b/i,
+  /\bdelhi\b/i,
+  /\bhyderabad\b/i,
+  /\bchennai\b/i,
+  /\bpune\b/i,
+  /\bkolkata\b/i,
+  /\bnoida\b/i,
+  /\bgurgaon\b/i,
+  /\bgurugram\b/i,
+  /\bnew york\b/i,
+  /\bsan francisco\b/i,
+  /\blondon\b/i,
+];
+
+const isSoftSkill = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return true;
+  return SOFT_SKILL_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
+const isLocationLike = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return true;
+  return LOCATION_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
+const isDisallowedResumeAnchor = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return true;
+  return isSoftSkill(cleaned) || isLocationLike(cleaned);
+};
+
+const hashString = (value: string): number => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickVariant = (variants: string[], seed: number): string => {
+  if (!variants.length) return '';
+  return variants[seed % variants.length];
+};
+
+const pickRandomVariant = (variants: string[], seed?: number): string => {
+  if (!variants.length) return '';
+  if (typeof seed === 'number') {
+    return variants[Math.abs(seed) % variants.length];
+  }
+  return variants[Math.floor(Math.random() * variants.length)];
+};
+
+const buildResumeQuestion = (anchor?: ResumeAnchor): string => {
+  if (!anchor?.title) {
+    return 'Tell me about a recent technical project you built and the key decisions you made.';
+  }
+
+  const title = anchor.title;
+  const seed = hashString(`${anchor.type}:${title}`);
+
+  const experienceVariants = [
+    `You mentioned ${title}. What systems did you own there, and what technical decisions did you make?`,
+    `In ${title}, walk me through one system you delivered end-to-end, including constraints and trade-offs.`,
+    `For ${title}, what was the toughest technical problem you solved and how did you approach it?`,
+  ];
+
+  const projectVariants = [
+    `In ${title}, what was your role, and what architectural decisions did you make?`,
+    `For ${title}, describe the system design and why you chose that approach.`,
+    `In ${title}, what performance or reliability goals did you target, and how did you measure success?`,
+  ];
+
+  const skillVariants = [
+    `You listed ${title}. Describe a production use-case where you applied it and the outcome.`,
+    `How have you used ${title} in a real system? Walk me through the setup and trade-offs.`,
+    `Tell me about a project where ${title} was central—what did you build and how did it impact results?`,
+  ];
+
+  if (anchor.type === 'experience') {
+    return pickVariant(experienceVariants, seed);
+  }
+  if (anchor.type === 'project') {
+    return pickVariant(projectVariants, seed);
+  }
+  if (anchor.type === 'skill') {
+    return pickVariant(skillVariants, seed);
+  }
+  if (anchor.type === 'claim') {
+    return `You mentioned ${title}. What was the technical context and your contribution?`;
+  }
+  return `You mentioned ${title}. How have you applied it in a real project?`;
+};
+
+const buildFollowupQuestion = (intent: FollowupIntent | null, seed: number): string => {
+  const specificity = [
+    'Which components or tools did you personally handle, and what were the exact steps you took?',
+    'Can you walk me through the specific steps you executed, from start to finish?',
+    'What exact changes did you make, and where in the system did they apply?',
+  ];
+  const ownership = [
+    'What part did you personally implement, and why did you take that approach?',
+    'Which pieces were you directly responsible for, and how did you validate them?',
+    'What did you own end-to-end versus collaborate on, and why?',
+  ];
+  const depth = [
+    'What trade-offs did you consider, and why did you choose this design?',
+    'What alternatives did you evaluate, and why did you reject them?',
+    'How did you design for reliability, scalability, or latency in that work?',
+  ];
+  const impact = [
+    'What metric moved as a result, and by how much?',
+    'What was the measurable outcome—latency, cost, or reliability—and what changed?',
+    'How did you quantify the impact of that work?',
+  ];
+
+  const variants =
+    intent === 'ownership'
+      ? ownership
+      : intent === 'depth'
+        ? depth
+        : intent === 'impact'
+          ? impact
+          : specificity;
+
+  return pickVariant(variants, seed);
+};
+
+const buildClosingFitQuestion = (input: InterviewAgentInput): string => {
+  const role = (input.jobRole || '').trim() || 'this role';
+  const company = (input.company || '').trim();
+  const rolePhrase = role.toLowerCase().includes('role') ? role : `the ${role} role`;
+  const companyPhrase = company ? ` at ${company}` : '';
+  const base = role ? `${rolePhrase}${companyPhrase}` : `this role${companyPhrase}`;
+
+  const variants = [
+    `Why do you feel you are the right fit for ${base}?`,
+    `What makes you a strong match for ${base}?`,
+    `Why should we choose you for ${base}?`,
+    `What’s your strongest evidence that you’re a great fit for ${base}?`,
+    `How do your most relevant strengths align with ${base}?`,
+    `What differentiates you as a candidate for ${base}?`,
+  ];
+
+  return pickRandomVariant(variants);
+};
+
+const isQuestionLike = (text: string): boolean => {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return false;
+  if (cleaned.includes('?')) return true;
+  return /^(tell me|describe|explain|walk me through|how|what|why|when|where|which|can you|could you|do you|did you|would you|have you|give me|share|in your|i noticed|you mentioned|talk about)\b/i.test(cleaned);
+};
 
 interface ResumeProfile {
   skills: string[];
@@ -396,6 +655,9 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
 
   profile.experiences.slice(0, 4).forEach(exp => {
     const title = sanitizeAnchorLabel(exp.role && exp.company ? `${exp.role} at ${exp.company}` : exp.line);
+    if (!title || isDisallowedResumeAnchor(title)) {
+      return;
+    }
     const evidenceLine = sanitizeAnchorLabel(exp.line);
     anchors.push({
       type: 'experience',
@@ -408,6 +670,9 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
 
   profile.projects.slice(0, 4).forEach(project => {
     const title = sanitizeAnchorLabel(project.name ? project.name : project.line);
+    if (!title || isDisallowedResumeAnchor(title)) {
+      return;
+    }
     anchors.push({
       type: 'project',
       title,
@@ -417,7 +682,7 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
 
   profile.skills.slice(0, 8).forEach(skill => {
     const title = sanitizeAnchorLabel(skill);
-    if (title) {
+    if (title && !isDisallowedResumeAnchor(title)) {
       anchors.push({
         type: 'skill',
         title,
@@ -428,7 +693,7 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
 
   profile.claims.slice(0, 4).forEach(claim => {
     const title = sanitizeAnchorLabel(claim);
-    if (!title) return;
+    if (!title || isDisallowedResumeAnchor(title)) return;
     anchors.push({
       type: 'claim',
       title,
@@ -443,13 +708,13 @@ const selectResumeAnchors = (anchors: ResumeAnchor[]): ResumeAnchor[] => {
   const experience = anchors.filter(anchor => anchor.type === 'experience');
   const projects = anchors.filter(anchor => anchor.type === 'project');
   const skills = anchors.filter(anchor => anchor.type === 'skill');
-  const claims = anchors.filter(anchor => anchor.type === 'claim');
+  const claims: ResumeAnchor[] = [];
 
   const selected = [
     ...experience.slice(0, 2),
     ...projects.slice(0, 2),
     ...skills.slice(0, 1),
-    ...claims.slice(0, 1),
+    ...claims,
   ];
 
   const unique: ResumeAnchor[] = [];
@@ -470,8 +735,27 @@ const selectResumeAnchors = (anchors: ResumeAnchor[]): ResumeAnchor[] => {
   return unique;
 };
 
+const buildResumeSummary = (resumeText: string): string => {
+  const cleanedResume = (resumeText || '').trim();
+  if (!cleanedResume) return '';
+  const profile = extractResumeProfile(cleanedResume);
+  const anchors = selectResumeAnchors(buildResumeAnchors(profile, cleanedResume));
+  if (anchors.length === 0) return '';
+  return anchors
+    .map(anchor => {
+      const label = sanitizeAnchorLabel(anchor.title);
+      if (!label) return '';
+      if (anchor.type === 'experience' && anchor.company) {
+        return `${label} @ ${anchor.company}`.trim();
+      }
+      return label;
+    })
+    .filter(Boolean)
+    .join(' | ');
+};
+
 const isIntroQuestion = (question: string): boolean =>
-  /tell me about yourself|walk me through your background|introduce yourself/i.test(question || '');
+  /tell me about yourself|walk me through your background|introduce yourself|are you ready to begin|ready to begin|shall we get started|ready to start|welcome to/i.test(question || '');
 
 const isClosingQuestion = (question: string): boolean =>
   /why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|why are you a good fit|why do you think you'?re a strong fit|fit for this role|strong fit/i.test(
@@ -486,6 +770,11 @@ const isWrapupQuestion = (question: string): boolean =>
 
 const isFollowupCue = (question: string): boolean =>
   /(tell me more|elaborate|expand|go deeper|walk me through|what specifically|could you clarify|can you clarify|can you expand|can you share a concrete example|what part did you personally|what was your contribution|why did you choose)/i.test(question || '');
+
+const isFitQuestion = (question: string): boolean =>
+  /(fit for this role|right fit|strong (fit|match)|why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|what makes you a strong|what differentiates you|how do your strengths align)/i.test(
+    question || ''
+  );
 
 const isResumeCue = (question: string, resumeAnchors: ResumeAnchor[]): boolean => {
   if (!question) return false;
@@ -552,16 +841,16 @@ const detectAnswerQuality = (answer: string): { low: FollowupIntent | null } => 
 
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   const hasNumbers = /\d/.test(text);
-  const hasExamples = /(for example|for instance|e\.g\.)/i.test(text);
-  const hasOwnership = /\b(i|my|me|mine)\b/i.test(text);
-  const hasWe = /\bwe|our|us\b/i.test(text);
-  const hasDepth = /(trade-?off|architecture|design|system|pipeline|scalab|latency|performance|database|api|algorithm|debug|testing|framework|infrastructure)/i.test(text);
-  const hasImpact = /(improved|reduced|increased|impact|resulted|delivered|saved|percent|%|revenue|cost|time|latency|users)/i.test(text) || hasNumbers;
+  const hasExamples = /(for example|for instance|e\.g\.|such as|like)/i.test(text);
+  const hasOwnership = /\b(i|my|me|mine|i\'ve|i\'d)\b/i.test(text);
+  const hasWe = /\b(we|our|us)\b/i.test(text);
+  const hasDepth = /(trade-?off|architecture|design|system|pipeline|scalab|latency|performance|database|api|algorithm|debug|testing|framework|infrastructure|kubernetes|docker|aws|gcp|azure|ci\/cd|deploy|monitor|observability|metrics)/i.test(text);
+  const hasImpact = /(improved|reduced|increased|impact|resulted|delivered|saved|percent|%|revenue|cost|time|latency|users|availability|uptime)/i.test(text) || hasNumbers;
 
-  if (wordCount < 25 && !hasExamples) return { low: 'specificity' };
-  if (!hasOwnership && hasWe) return { low: 'ownership' };
-  if (!hasDepth) return { low: 'depth' };
-  if (!hasImpact) return { low: 'impact' };
+  if (wordCount < 18 && !hasExamples && !hasNumbers) return { low: 'specificity' };
+  if (wordCount >= 12 && !hasOwnership && hasWe) return { low: 'ownership' };
+  if (wordCount >= 14 && !hasDepth) return { low: 'depth' };
+  if (wordCount >= 18 && !hasImpact) return { low: 'impact' };
   return { low: null };
 };
 
@@ -578,133 +867,13 @@ const isDeferralAnswer = (answer: string): boolean => {
     /^i don\'t know\.?$/.test(text) ||
     /please proceed/.test(text) ||
     /next question/.test(text) ||
+    /harder question/.test(text) ||
+    /more complex/.test(text) ||
+    /give me.*question/.test(text) ||
     /move on/.test(text)
   );
 };
 
-const isTechnicalQuestion = (question: string): boolean => {
-  const text = (question || '').toLowerCase();
-  return /(kubernetes|k8s|docker|ci\/cd|pipeline|deployment|observability|logging|monitoring|terraform|ansible|infrastructure|architecture|design|trade-?off|latency|performance|database|microservices|cloud|aws|gcp|azure)/i.test(
-    text
-  );
-};
-
-const buildAnswerEcho = (answer: string, maxWords = 14): string => {
-  const cleaned = (answer || '').replace(/\s+/g, ' ').trim();
-  if (!cleaned) return '';
-  const words = cleaned.split(' ');
-  if (words.length <= maxWords) return cleaned;
-  return `${words.slice(0, maxWords).join(' ')}...`;
-};
-
-const normalizeFollowupIntent = (
-  intent: FollowupIntent,
-  lastKind: QuestionKind,
-  previousQuestion: string
-): FollowupIntent => {
-  if (lastKind === 'intro') return 'specificity';
-  if (lastKind === 'resume') {
-    if (intent === 'depth') return 'specificity';
-    return intent;
-  }
-  if (!isTechnicalQuestion(previousQuestion) && intent === 'depth') {
-    return 'specificity';
-  }
-  return intent;
-};
-
-const buildFollowupQuestion = (
-  intent: FollowupIntent,
-  previousQuestion: string,
-  lastKind: QuestionKind,
-  answer: string
-): string => {
-  const normalized = normalizeFollowupIntent(intent, lastKind, previousQuestion);
-  const echo = buildAnswerEcho(answer);
-  const prefix = echo ? `You said: "${echo}". ` : '';
-
-  if (lastKind === 'intro') {
-    return `${prefix}Can you share one concrete example from your DevOps work?`;
-  }
-
-  if (lastKind === 'resume') {
-    switch (normalized) {
-      case 'ownership':
-        return `${prefix}What part did you personally own in that role?`;
-      case 'impact':
-        return `${prefix}What measurable outcome came from that work?`;
-      case 'specificity':
-      default:
-        return `${prefix}Can you share a concrete example from that role?`;
-    }
-  }
-
-  switch (normalized) {
-    case 'ownership':
-      return `${prefix}What part did you personally own in that work?`;
-    case 'depth':
-      return `${prefix}What trade-offs did you consider, and why did you choose that approach?`;
-    case 'impact':
-      return `${prefix}What measurable outcome came from that effort?`;
-    case 'specificity':
-    default:
-      return `${prefix}Can you share a concrete example?`;
-  }
-};
-
-const buildResumeQuestion = (anchor: ResumeAnchor, intent: FollowupIntent | 'clarification' | 'timeline'): string => {
-  const anchorLabel = sanitizeAnchorLabel(anchor.title);
-  if (!anchorLabel || anchorLabel.length < 3) {
-    return 'I could not pull a specific item from your resume. Could you share one project or responsibility you are proud of?';
-  }
-  switch (anchor.type) {
-    case 'experience':
-      if (intent === 'ownership') {
-        return `I noticed in your resume you mentioned ${anchorLabel} - what did you personally own there?`;
-      }
-      if (intent === 'depth') {
-        return `In your ${anchorLabel} experience, what trade-offs did you consider and why?`;
-      }
-      if (intent === 'impact') {
-        return `What changed measurably because of your work at ${anchor.company || anchorLabel}?`;
-      }
-      if (intent === 'timeline') {
-        return `How did you transition into your role at ${anchor.company || anchorLabel}?`;
-      }
-      return `You mentioned ${anchorLabel}. What exactly did you build or deliver there?`;
-    case 'project':
-      if (intent === 'ownership') {
-        return `In the ${anchorLabel} project, which parts did you personally implement?`;
-      }
-      if (intent === 'depth') {
-        return `Why did you choose the approach you used in ${anchorLabel}?`;
-      }
-      if (intent === 'impact') {
-        return `What measurable impact did ${anchorLabel} have?`;
-      }
-      if (intent === 'timeline') {
-        return `How did the timeline for ${anchorLabel} evolve from start to finish?`;
-      }
-      return `I noticed in your resume you mentioned ${anchorLabel} - what exactly did you build?`;
-    case 'skill':
-      if (intent === 'ownership') {
-        return `You list ${anchorLabel}. What part did you personally own when using it?`;
-      }
-      if (intent === 'depth') {
-        return `How did you apply ${anchorLabel} in a real project, and what trade-offs did you face?`;
-      }
-      if (intent === 'impact') {
-        return `What measurable result did you achieve using ${anchorLabel}?`;
-      }
-      if (intent === 'timeline') {
-        return `When did you start using ${anchorLabel}, and how has your usage evolved?`;
-      }
-      return `You list ${anchorLabel}. Can you walk me through a concrete example of using it?`;
-    case 'claim':
-    default:
-      return `I noticed this on your resume: "${anchorLabel}". Can you unpack the specific work behind that?`;
-  }
-};
 
 const stripLeadingAcknowledgement = (question: string): string => {
   const trimmed = (question || '').trim();
@@ -716,6 +885,9 @@ const stripLeadingAcknowledgement = (question: string): string => {
     /^understood[,!\s-]+/i,
     /^great[,!\s-]+/i,
     /^appreciate (that|it)[,!\s-]+/i,
+    /^let['’]s continue[,!\s-]+/i,
+    /^moving on[,!\s-]+/i,
+    /^next question[,!\s-]+/i,
   ];
   let result = trimmed;
   for (const pattern of patterns) {
@@ -726,30 +898,15 @@ const stripLeadingAcknowledgement = (question: string): string => {
   return result || trimmed;
 };
 
-const selectBridge = (candidates: string[], recentQuestions: string[]): string => {
-  for (const candidate of candidates) {
-    const normalizedCandidate = normalizeForCompare(candidate);
-    const usedRecently = recentQuestions.some(question => {
-      const normalizedQuestion = normalizeForCompare(question);
-      return (
-        normalizedQuestion.startsWith(normalizedCandidate) ||
-        normalizedQuestion.includes(normalizedCandidate) ||
-        questionSimilarity(candidate, question) >= BRIDGE_SIMILARITY_THRESHOLD
-      );
-    });
-    if (!usedRecently) {
-      return candidate;
-    }
-  }
-  return '';
+const hasBannedFollowupPhrasing = (text: string): boolean => {
+  const cleaned = (text || '').toLowerCase();
+  return (
+    cleaned.includes('provide more') ||
+    cleaned.includes('provide specific') ||
+    cleaned.includes('please share your background')
+  );
 };
 
-const applyBridge = (bridge: string, question: string): string => {
-  if (!bridge) return question;
-  const trimmedQuestion = question.trim();
-  if (!trimmedQuestion) return bridge;
-  return `${bridge} ${trimmedQuestion}`;
-};
 
 const isExamInterview = (input: InterviewAgentInput): boolean => {
   const role = (input.jobRole || '').toLowerCase();
@@ -850,22 +1007,7 @@ const buildNeutralFeedback = (
   input: InterviewAgentInput,
   kind: QuestionKind
 ): string => {
-  const historyQuestions = input.conversationHistory.map(entry => entry.question || '').filter(Boolean);
-  const recentAiQuestions = historyQuestions.slice(-3);
-  const followupPool = [
-    'Let’s go a bit deeper on that.',
-    'Can you add a concrete example?',
-    'Walk me through your approach in more detail.',
-  ];
-  const transitionPool = [
-    'Let’s continue.',
-    'Moving on.',
-    'Next question.',
-  ];
-  const pool = kind === 'followup' ? followupPool : transitionPool;
-  const selected = selectBridge(pool, recentAiQuestions);
-  if (selected) return selected;
-  return kind === 'followup' ? 'Can you add a concrete example?' : 'Next question.';
+  return '';
 };
 
 const sanitizeContentFeedback = (
@@ -874,13 +1016,16 @@ const sanitizeContentFeedback = (
   kind: QuestionKind
 ): string => {
   const cleaned = (feedback || '').replace(/\s+/g, ' ').trim();
-  if (!cleaned) return buildNeutralFeedback(input, kind);
+  if (!cleaned) return '';
 
   const ackPatterns = [
     /thanks[,!]? i (?:captured|recorded) your response/i,
     /thank you[,!]? i (?:captured|recorded) your response/i,
     /thanks[,!]? i (?:got|received) it/i,
     /thanks for (?:sharing|answering)/i,
+    /^let['’]s continue\b/i,
+    /^moving on\b/i,
+    /^next question\b/i,
   ];
   if (ackPatterns.some(pattern => pattern.test(cleaned))) {
     return buildNeutralFeedback(input, kind);
@@ -889,33 +1034,75 @@ const sanitizeContentFeedback = (
   return cleaned;
 };
 
+const buildFallbackQuestionFromPlan = (
+  plan: NextQuestionPlan,
+  input?: InterviewAgentInput
+): string => {
+  if (plan.isInterviewOver) {
+    return 'Thank you for completing the interview. We appreciate your time and will share the outcome soon.';
+  }
+
+  if (plan.kind === 'core' && plan.corePool.length > 0) {
+    return plan.corePool[0];
+  }
+
+  if (plan.kind === 'core' && plan.corePool.length === 0) {
+    const pool = getFallbackQuestionPool();
+    if (pool.length > 0) {
+      const seed = Math.max(0, plan.mainQuestionsAsked || 0);
+      return pool[seed % pool.length];
+    }
+    return 'Describe a technical project you worked on recently and your specific contribution.';
+  }
+
+  if (plan.kind === 'intro') {
+    return 'Hello, welcome to the interview. Could you briefly introduce yourself and your experience relevant to this role?';
+  }
+
+  if (plan.kind === 'resume' && plan.resumeAnchor?.title) {
+    return buildResumeQuestion(plan.resumeAnchor);
+  }
+
+  if (plan.kind === 'followup') {
+    const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
+    return buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
+  }
+
+  if (plan.kind === 'closing') {
+    return buildClosingFitQuestion(input || ({} as InterviewAgentInput));
+  }
+
+  return '';
+};
+
 const planNextQuestion = (
   input: InterviewAgentInput,
   referenceQuestions?: string
-): { orchestration: { nextQuestion: string; isInterviewOver: boolean; kind: QuestionKind; questionCategory: 'general-knowledge' | 'academics' | 'work-experience' | 'about-self' }; nextQuestion: string } => {
+): { plan: NextQuestionPlan; fallbackQuestion: string } => {
   const historyQuestions = input.conversationHistory.map(entry => entry.question || '').filter(Boolean);
   const isExam = isExamInterview(input);
-  const orchestration = isExam
-    ? {
-        nextQuestion: selectCoreQuestion(
-          parseReferenceQuestions(referenceQuestions),
-          historyQuestions,
-          input.jobRole || 'General',
-          input.company || ''
-        ),
-        isInterviewOver: false,
-        kind: 'core' as QuestionKind,
-        questionCategory: getQuestionCategory('core', 'other'),
-      }
-    : orchestrateJobInterviewNextQuestion(input, referenceQuestions);
 
-  const nextQuestion = enforceUniqueNextQuestion(
-    orchestration.nextQuestion,
-    input,
-    orchestration.isInterviewOver
-  );
+  if (isExam) {
+    const referencePool = parseReferenceQuestions(referenceQuestions);
+    const unusedPool = filterUnusedReferenceQuestions(referencePool, historyQuestions);
+    const plan: NextQuestionPlan = {
+      kind: 'core',
+      isInterviewOver: false,
+      questionCategory: getQuestionCategory('core', 'other'),
+      corePool: unusedPool,
+      mainQuestionsAsked: historyQuestions.length,
+      mainQuestionsTarget: Math.max(input.minQuestionsRequired || 8, MAIN_QUESTION_TARGET),
+      resumeTarget: 0,
+      coreTarget: Math.max(input.minQuestionsRequired || 8, MAIN_QUESTION_TARGET),
+      followupBudgetRemaining: FOLLOWUP_BUDGET_MAX,
+      reason: 'exam_flow',
+    };
 
-  return { orchestration, nextQuestion };
+    return { plan, fallbackQuestion: buildFallbackQuestionFromPlan(plan, input) };
+  }
+
+  const plan = orchestrateJobInterviewNextQuestion(input, referenceQuestions);
+  return { plan, fallbackQuestion: buildFallbackQuestionFromPlan(plan, input) };
 };
 
 type LlmEvaluation = Partial<{
@@ -933,6 +1120,9 @@ type LlmEvaluation = Partial<{
   shouldRetryQuestion: boolean;
   hint: string;
   explanation: string;
+  nextQuestion: string;
+  isInterviewOver: boolean;
+  nextQuestionKind: QuestionKind;
 }>;
 
 const parseJsonFromContent = (content: string): LlmEvaluation | null => {
@@ -951,29 +1141,85 @@ const parseJsonFromContent = (content: string): LlmEvaluation | null => {
   }
 };
 
-const buildEvaluationPrompt = (input: InterviewAgentInput): { system: string; user: string } => {
+const buildEvaluationPrompt = (
+  input: InterviewAgentInput,
+  plan: NextQuestionPlan
+): { system: string; user: string } => {
   const lastQuestion = getLastQuestion(input.conversationHistory);
   const answer = (input.currentTranscript || '').trim();
   const role = (input.jobRole || '').trim() || 'General';
   const company = (input.company || '').trim();
-  const resumeSnippet = (input.resumeText || '').trim().slice(0, 1200);
+  const resumeSummary = buildResumeSummary(input.resumeText || '');
+  const referenceQuestions = (input.referenceQuestions || []).slice(0, 12);
+  const eventType = input.eventType || 'answer';
 
   const system = [
     'You are a professional interview coach.',
     'Return ONLY valid JSON, no prose.',
     'Use concise, constructive feedback (1-2 sentences max per field).',
-    'Do NOT include generic acknowledgements like "Thanks, I captured your response."',
+    'Do NOT include generic acknowledgements or canned phrases.',
+    'Avoid phrases like "provide more", "provide specific", or "please share your background".',
+    'Keep questions technical and concrete; avoid soft-skill-only or location-based questions.',
+    'Do not repeat previous questions; if it is similar, choose a different angle.',
+    'When asking a closing fit-for-role question, vary the wording each time (do not repeat the same phrasing).',
+    'Do NOT quote or repeat resume text verbatim.',
+    'Do NOT list the full resume or resume summary in your response.',
+    'Do NOT repeat the candidate answer verbatim; if you echo, limit to 8 words.',
+    'Ensure nextQuestion is a single message with any short transition included.',
+    'nextQuestion must be a clear question ending with a question mark.',
   ].join(' ');
 
+  const planPayload = {
+    next_kind: plan.kind,
+    is_interview_over: plan.isInterviewOver,
+    main_questions_asked: plan.mainQuestionsAsked,
+    main_questions_target: plan.mainQuestionsTarget,
+    resume_target: plan.resumeTarget,
+    core_target: plan.coreTarget,
+    followup_budget_remaining: plan.followupBudgetRemaining,
+    followup_intent: plan.followupIntent || null,
+    resume_anchor: plan.resumeAnchor
+      ? {
+          title: plan.resumeAnchor.title,
+          type: plan.resumeAnchor.type,
+          evidence: plan.resumeAnchor.evidenceLine,
+        }
+      : null,
+    core_question_pool: plan.corePool.slice(0, 10),
+    reason: plan.reason,
+  };
+
   const userLines = [
+    `Event: ${eventType}`,
     `Role: ${role}`,
     company ? `Company: ${company}` : 'Company: (not provided)',
-    lastQuestion ? `Question: ${lastQuestion}` : 'Question: (not provided)',
+    (input.currentQuestion || lastQuestion)
+      ? `Question: ${input.currentQuestion || lastQuestion}`
+      : 'Question: (not provided)',
     answer ? `Answer: ${answer}` : 'Answer: (empty)',
-    resumeSnippet ? `Resume (excerpt): ${resumeSnippet}` : 'Resume: (not provided)',
+    resumeSummary ? `Resume summary: ${resumeSummary}` : 'Resume summary: (not provided)',
+    referenceQuestions.length
+      ? `Reference questions (prefer these for core questions): ${referenceQuestions.join(' | ')}`
+      : 'Reference questions: (not provided)',
+    `NextQuestionPlan: ${JSON.stringify(planPayload)}`,
+    '',
+    'Event handling rules:',
+    '- If Event=start: contentFeedback = short welcome (1-2 sentences), nextQuestion = first interview question.',
+    '- If Event=silence_prompt: contentFeedback = brief nudge to continue, nextQuestion empty, shouldRetryQuestion=true.',
+    '- If Event=low_confidence: contentFeedback = ask to repeat clearly, nextQuestion empty, shouldRetryQuestion=true.',
+    '- If Event=answer: analyze answer quality and generate nextQuestion.',
+    '',
+    'Next question rules:',
+    '- Obey NextQuestionPlan.next_kind. If it is wrapup, set isInterviewOver=true and nextQuestion as a short closing statement (not a question).',
+    '- If next_kind=core and core_question_pool is non-empty, choose ONE question verbatim from the pool (prefer the first unused).',
+    '- If next_kind=resume, ask about resume_anchor.title without quoting the resume evidence line; focus on technical ownership, design decisions, and measurable impact.',
+    '- If next_kind=followup, ask one probing technical follow-up aligned to followup_intent (specificity, ownership, depth, or impact). Avoid "provide more" phrasing.',
+    '- If next_kind=intro, greet briefly and ask a concise first question (warm, professional, and question ends with ?).',
+    '- If next_kind=closing, ask a fit-for-role question (why a strong fit / why choose you / strongest evidence) with varied wording. Keep it a question and set isInterviewOver=false.',
+    '- Never output multiple questions; keep nextQuestion to one question only.',
     '',
     'Return JSON with keys:',
-    'contentFeedback, toneFeedback, clarityFeedback, ideasScore, organizationScore, accuracyScore, voiceScore, grammarScore, stopWordsScore, overallScore, isCorrectAnswer, shouldRetryQuestion, hint, explanation',
+    'contentFeedback, toneFeedback, clarityFeedback, ideasScore, organizationScore, accuracyScore, voiceScore, grammarScore, stopWordsScore, overallScore, isCorrectAnswer, shouldRetryQuestion, hint, explanation, nextQuestion, isInterviewOver',
     'Scores are 1-10. Set shouldRetryQuestion to true only if the answer is extremely short or irrelevant.',
   ];
 
@@ -1012,6 +1258,9 @@ const callOpenAICompatible = async (options: {
         shouldRetryQuestion: { type: 'boolean' },
         hint: { type: 'string' },
         explanation: { type: 'string' },
+        nextQuestion: { type: 'string' },
+        isInterviewOver: { type: 'boolean' },
+        nextQuestionKind: { type: 'string' },
       },
       required: [
         'contentFeedback',
@@ -1026,6 +1275,8 @@ const callOpenAICompatible = async (options: {
         'overallScore',
         'isCorrectAnswer',
         'shouldRetryQuestion',
+        'nextQuestion',
+        'isInterviewOver',
       ],
     },
   };
@@ -1071,7 +1322,8 @@ const mergeEvaluation = (
   base: InterviewAgentOutput,
   evaluation: LlmEvaluation | null,
   input: InterviewAgentInput,
-  kind: QuestionKind
+  kind: QuestionKind,
+  plan: NextQuestionPlan
 ): InterviewAgentOutput => {
   if (!evaluation) {
     return {
@@ -1108,11 +1360,58 @@ const mergeEvaluation = (
   if (typeof evaluation.shouldRetryQuestion === 'boolean') updated.shouldRetryQuestion = evaluation.shouldRetryQuestion;
   if (typeof evaluation.hint === 'string' && evaluation.hint.trim()) updated.hint = evaluation.hint.trim();
   if (typeof evaluation.explanation === 'string' && evaluation.explanation.trim()) updated.explanation = evaluation.explanation.trim();
-
-  if (base.isInterviewOver) {
-    updated.shouldRetryQuestion = true;
-    updated.contentFeedback = 'Interview complete. Please click End to finish.';
+  if (typeof evaluation.nextQuestion === 'string' && evaluation.nextQuestion.trim()) {
+    updated.nextQuestion = evaluation.nextQuestion.trim();
   }
+  if (typeof evaluation.isInterviewOver === 'boolean') {
+    updated.isInterviewOver = evaluation.isInterviewOver;
+  }
+
+  if (base.isInterviewOver || plan.isInterviewOver) {
+    updated.isInterviewOver = true;
+  }
+
+  if (!updated.nextQuestion) {
+    updated.nextQuestion = buildFallbackQuestionFromPlan(plan, input);
+  }
+
+  if (plan.kind === 'resume') {
+    updated.nextQuestion = buildResumeQuestion(plan.resumeAnchor);
+  }
+  if (plan.kind === 'closing') {
+    if (!updated.nextQuestion || !isFitQuestion(updated.nextQuestion)) {
+      updated.nextQuestion = buildClosingFitQuestion(input);
+    }
+  }
+
+  if (updated.nextQuestion) {
+    updated.nextQuestion = stripLeadingAcknowledgement(updated.nextQuestion);
+    if (plan.kind === 'core' && plan.corePool.length > 0) {
+      const matched = findMatchingCoreQuestion(updated.nextQuestion, plan.corePool);
+      updated.nextQuestion = matched || plan.corePool[0];
+    }
+    if (plan.kind === 'followup' && hasBannedFollowupPhrasing(updated.nextQuestion)) {
+      const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
+      updated.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
+    }
+    updated.nextQuestion = enforceUniqueNextQuestion(
+      updated.nextQuestion,
+      input,
+      updated.isInterviewOver,
+      plan.corePool
+    );
+  }
+
+  if (!updated.isInterviewOver && !isQuestionLike(updated.nextQuestion)) {
+    updated.nextQuestion = buildFallbackQuestionFromPlan(plan, input);
+  }
+
+  if (input.resumeText) {
+    updated.contentFeedback = scrubResumeLeakage(updated.contentFeedback || '', input.resumeText);
+    updated.nextQuestion = scrubResumeLeakage(updated.nextQuestion || '', input.resumeText);
+  }
+
+  updated.nextQuestionKind = plan.kind;
 
   return updated;
 };
@@ -1120,20 +1419,19 @@ const mergeEvaluation = (
 const buildFallbackOutput = (
   input: InterviewAgentInput,
   referenceQuestions?: string
-): InterviewAgentOutput => {
-  const { orchestration, nextQuestion } = planNextQuestion(input, referenceQuestions);
+): { output: InterviewAgentOutput; plan: NextQuestionPlan } => {
+  const { plan, fallbackQuestion } = planNextQuestion(input, referenceQuestions);
 
   const baseScore = scoreFromAnswer(input.currentTranscript || '');
   const presentationScore = clampNumber(Math.round(baseScore / 2), 1, 5);
-  const neutralFeedback = orchestration.isInterviewOver
-    ? 'Interview complete. Please click End to finish.'
-    : buildNeutralFeedback(input, orchestration.kind);
 
   return {
-    contentFeedback: sanitizeContentFeedback(neutralFeedback, input, orchestration.kind),
-    toneFeedback: 'Tone feedback is limited in fallback mode.',
-    clarityFeedback: 'Clarity feedback is limited in fallback mode.',
-    visualFeedback: 'Visual feedback unavailable in this session.',
+    plan,
+    output: {
+      contentFeedback: '',
+      toneFeedback: 'Tone feedback is limited in fallback mode.',
+      clarityFeedback: 'Clarity feedback is limited in fallback mode.',
+      visualFeedback: 'Visual feedback unavailable in this session.',
     physicalAppearanceScore: presentationScore,
     physicalAppearanceJustification: 'Visual signal not available.',
     bodyLanguageScore: presentationScore,
@@ -1152,13 +1450,15 @@ const buildFallbackOutput = (
     grammarJustification: 'Grammar score estimated in fallback mode.',
     stopWordsScore: baseScore,
     stopWordsJustification: 'Stop word score estimated in fallback mode.',
-    questionCategory: orchestration.questionCategory,
+    questionCategory: plan.questionCategory,
     overallScore: baseScore,
-    nextQuestion,
-    isInterviewOver: orchestration.isInterviewOver,
+    nextQuestion: fallbackQuestion,
+    isInterviewOver: plan.isInterviewOver,
+    nextQuestionKind: plan.kind,
     isCorrectAnswer: true,
-    shouldRetryQuestion: orchestration.isInterviewOver ? true : false,
+    shouldRetryQuestion: false,
     isNextQuestionCurrentAffairs: false,
+    },
   };
 };
 
@@ -1173,11 +1473,14 @@ const getQuestionCategory = (kind: QuestionKind, lastKind: QuestionKind): 'gener
   return 'general-knowledge';
 };
 
-const parseReferenceQuestions = (referenceQuestions: string | undefined): string[] => {
+const parseReferenceQuestions = (referenceQuestions?: string | string[]): string[] => {
   if (!referenceQuestions) return [];
-  return referenceQuestions
-    .split('\n')
-    .map(line => line.replace(/^\[[^\]]+\]\s*/g, '').trim())
+  const rawList = Array.isArray(referenceQuestions)
+    ? referenceQuestions
+    : [referenceQuestions];
+  const lines = rawList.flatMap(item => String(item).split('\n'));
+  return lines
+    .map(line => String(line).replace(/^\[[^\]]+\]\s*/g, '').trim())
     .filter(Boolean);
 };
 
@@ -1193,18 +1496,50 @@ const selectCoreQuestion = (
       return question;
     }
   }
-  const fallbackPool = getFallbackQuestionPool(jobRole, company);
-  for (const fallback of fallbackPool) {
-    if (!normalizedHistory.includes(normalizeForCompare(fallback))) {
-      return fallback;
+  return '';
+};
+
+const filterUnusedReferenceQuestions = (
+  referenceQuestions: string[],
+  historyQuestions: string[]
+): string[] => {
+  if (!referenceQuestions.length) return [];
+  return referenceQuestions.filter(candidate => {
+    const normalizedCandidate = normalizeForCompare(candidate);
+    if (!normalizedCandidate) return false;
+    return !historyQuestions.some(previous => {
+      const normalizedPrev = normalizeForCompare(previous);
+      if (!normalizedPrev) return false;
+      if (normalizedPrev === normalizedCandidate) return true;
+      return questionSimilarity(previous, candidate) >= NEXT_QUESTION_SIMILARITY_THRESHOLD;
+    });
+  });
+};
+
+const findMatchingCoreQuestion = (
+  candidate: string,
+  referenceQuestions: string[]
+): string | null => {
+  if (!candidate) return null;
+  const normalizedCandidate = normalizeForCompare(candidate);
+  for (const question of referenceQuestions) {
+    const normalizedQuestion = normalizeForCompare(question);
+    if (!normalizedQuestion) continue;
+    if (normalizedQuestion === normalizedCandidate) return question;
+    if (questionSimilarity(question, candidate) >= NEXT_QUESTION_SIMILARITY_THRESHOLD) {
+      return question;
     }
   }
-  return 'Tell me about a project where you had to balance quality and speed.';
+  return null;
 };
 
 const selectUnusedAnchor = (anchors: ResumeAnchor[], historyQuestions: string[]): ResumeAnchor | undefined => {
   const normalizedHistory = historyQuestions.map(question => normalizeForCompare(question));
-  for (const anchor of anchors) {
+  const priority = anchors.filter(anchor => anchor.type === 'experience' || anchor.type === 'project');
+  const fallback = anchors.filter(anchor => anchor.type !== 'experience' && anchor.type !== 'project');
+  const ordered = priority.length > 0 ? [...priority, ...fallback] : anchors;
+
+  for (const anchor of ordered) {
     const key = normalizeForCompare(anchor.title);
     const used = normalizedHistory.some(question => {
       if (key && question.includes(key)) return true;
@@ -1214,31 +1549,60 @@ const selectUnusedAnchor = (anchors: ResumeAnchor[], historyQuestions: string[])
     });
     if (!used) return anchor;
   }
-  return anchors[0];
+  return undefined;
+};
+
+const selectUnusedAnchorByType = (
+  anchors: ResumeAnchor[],
+  historyQuestions: string[],
+  type: ResumeAnchorType
+): ResumeAnchor | undefined => {
+  const filtered = anchors.filter(anchor => anchor.type === type);
+  if (filtered.length === 0) return undefined;
+  return selectUnusedAnchor(filtered, historyQuestions);
+};
+
+const getAskedResumeTypes = (
+  historyQuestions: string[],
+  resumeAnchors: ResumeAnchor[]
+): Set<ResumeAnchorType> => {
+  const asked = new Set<ResumeAnchorType>();
+  const normalizedHistory = historyQuestions.map(question => normalizeForCompare(question));
+  resumeAnchors.forEach(anchor => {
+    const key = normalizeForCompare(anchor.title);
+    if (!key) return;
+    const wasAsked = normalizedHistory.some(question => {
+      if (question.includes(key)) return true;
+      if (anchor.company && question.includes(normalizeForCompare(anchor.company))) return true;
+      if (anchor.role && question.includes(normalizeForCompare(anchor.role))) return true;
+      return false;
+    });
+    if (wasAsked) {
+      asked.add(anchor.type);
+    }
+  });
+  return asked;
 };
 
 const orchestrateJobInterviewNextQuestion = (
   flowInput: InterviewAgentInput,
   referenceQuestions: string | undefined
-) => {
+): NextQuestionPlan => {
   const flags = {
     resumeProbe: process.env.INTERVIEW_RESUME_PROBE_ENABLED !== 'false',
     followup: process.env.INTERVIEW_FOLLOWUP_ENABLED !== 'false',
-    dynamicAck: process.env.INTERVIEW_DYNAMIC_ACK_ENABLED !== 'false',
   };
-
-  const minQuestionsRequired = Math.max(flowInput.minQuestionsRequired || 8, 10);
 
   const historyQuestions = flowInput.conversationHistory
     .map(entry => entry.question || '')
     .filter(text => isLikelyInterviewQuestion(text));
-  const recentAiQuestions = historyQuestions.slice(-3);
 
   const resumeText = flowInput.resumeText || '';
   const resumeHasData = flowInput.hasResumeData ?? (resumeText.trim().length > 50);
   const resumeProfile = resumeHasData ? extractResumeProfile(resumeText) : null;
   const resumeAnchors = resumeProfile ? selectResumeAnchors(buildResumeAnchors(resumeProfile, resumeText)) : [];
-  const resumeEnabled = flags.resumeProbe && resumeHasData;
+  const allowedResumeAnchors = resumeAnchors.filter(anchor => RESUME_SEQUENCE_ORDER.includes(anchor.type));
+  const resumeEnabled = flags.resumeProbe && resumeHasData && allowedResumeAnchors.length > 0;
 
   const classifications: QuestionKind[] = [];
   historyQuestions.forEach((question, idx) => {
@@ -1246,174 +1610,176 @@ const orchestrateJobInterviewNextQuestion = (
   });
 
   const lastKind = classifications.length > 0 ? classifications[classifications.length - 1] : 'other';
+  const lastMainKind = (() => {
+    for (let i = classifications.length - 1; i >= 0; i -= 1) {
+      const kind = classifications[i];
+      if (kind !== 'followup' && kind !== 'wrapup') return kind;
+    }
+    return 'other';
+  })();
+  const lastQuestion = historyQuestions.length > 0 ? historyQuestions[historyQuestions.length - 1] : '';
+  const lastIsClosing = isClosingQuestion(lastQuestion) || isCandidateQuestion(lastQuestion);
+
   const introAskedCount = classifications.filter(kind => kind === 'intro').length;
   const resumeAsked = classifications.filter(kind => kind === 'resume').length;
   const followupAsked = classifications.filter(kind => kind === 'followup').length;
   const coreAsked = classifications.filter(kind => kind === 'core').length;
-  const introAsked = introAskedCount > 0;
+  const closingAsked = classifications.filter(kind => kind === 'closing').length;
 
-  const mainAnsweredCount = introAskedCount + resumeAsked + coreAsked;
-  const totalRealAnswered = mainAnsweredCount > 0 ? mainAnsweredCount : (flowInput.realQuestionCount || 0);
-  const remainingSlots = Math.max(0, minQuestionsRequired - totalRealAnswered);
+  const mainQuestionsAsked = introAskedCount + resumeAsked + coreAsked;
+  const resumeTarget = resumeEnabled ? Math.min(RESUME_QUESTION_TARGET, allowedResumeAnchors.length || 0) : 0;
+  const coreTarget = Math.max(0, MAIN_QUESTION_TARGET - 1 - resumeTarget);
+  const mainRemaining = Math.max(0, MAIN_QUESTION_TARGET - mainQuestionsAsked);
+  const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupAsked);
 
-  if (remainingSlots <= 0) {
+  const askedResumeTypes = getAskedResumeTypes(historyQuestions, allowedResumeAnchors);
+  const availableResumeTypes = new Set(allowedResumeAnchors.map(anchor => anchor.type));
+  const nextResumeType = RESUME_SEQUENCE_ORDER.find(
+    type => availableResumeTypes.has(type) && !askedResumeTypes.has(type)
+  );
+  const resumeSequencePending = resumeEnabled && !!nextResumeType;
+
+  if (mainRemaining <= 0) {
+    if (closingAsked < 1) {
+      return {
+        kind: 'closing',
+        isInterviewOver: false,
+        questionCategory: getQuestionCategory('closing', lastKind),
+        corePool: [],
+        mainQuestionsAsked,
+        mainQuestionsTarget: MAIN_QUESTION_TARGET,
+        resumeTarget,
+        coreTarget,
+        followupBudgetRemaining,
+        reason: 'closing_question',
+      };
+    }
     return {
-      nextQuestion: 'Thanks for your time today. That concludes the interview.',
+      kind: 'wrapup',
       isInterviewOver: true,
-      kind: 'wrapup' as QuestionKind,
       questionCategory: getQuestionCategory('wrapup', lastKind),
-      bridge: '',
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: MAIN_QUESTION_TARGET,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'main_questions_complete',
     };
   }
 
-  if (lastKind === 'wrapup') {
-    return {
-      nextQuestion: 'Thanks for your time today. That concludes the interview.',
-      isInterviewOver: true,
-      kind: 'wrapup' as QuestionKind,
-      questionCategory: getQuestionCategory('wrapup', lastKind),
-      bridge: '',
-    };
-  }
-
-  const slotsForMain = Math.max(0, remainingSlots);
-
-  const resumeCap = resumeEnabled ? Math.min(RESUME_MAX_QUESTIONS, resumeAnchors.length || 0) : 0;
-  let resumeTarget = resumeEnabled ? Math.min(3, resumeCap) : 0;
-  let followupTarget = 2;
-  let coreTarget = Math.max(0, minQuestionsRequired - 1 - resumeTarget);
-
-  if (!resumeEnabled) {
-    resumeTarget = 0;
-  }
-
-  const followupCap = Math.min(FOLLOWUP_BUDGET_MAX, followupTarget);
-  if (followupTarget > followupCap) {
-    followupTarget = followupCap;
-  }
-
-  if (coreTarget < 0) {
-    coreTarget = 0;
-  }
-
-  if (resumeEnabled && resumeTarget === 0 && resumeAnchors.length > 0) {
-    resumeTarget = 1;
-    coreTarget = Math.max(0, coreTarget - 1);
-  }
-
-  const coreQuotaAsked = coreAsked + introAskedCount;
-  const resumeRemaining = resumeEnabled ? Math.max(0, resumeTarget - resumeAsked) : 0;
-  const followupBudgetRemaining = Math.max(0, followupTarget - followupAsked);
-  const coreRemaining = Math.max(0, coreTarget - coreQuotaAsked);
-  const effectiveCoreRemaining =
-    slotsForMain > 0 && resumeRemaining === 0 && coreRemaining === 0 ? slotsForMain : coreRemaining;
-  const followupEligible =
-    flags.followup &&
-    followupBudgetRemaining > 0 &&
-    remainingSlots > 0 &&
-    lastKind !== 'followup' &&
-    lastKind === 'core' &&
-    remainingSlots > 0;
   const qualityCheck = detectAnswerQuality(flowInput.currentTranscript || '');
   const shouldFollowup =
-    followupEligible &&
+    flags.followup &&
+    followupBudgetRemaining > 0 &&
+    lastMainKind === 'core' &&
+    !lastIsClosing &&
     qualityCheck.low !== null &&
-    !isDeferralAnswer(flowInput.currentTranscript || '');
-
-  if (!introAsked) {
-    return {
-      nextQuestion: 'Tell me about yourself.',
-      isInterviewOver: false,
-      kind: 'intro' as QuestionKind,
-      questionCategory: getQuestionCategory('intro', lastKind),
-      bridge: '',
-    };
-  }
+    !isDeferralAnswer(flowInput.currentTranscript || '') &&
+    !resumeSequencePending;
 
   if (shouldFollowup) {
-    const previousQuestion = historyQuestions.length > 0 ? historyQuestions[historyQuestions.length - 1] : '';
-    const followupQuestion = buildFollowupQuestion(
-      qualityCheck.low!,
-      previousQuestion,
-      lastKind,
-      flowInput.currentTranscript || ''
-    );
-    const bridge = flags.dynamicAck
-      ? selectBridge(
-          [
-            'Got it - let\'s go deeper on that.',
-            'Understood. Walk me through your approach.',
-            'Helpful context. Can you expand a bit on that?',
-          ],
-          recentAiQuestions
-        )
-      : '';
     return {
-      nextQuestion: followupQuestion,
+      kind: 'followup',
       isInterviewOver: false,
-      kind: 'followup' as QuestionKind,
-      questionCategory: getQuestionCategory('followup', lastKind),
-      bridge,
+      questionCategory: getQuestionCategory('followup', lastMainKind),
+      followupIntent: qualityCheck.low!,
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: MAIN_QUESTION_TARGET,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'low_quality_followup',
     };
   }
 
-  let nextMainKind: 'resume' | 'core' = resumeRemaining > 0 ? 'resume' : 'core';
-
-  if (nextMainKind === 'resume' && resumeRemaining > 0 && resumeEnabled) {
-    const intents: Array<FollowupIntent | 'clarification' | 'timeline'> = ['clarification', 'ownership', 'depth', 'impact', 'timeline'];
-    const intent = intents[resumeAsked % intents.length] || 'clarification';
-    const anchor = selectUnusedAnchor(resumeAnchors, historyQuestions);
-    const resumeQuestion = anchor
-      ? buildResumeQuestion(anchor, intent)
-      : 'I could not pull a specific item from your resume. Could you share one project or responsibility you are proud of?';
+  if (introAskedCount < 1) {
     return {
-      nextQuestion: resumeQuestion,
+      kind: 'intro',
       isInterviewOver: false,
-      kind: 'resume' as QuestionKind,
-      questionCategory: getQuestionCategory('resume', lastKind),
-      bridge: '',
+      questionCategory: getQuestionCategory('intro', lastKind),
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: MAIN_QUESTION_TARGET,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'intro_required',
     };
   }
 
-  if (effectiveCoreRemaining > 0) {
-    const referencePool = parseReferenceQuestions(referenceQuestions);
-    const coreQuestion = referencePool.length
-      ? selectCoreQuestion(
-          referencePool,
-          historyQuestions,
-          flowInput.jobRole || 'General',
-          flowInput.company || ''
-        )
-      : '';
-    return {
-      nextQuestion: coreQuestion,
-      isInterviewOver: false,
-      kind: 'core' as QuestionKind,
-      questionCategory: getQuestionCategory('core', lastKind),
-      bridge: '',
-    };
+  if (resumeSequencePending) {
+    const anchor =
+      (nextResumeType
+        ? selectUnusedAnchorByType(allowedResumeAnchors, historyQuestions, nextResumeType)
+        : undefined) ||
+      selectUnusedAnchor(allowedResumeAnchors, historyQuestions);
+    if (anchor) {
+      return {
+        kind: 'resume',
+        isInterviewOver: false,
+        questionCategory: getQuestionCategory('resume', lastKind),
+        resumeAnchor: anchor,
+        corePool: [],
+        mainQuestionsAsked,
+        mainQuestionsTarget: MAIN_QUESTION_TARGET,
+        resumeTarget,
+        coreTarget,
+        followupBudgetRemaining,
+        reason: 'resume_sequence',
+      };
+    }
   }
+
+  const referencePool = filterUnusedReferenceQuestions(parseReferenceQuestions(referenceQuestions), historyQuestions);
 
   return {
-    nextQuestion: 'Thanks for your time today. That concludes the interview.',
-    isInterviewOver: true,
-    kind: 'wrapup' as QuestionKind,
-    questionCategory: getQuestionCategory('wrapup', lastKind),
-    bridge: '',
+    kind: 'core',
+    isInterviewOver: false,
+    questionCategory: getQuestionCategory('core', lastKind),
+    corePool: referencePool,
+    mainQuestionsAsked,
+    mainQuestionsTarget: MAIN_QUESTION_TARGET,
+    resumeTarget,
+    coreTarget,
+    followupBudgetRemaining,
+    reason: 'core_block',
   };
 };
 
 export async function interviewAgent(input: InterviewAgentInput): Promise<InterviewAgentOutput> {
+  const rawTranscript = input.currentTranscript || '';
+  if ((input.eventType || 'answer') === 'answer' && containsProfanity(rawTranscript)) {
+    const { output } = buildFallbackOutput(
+      input,
+      input.referenceQuestions && input.referenceQuestions.length > 0
+        ? input.referenceQuestions.join('\n')
+        : undefined
+    );
+    return {
+      ...output,
+      contentFeedback: '',
+      nextQuestion: 'This is not professional behavior. The interview is ending now.',
+      isInterviewOver: true,
+      nextQuestionKind: 'wrapup',
+      shouldRetryQuestion: false,
+      isCorrectAnswer: false,
+    };
+  }
+
+  const safeInput = sanitizeInterviewInput(input);
   const provider = resolveInterviewProvider();
 
   if (provider === 'openai' || provider === 'groq') {
-    const { orchestration, nextQuestion } = planNextQuestion(input);
-    const baseOutput = buildFallbackOutput(input);
-    baseOutput.nextQuestion = nextQuestion;
-    baseOutput.isInterviewOver = orchestration.isInterviewOver;
-    baseOutput.questionCategory = orchestration.questionCategory;
+    const { output: baseOutput, plan } = buildFallbackOutput(
+      safeInput,
+      safeInput.referenceQuestions && safeInput.referenceQuestions.length > 0
+        ? safeInput.referenceQuestions.join('\n')
+        : undefined
+    );
 
-    const { system, user } = buildEvaluationPrompt(input);
+    const { system, user } = buildEvaluationPrompt(safeInput, plan);
     const model =
       provider === 'openai'
         ? (process.env.OPENAI_MODEL || 'gpt-4o-mini')
@@ -1465,16 +1831,21 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
       }
 
       const evaluation = parseJsonFromContent(content);
-      return mergeEvaluation(baseOutput, evaluation, input, orchestration.kind);
+      return mergeEvaluation(baseOutput, evaluation, safeInput, plan.kind, plan);
     } catch (error) {
       console.error('OpenAI-compatible interview evaluation failed, using fallback:', error);
-      return mergeEvaluation(baseOutput, null, input, orchestration.kind);
+      return mergeEvaluation(baseOutput, null, safeInput, plan.kind, plan);
     }
   }
 
   if (provider !== 'gemini') {
     console.warn('No usable LLM provider configured. Using deterministic fallback interview response.');
-    return buildFallbackOutput(input);
+    return buildFallbackOutput(
+      safeInput,
+      safeInput.referenceQuestions && safeInput.referenceQuestions.length > 0
+        ? safeInput.referenceQuestions.join('\n')
+        : undefined
+    ).output;
   }
 
   // Use API key rotation for all interview agent calls (Gemini)
@@ -1712,14 +2083,30 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
         const output = result.output;
 
         if (output && !isExamInterview(flowInput)) {
-          const orchestration = orchestrateJobInterviewNextQuestion(flowInput, referenceQuestions);
+          const plan = orchestrateJobInterviewNextQuestion(flowInput, referenceQuestions);
+          if (!output.nextQuestion) {
+            output.nextQuestion = buildFallbackQuestionFromPlan(plan, flowInput);
+          }
+          if (plan.kind === 'core' && plan.corePool.length > 0 && output.nextQuestion) {
+            const matched = findMatchingCoreQuestion(output.nextQuestion, plan.corePool);
+            output.nextQuestion = matched || plan.corePool[0];
+          }
+          if (plan.kind === 'closing' && output.nextQuestion && !isFitQuestion(output.nextQuestion)) {
+            output.nextQuestion = buildClosingFitQuestion(flowInput);
+          }
+          if (plan.kind === 'followup' && output.nextQuestion && hasBannedFollowupPhrasing(output.nextQuestion)) {
+            const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
+            output.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
+          }
           output.nextQuestion = enforceUniqueNextQuestion(
-            orchestration.nextQuestion,
+            output.nextQuestion || '',
             flowInput,
-            orchestration.isInterviewOver
+            plan.isInterviewOver,
+            plan.corePool
           );
-          output.isInterviewOver = orchestration.isInterviewOver;
-          output.questionCategory = orchestration.questionCategory;
+          output.isInterviewOver = plan.isInterviewOver;
+          output.questionCategory = plan.questionCategory;
+          output.nextQuestionKind = plan.kind;
         } else if (output?.nextQuestion) {
           output.nextQuestion = enforceUniqueNextQuestion(
             output.nextQuestion,
@@ -1750,11 +2137,16 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
     );
     
       // Execute the flow with rotation
-    return await tempFlow(input);
+    return await tempFlow(safeInput);
   });
   } catch (error) {
     console.error('Interview agent failed; using fallback response:', error);
-    return buildFallbackOutput(input);
+    return buildFallbackOutput(
+      input,
+      input.referenceQuestions && input.referenceQuestions.length > 0
+        ? input.referenceQuestions.join('\n')
+        : undefined
+    ).output;
   }
 }
 
@@ -3060,14 +3452,30 @@ const interviewAgentFlow = ai.defineFlow(
     const {output} = await prompt(promptInput);
 
     if (output && !isExamInterview(input)) {
-      const orchestration = orchestrateJobInterviewNextQuestion(input, referenceQuestions);
+      const plan = orchestrateJobInterviewNextQuestion(input, referenceQuestions);
+      if (!output.nextQuestion) {
+        output.nextQuestion = buildFallbackQuestionFromPlan(plan, input);
+      }
+      if (plan.kind === 'core' && plan.corePool.length > 0 && output.nextQuestion) {
+        const matched = findMatchingCoreQuestion(output.nextQuestion, plan.corePool);
+        output.nextQuestion = matched || plan.corePool[0];
+      }
+      if (plan.kind === 'closing' && output.nextQuestion && !isFitQuestion(output.nextQuestion)) {
+        output.nextQuestion = buildClosingFitQuestion(input);
+      }
+      if (plan.kind === 'followup' && output.nextQuestion && hasBannedFollowupPhrasing(output.nextQuestion)) {
+        const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
+        output.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
+      }
       output.nextQuestion = enforceUniqueNextQuestion(
-        orchestration.nextQuestion,
+        output.nextQuestion || '',
         input,
-        orchestration.isInterviewOver
+        plan.isInterviewOver,
+        plan.corePool
       );
-      output.isInterviewOver = orchestration.isInterviewOver;
-      output.questionCategory = orchestration.questionCategory;
+      output.isInterviewOver = plan.isInterviewOver;
+      output.questionCategory = plan.questionCategory;
+      output.nextQuestionKind = plan.kind;
     } else if (output?.nextQuestion) {
       output.nextQuestion = enforceUniqueNextQuestion(
         output.nextQuestion,

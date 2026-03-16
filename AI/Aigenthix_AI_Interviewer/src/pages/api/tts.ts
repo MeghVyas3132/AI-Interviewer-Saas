@@ -1,71 +1,146 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Buffer } from 'buffer';
-import { withOpenAIApiKeyRotation, initializeOpenAIApiKeyManager } from '@/lib/openai-api-key-manager';
+
+type TtsErrorSummary = {
+  status: number;
+  message: string;
+  keyIndex: number;
+};
+
+async function readUpstreamError(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    return payload?.error?.message || payload?.detail || payload?.error || 'OpenAI TTS request failed';
+  } catch {
+    try {
+      const text = await response.text();
+      return text || 'OpenAI TTS request failed';
+    } catch {
+      return 'OpenAI TTS request failed';
+    }
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { text, language } = req.body;
+  const {
+    text,
+    voice,
+    modelId,
+    outputFormat,
+    languageCode,
+    voiceSettings,
+    instructions,
+    speed,
+  } = req.body || {};
   if (!text) {
     return res.status(400).json({ error: 'Text is required' });
   }
 
   try {
-    // Initialize OpenAI API key manager
-    initializeOpenAIApiKeyManager();
+    const apiKeys = [
+      process.env.OPENAI_API_KEY,
+      process.env.OPENAI_API_KEY_2,
+      process.env.OPENAI_API_KEY_3,
+    ]
+      .map((value) => (value || '').trim())
+      .filter(Boolean);
 
-    // Use OpenAI TTS for speech synthesis with key rotation
-    const result = await withOpenAIApiKeyRotation(async (apiKey: string) => {
-      const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    if (!apiKeys.length) {
+      return res.status(500).json({ error: 'Missing OPENAI_API_KEY environment variable' });
+    }
+
+    const resolvedVoiceId =
+      (voice === 'male' ? process.env.OPENAI_TTS_VOICE_MALE : process.env.OPENAI_TTS_VOICE_FEMALE) ||
+      process.env.OPENAI_TTS_VOICE ||
+      'alloy';
+
+    const payload: Record<string, unknown> = {
+      model: modelId || process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
+      input: text,
+      voice: resolvedVoiceId,
+      response_format: outputFormat || process.env.OPENAI_TTS_RESPONSE_FORMAT || 'mp3',
+    };
+
+    if (instructions) {
+      payload.instructions = instructions;
+    }
+    if (typeof speed === 'number') {
+      payload.speed = speed;
+    }
+    if (languageCode) {
+      payload.language = languageCode;
+    }
+    if (voiceSettings) {
+      payload.voice_settings = voiceSettings;
+    }
+
+    const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    let lastError: TtsErrorSummary | null = null;
+
+    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex += 1) {
+      const apiKey = apiKeys[keyIndex];
+      const response = await fetch(`${baseUrl}/audio/speech`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg',
         },
-        body: JSON.stringify({
-          model: 'tts-1',
-          input: text,
-          voice: 'nova', // Female voice for consistent experience
-          ...(language ? { language } : {}),
-        }),
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`OpenAI TTS API error: ${error.error?.message || 'Unknown error'}`);
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        const contentType = response.headers.get('content-type') || 'audio/mpeg';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).send(Buffer.from(arrayBuffer));
       }
 
-      return response;
-    });
+      const message = await readUpstreamError(response);
+      lastError = {
+        status: response.status,
+        message,
+        keyIndex: keyIndex + 1,
+      };
+      const shouldTryNextKey = (response.status === 429 || response.status >= 500) && keyIndex < apiKeys.length - 1;
+      if (shouldTryNextKey) {
+        console.warn(`[TTS] key ${keyIndex + 1} failed (${response.status}); trying next key.`);
+        continue;
+      }
+      break;
+    }
 
-    const arrayBuffer = await result.arrayBuffer();
-    const base64Audio = Buffer.from(arrayBuffer).toString('base64');
-    const audioUrl = `data:audio/mpeg;base64,${base64Audio}`;
-    res.status(200).json({ audioUrl });
+    const statusCode = lastError?.status || 500;
+    if (statusCode === 429) {
+      console.warn(`[TTS] OpenAI rate-limited after ${apiKeys.length} key attempt(s).`);
+    }
+    return res.status(statusCode).json({
+      error: lastError?.message || 'OpenAI TTS request failed',
+      retryable: statusCode >= 500,
+      code: statusCode === 429 ? 'rate_limited' : 'upstream_error',
+      keyAttempts: apiKeys.length,
+      failedOnKeyIndex: lastError?.keyIndex || 1,
+    });
   } catch (error: any) {
     console.error('OpenAI TTS error:', error);
-    
-    // Provide more specific error messages
+
     let errorMessage = error.message || 'OpenAI TTS failed';
     let statusCode = 500;
-    
-    // Check for specific error types
-    if (error.message?.includes('Incorrect API key')) {
+
+    if (errorMessage?.toLowerCase().includes('api key')) {
       statusCode = 401;
-      errorMessage = 'TTS authentication failed. Please check API key configuration.';
-    } else if (error.message?.includes('quota') || error.message?.includes('billing')) {
-      statusCode = 429;
-      errorMessage = 'TTS service quota exceeded. Please try again later.';
-    } else if (error.message?.includes('No available')) {
-      statusCode = 503;
-      errorMessage = 'TTS service temporarily unavailable. Please try again later.';
+      errorMessage = 'TTS authentication failed. Please check OPENAI_API_KEY.';
     }
-    
-    res.status(statusCode).json({ 
+
+    res.status(statusCode).json({
       error: errorMessage,
-      retryable: statusCode >= 500 || statusCode === 429 // Indicate if client should retry
+      retryable: statusCode >= 500,
+      code: statusCode === 429 ? 'rate_limited' : 'internal_error',
     });
   }
-} 
+}

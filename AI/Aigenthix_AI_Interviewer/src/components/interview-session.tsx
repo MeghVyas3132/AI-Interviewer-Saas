@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
-import { getQuestions, getResumeAnalysis, saveResumeAnalysis, saveInterviewSummary, getInterviewSummary, clearData, startInterviewSession, endInterviewSession, isInterviewActive, isSessionFromReload, markSessionAsStarted, type InterviewData, getVideoPreference, getInterviewMode, type InterviewMode, pauseInterview, resumeInterview, getInterviewPauseState, clearInterviewPauseState, type InterviewPauseState, type ConversationEntry, getExamConfig, setProctoringMode, getProctoringMode, clearProctoringMode, type ProctoringMode } from "@/lib/data-store";
+import { getQuestions, getResumeAnalysis, saveResumeAnalysis, saveInterviewSummary, getInterviewSummary, clearData, startInterviewSession, endInterviewSession, isInterviewActive, isSessionFromReload, markSessionAsStarted, type InterviewData, type QuestionsData, getVideoPreference, getInterviewMode, type InterviewMode, pauseInterview, resumeInterview, getInterviewPauseState, clearInterviewPauseState, type InterviewPauseState, type ConversationEntry, getExamConfig, setProctoringMode, getProctoringMode, clearProctoringMode, type ProctoringMode } from "@/lib/data-store";
 import { interviewAgent, type InterviewAgentOutput } from "@/ai/flows/interview-agent";
 import { generateIceBreakerQuestion } from "@/ai/flows/ice-breaker-generator";
 import { useToast } from "@/hooks/use-toast";
@@ -37,27 +37,29 @@ const VOICE_AUTO_SUBMIT_MIN_DELAY_MS = 2600;
 const VOICE_AUTO_SUBMIT_MAX_DELAY_MS = 5200;
 const SPEECH_WATCHDOG_INTERVAL_MS = 5000;
 const SPEECH_STALE_RESTART_MS = 12000;
-
-const HR_FALLBACK_QUESTIONS = [
-  "Tell me about a time you handled a disagreement in your team. What did you do?",
-  "Describe a situation where you had to adapt quickly to a change at work.",
-  "How do you prioritize when you have multiple deadlines in the same week?",
-  "What kind of work environment helps you perform at your best?"
+const STT_HEALTH_STALE_MS = 8000;
+const ALLOW_BROWSER_TTS_FALLBACK = false;
+const PROFANITY_TERMS = [
+  'fuck',
+  'shit',
+  'bitch',
+  'asshole',
+  'dick',
+  'cunt',
+  'motherfucker',
+  'bastard',
+  'slut',
+  'whore',
+  'fucker',
+  'fucking',
+  'bullshit',
 ];
+const PROFANITY_REGEX = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'gi');
 
-const EXAM_FALLBACK_QUESTIONS = [
-  "When a question seems difficult, what structured approach do you use to solve it?",
-  "How do you balance speed and accuracy during a timed test?",
-  "Walk me through how you decide whether to skip or attempt a tough question.",
-  "What is one strategy you use to reduce mistakes under pressure?"
-];
-
-const TECHNICAL_FALLBACK_QUESTIONS = [
-  "Describe a technical problem you solved recently and the tradeoffs you considered.",
-  "How do you debug an issue when the root cause is not immediately obvious?",
-  "Tell me about a project where your first approach failed and how you recovered.",
-  "How do you decide what to optimize first in a system with performance issues?"
-];
+const redactProfanity = (text: string): string => {
+  if (!text) return text;
+  return text.replace(PROFANITY_REGEX, match => '*'.repeat(match.length));
+};
 
 const normalizeQuestionKey = (value: string): string => {
   return value
@@ -155,6 +157,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const [isPaused, setIsPaused] = useState(false);
   const [pauseState, setPauseState] = useState<InterviewPauseState | null>(null);
   const [speechRecognitionIssue, setSpeechRecognitionIssue] = useState(false);
+  const [sttIsStale, setSttIsStale] = useState(false);
 
   const conversationStateRef = useRef(conversationState);
   
@@ -221,6 +224,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const [college, setCollege] = useState("");
   const [resumeText, setResumeText] = useState("");
   const [candidateName, setCandidateName] = useState("");
+  const [questionsData, setQuestionsData] = useState<QuestionsData | null>(null);
   
   // Voice feedback state
   const [volume, setVolume] = useState(0);
@@ -312,6 +316,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   // Track which speech recognition mode we're using
   const [useFallbackSpeech, setUseFallbackSpeech] = useState(false);
   const assemblyFailedRef = useRef(false);
+  const lastSpeechActivityRef = useRef<number>(Date.now());
 
   // Unified speech status - prefer AssemblyAI, fallback to native
   const speechStatus = useFallbackSpeech ? nativeStatus : assemblyStatus;
@@ -324,9 +329,32 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     [speechSegments],
   );
 
+  useEffect(() => {
+    if (speechSegments.length > 0 || (speechPartialTranscript || '').trim()) {
+      lastSpeechActivityRef.current = Date.now();
+      setSttIsStale(false);
+    }
+  }, [speechSegments, speechPartialTranscript]);
+
+  useEffect(() => {
+    if (interviewMode !== 'voice' || conversationState !== 'listening' || isMuted) {
+      setSttIsStale(false);
+      return;
+    }
+
+    const updateHealth = () => {
+      const idleFor = Date.now() - lastSpeechActivityRef.current;
+      setSttIsStale(idleFor > STT_HEALTH_STALE_MS);
+    };
+
+    updateHealth();
+    const intervalId = setInterval(updateHealth, 1000);
+    return () => clearInterval(intervalId);
+  }, [interviewMode, conversationState, isMuted]);
+
   // Detect AssemblyAI failure and switch to fallback
   useEffect(() => {
-    if (assemblyStatus === 'error' && !assemblyFailedRef.current && isNativeSpeechSupported) {
+    if ((assemblyStatus === 'error' || assemblyError) && !assemblyFailedRef.current && isNativeSpeechSupported) {
       console.log('[Speech] AssemblyAI failed, switching to native browser speech recognition');
       assemblyFailedRef.current = true;
       setUseFallbackSpeech(true);
@@ -336,7 +364,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         variant: "default",
       });
     }
-  }, [assemblyStatus, isNativeSpeechSupported, toast]);
+  }, [assemblyStatus, assemblyError, isNativeSpeechSupported, toast]);
 
   
   useEffect(() => {
@@ -347,6 +375,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null); // Ref to track current TTS audio
+  const currentAudioUrlRef = useRef<string | null>(null); // Track object URL for cleanup
   const lastSpokenQuestion = useRef<string | null>(null); // Ref to track last spoken question
   const isTTSPlaying = useRef(false); // Ref to track if TTS is currently playing
 
@@ -398,17 +427,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       return proposed;
     }
 
-    const track = getInterviewTrack();
-    const fallbackPool =
-      track === 'hr'
-        ? HR_FALLBACK_QUESTIONS
-        : track === 'exam'
-          ? EXAM_FALLBACK_QUESTIONS
-          : TECHNICAL_FALLBACK_QUESTIONS;
-
-    for (let attempt = 0; attempt < fallbackPool.length; attempt++) {
-      const index = (fallbackQuestionCursorRef.current + attempt) % fallbackPool.length;
-      const fallback = fallbackPool[index];
+    const generatedPool = (questionsData?.questions || []).map(question => question.trim()).filter(Boolean);
+    for (let attempt = 0; attempt < generatedPool.length; attempt++) {
+      const index = (fallbackQuestionCursorRef.current + attempt) % generatedPool.length;
+      const fallback = generatedPool[index];
       if (!isQuestionDuplicate(fallback)) {
         fallbackQuestionCursorRef.current = index + 1;
         const key = normalizeQuestionKey(fallback);
@@ -417,10 +439,13 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       }
     }
 
-    const emergencyFallback = "Thanks for that response. Let's switch to a different question and continue.";
-    const emergencyKey = normalizeQuestionKey(emergencyFallback);
-    if (emergencyKey) askedQuestionKeysRef.current.add(emergencyKey);
-    return emergencyFallback;
+    if (proposed) {
+      const key = normalizeQuestionKey(proposed);
+      if (key) askedQuestionKeysRef.current.add(key);
+      return proposed;
+    }
+
+    return previousQuestion || "";
   };
 
   // Navigation warning handlers
@@ -764,7 +789,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     const shouldListen =
       conversationState === 'listening' &&
       !isMuted &&
-      conversationStateRef.current !== 'speaking' &&
       !isTTSPlaying.current &&
       !isPaused;
 
@@ -779,6 +803,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           resetAssemblyTranscripts();
         }
         lastTranscriptFromNative.current = '';
+        lastSpeechActivityRef.current = Date.now();
+        setSttIsStale(false);
       }
       shouldBeListening.current = true;
       
@@ -832,10 +858,42 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   }, [speechStatus]);
 
   useEffect(() => {
+    console.log('[Speech] status:', speechStatus, 'fallback:', useFallbackSpeech);
+  }, [speechStatus, useFallbackSpeech]);
+
+  useEffect(() => {
+    if (speechError) {
+      console.error('[Speech] error:', speechError);
+    }
+  }, [speechError]);
+
+  useEffect(() => {
     if (assemblyError) {
       console.error('AssemblyAI streaming error:', assemblyError);
     }
   }, [assemblyError]);
+
+  useEffect(() => {
+    if (interviewMode !== 'voice') return;
+    if (useFallbackSpeech) return;
+    if (speechStatus !== 'listening') return;
+    if (!isNativeSpeechSupported) return;
+
+    const timeoutId = setInterval(() => {
+      const idleFor = Date.now() - lastSpeechActivityRef.current;
+      if (idleFor > 8000) {
+        console.warn('[Speech] No AssemblyAI transcript activity, switching to browser speech recognition');
+        setUseFallbackSpeech(true);
+        toast({
+          title: "Switching to browser speech",
+          description: "AssemblyAI did not return transcripts. Using browser speech recognition.",
+          variant: "default",
+        });
+      }
+    }, 2000);
+
+    return () => clearInterval(timeoutId);
+  }, [interviewMode, useFallbackSpeech, speechStatus, isNativeSpeechSupported, toast]);
 
   useEffect(() => {
     if (interviewMode !== 'voice') {
@@ -880,7 +938,11 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       console.log('AssemblyAI delta:', delta);
     }
 
-    setTranscript(prev => prev + delta);
+    setTranscript(prev => {
+      const nextValue = prev + delta;
+      transcriptRef.current = nextValue;
+      return nextValue;
+    });
     lastTranscriptFromNative.current = combined;
     lastTranscriptUpdate.current = now;
     speechUpdateCount.current += 1;
@@ -1489,6 +1551,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       currentAudioRef.current.currentTime = 0;
       currentAudioRef.current = null;
     }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current);
+      currentAudioUrlRef.current = null;
+    }
     
     // Stop browser TTS if active
     if ('speechSynthesis' in window && speechSynthesis.speaking) {
@@ -1632,7 +1698,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   };
 
   const handleSubmit = async () => {
-    const currentAnswer = transcriptRef.current.trim();
+    const currentAnswer = (transcriptRef.current || transcript).trim();
+    const sanitizedAnswer = redactProfanity(currentAnswer);
     clearAutoSubmitTimer();
     console.log('=== SUBMIT DEBUG ===');
    console.log('Current answer length:', currentAnswer.length);
@@ -1675,9 +1742,9 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         // Call interview agent to get the next question
         const result = await interviewAgent({
           conversationLog: conversationLog,
-          transcript: currentAnswer,
+          transcript: sanitizedAnswer,
           resumeAnalysis: resumeAnalysis,
-          questionsData: questionsData,
+          referenceQuestions: questionsData?.questions,
           videoFrameDataUri: videoFrameDataUri,
           jobRole: jobRole,
           company: company,
@@ -1719,7 +1786,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     const videoFrameDataUri = (interviewMode === 'voice' && hasCameraPermission) ? captureVideoFrame() : undefined;
 
     try {
-      setConversationLog(prev => [...prev, { speaker: 'user', text: currentAnswer }]);
+      setConversationLog(prev => [...prev, { speaker: 'user', text: sanitizedAnswer }]);
       
       // Determine if current question is real
       const isGeneralQuestion = 
@@ -1774,7 +1841,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           })),
           { 
             question: currentQuestion, 
-            answer: currentAnswer, 
+            answer: sanitizedAnswer, 
             attempts: currentQuestionAttempts, 
             hintsGiven: currentQuestionHints, 
             isCorrect: undefined,
@@ -1783,7 +1850,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             currentAffairsCategory: currentAffairsMetadata?.category,
           }
         ],
-        currentTranscript: currentAnswer,
+        currentTranscript: sanitizedAnswer,
         videoFrameDataUri,
         realQuestionCount: realQuestionCount,
         recentScores: recentScores,
@@ -1791,6 +1858,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         currentQuestionAttempts: currentQuestionAttempts,
         currentQuestionHints: currentQuestionHints,
         minQuestionsRequired: minQuestionsRequired,
+        referenceQuestions: questionsData?.questions,
         // Pass exam and subcategory information for filtering
         examId: examConfig?.examId ? parseInt(examConfig.examId.toString()) : undefined,
         subcategoryId: examConfig?.subcategoryId ? parseInt(examConfig.subcategoryId.toString()) : undefined
@@ -1927,7 +1995,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       
       const newInterviewData = [...interviewData, {
         question: currentQuestion!,
-        answer: currentAnswer,
+        answer: sanitizedAnswer,
         isRealQuestion: isRealQuestion,
         responseType: responseType, // Store response type
         attempts: currentQuestionAttempts + 1,
@@ -2333,6 +2401,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         const storedQuestionsData = getQuestions();
         let storedResumeAnalysis = getResumeAnalysis();
         const videoIsEnabled = getVideoPreference();
+        setQuestionsData(storedQuestionsData);
 
         // For token-based interviews, use resume analysis from sessionData if available
         if (sessionToken && sessionData?.resumeAnalysis) {
@@ -2487,9 +2556,22 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         const defaultGreeting = `Hello ${finalCandidateName}, I am Tina, welcome to the Aigenthix AI Powered Coach interview prep. You look ready and focused for our session today. Are you ready to begin?`;
 
         if (mode !== 'voice' || !videoIsEnabled) {
-            console.log('Using fallback greeting (no voice or video)');
+            console.log('Generating AI greeting (no voice or video)');
             setHasCameraPermission(false);
-            setCurrentQuestion(defaultGreeting);
+            let greetingText = defaultGreeting;
+            try {
+                const result = await generateIceBreakerQuestion({
+                    candidateName: finalCandidateName,
+                    language: languageName || 'English',
+                });
+                const questionText = (result?.question || '').trim();
+                const hasWelcome = /welcome/i.test(questionText);
+                greetingText = hasWelcome && questionText ? questionText : defaultGreeting;
+            } catch (icebreakerError: any) {
+                console.warn('Error generating icebreaker question (fallback greeting):', icebreakerError);
+                greetingText = defaultGreeting;
+            }
+            setCurrentQuestion(greetingText);
             
             // Set conversation state to 'speaking' first (will be set to 'listening' after TTS completes)
             // This prevents listening from starting before the greeting is spoken
@@ -2497,17 +2579,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                 setConversationState('speaking');
                 console.log('Interview setup complete (fallback), conversation state set to: speaking (will switch to listening after greeting)');
                 
-                // Explicitly trigger speak for the greeting after state is set
-                // Use setTimeout to ensure state updates are processed and refs are synced
-                setTimeout(() => {
-                    console.log('Triggering speak for fallback greeting, current state:', conversationState, 'ref:', conversationStateRef.current);
-                    // Ensure we're not blocked by ref check - force speak for initial greeting
-                    if (!lastSpokenQuestion.current || lastSpokenQuestion.current === '') {
-                        speak(defaultGreeting);
-                    } else {
-                        console.log('Greeting already spoken, skipping');
-                    }
-                }, 200);
             } else {
                 setConversationState('idle');
                 console.log('Interview setup complete (fallback), conversation state set to: idle');
@@ -2831,8 +2902,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                 language,
             });
             console.log('Icebreaker result:', result);
-            greetingText = result.question;
-            setCurrentQuestion(result.question);
+            const questionText = (result.question || '').trim();
+            const hasWelcome = /welcome/i.test(questionText) && questionText.toLowerCase().includes(finalCandidateName.toLowerCase());
+            greetingText = hasWelcome ? questionText : defaultGreeting;
+            setCurrentQuestion(greetingText);
         } catch (icebreakerError: any) {
             // Icebreaker generation failed - this is NOT a camera error
             // Log as warning, not error, since we have a fallback
@@ -2850,17 +2923,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             setConversationState('speaking');
             console.log('Interview setup complete, conversation state set to: speaking (will switch to listening after greeting)');
             
-            // Explicitly trigger speak for the greeting after state is set
-            // Use setTimeout to ensure state updates are processed and refs are synced
-            setTimeout(() => {
-                console.log('Triggering speak for greeting:', greetingText.substring(0, 50), 'current state:', conversationState, 'ref:', conversationStateRef.current);
-                // Ensure we're not blocked by ref check - force speak for initial greeting
-                if (!lastSpokenQuestion.current || lastSpokenQuestion.current === '') {
-                    speak(greetingText);
-                } else {
-                    console.log('Greeting already spoken, skipping');
-                }
-            }, 200);
         } else {
             setConversationState('idle');
             console.log('Interview setup complete, conversation state set to: idle');
@@ -2969,6 +3031,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
     const isVoiceMode = getInterviewMode() === 'voice';
     if (!isVoiceMode || isSpeakerMuted) {
+        lastSpokenQuestion.current = text;
         const nextState = conversationStateRef.current === 'finished' ? 'finished' : (isVoiceMode ? 'listening' : 'idle');
         setConversationState(nextState);
         return;
@@ -2976,8 +3039,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
     setConversationState('speaking');
     isTTSPlaying.current = true; // Mark TTS as playing
-    lastSpokenQuestion.current = text; // Track this question as spoken
-    
     // Pause AssemblyAI streaming while TTS plays
     console.log('Pausing AssemblyAI streaming for TTS');
     muteMicrophoneForTTS();
@@ -2992,6 +3053,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       let audioUrl: string | null = null;
       const maxRetries = 3;
       let lastError: Error | null = null;
+      let lastErrorStatus: number | null = null;
+      let lastErrorCode: string | null = null;
       
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
@@ -3002,12 +3065,15 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           });
           
           if (response.ok) {
-            const data = await response.json();
-            audioUrl = data.audioUrl;
+            const audioBlob = await response.blob();
+            audioUrl = URL.createObjectURL(audioBlob);
+            currentAudioUrlRef.current = audioUrl;
             console.log(`TTS API call succeeded on attempt ${attempt + 1}`);
             break;
           } else {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error', retryable: false }));
+            lastErrorStatus = response.status;
+            lastErrorCode = typeof (errorData as any)?.code === 'string' ? (errorData as any).code : null;
             lastError = new Error(`TTS request failed: ${errorData.error || response.statusText}`);
             console.warn(`TTS API call failed on attempt ${attempt + 1}:`, lastError.message);
             
@@ -3041,12 +3107,16 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         }
       }
       
-      // If all retries failed, try browser fallback
+      // If all retries failed, optionally try browser fallback
       if (!audioUrl) {
-        console.warn('All TTS API retries failed, attempting browser fallback');
-        try {
-          // Use browser's Web Speech API as fallback
-          if ('speechSynthesis' in window) {
+        const shouldFallback =
+          ALLOW_BROWSER_TTS_FALLBACK ||
+          lastErrorStatus === 429 ||
+          lastErrorCode === 'rate_limited';
+        if (shouldFallback) {
+          console.warn('All TTS API retries failed, attempting browser fallback');
+          try {
+            if ('speechSynthesis' in window) {
             // Cancel any existing speech first
             if (speechSynthesis.speaking) {
               speechSynthesis.cancel();
@@ -3096,24 +3166,25 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
               }, 30000);
             });
             
-            // Successfully used browser fallback
-            isTTSPlaying.current = false;
-            unmuteMicrophoneAfterTTS();
-            if (conversationStateRef.current !== 'finished') {
-              setConversationState(interviewMode === 'voice' ? 'listening' : 'idle');
-              if (interviewMode === 'voice' && !isMuted) {
-                clearTranscript();
-                unmuteMicrophoneAfterTTS();
+              // Successfully used browser fallback
+              isTTSPlaying.current = false;
+              unmuteMicrophoneAfterTTS();
+              if (conversationStateRef.current !== 'finished') {
+                setConversationState(interviewMode === 'voice' ? 'listening' : 'idle');
+                if (interviewMode === 'voice' && !isMuted) {
+                  clearTranscript();
+                  unmuteMicrophoneAfterTTS();
+                }
               }
+              return;
             }
-            return;
+          } catch (fallbackError) {
+            console.error('Browser TTS fallback also failed:', fallbackError);
           }
-        } catch (fallbackError) {
-          console.error('Browser TTS fallback also failed:', fallbackError);
         }
-        
-        // If both API and browser fallback failed, throw error
-        throw lastError || new Error('TTS failed after all retries and fallback');
+
+        // If API failed (and fallback disabled or failed), throw error
+        throw lastError || new Error('TTS failed after all retries');
       }
       
       console.log('TTS API response received, audioUrl:', audioUrl);
@@ -3126,6 +3197,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       const handleAudioEnd = () => {
         console.log('Audio ended, switching to listening');
         currentAudioRef.current = null;
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+          currentAudioUrlRef.current = null;
+        }
         isTTSPlaying.current = false; // Mark TTS as no longer playing
         
         // Unmute microphone after TTS ends
@@ -3146,6 +3221,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       const handleAudioError = () => {
         console.log('Audio error, switching to listening');
         currentAudioRef.current = null;
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+          currentAudioUrlRef.current = null;
+        }
         isTTSPlaying.current = false; // Mark TTS as no longer playing
         
         // Unmute microphone after TTS error
@@ -3165,6 +3244,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       
       // Play the audio
       await audio.play();
+      lastSpokenQuestion.current = text; // Track this question as spoken only after playback starts
       console.log('Audio playback started');
       
     } catch (error) {
@@ -3578,6 +3658,19 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                   <span className="text-xs font-semibold text-green-700">Listening</span>
                 </div>
               )}
+              {interviewMode === 'voice' && conversationState === 'listening' && !isMuted && (
+                <div
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-sm border",
+                    sttIsStale ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"
+                  )}
+                >
+                  <div className={cn("w-2 h-2 rounded-full", sttIsStale ? "bg-red-500" : "bg-emerald-500")}></div>
+                  <span className={cn("text-xs font-semibold", sttIsStale ? "text-red-700" : "text-emerald-700")}>
+                    {sttIsStale ? "STT Silent" : "STT Healthy"}
+                  </span>
+                </div>
+              )}
               {conversationState === 'speaking' && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-lg shadow-sm">
                   <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
@@ -3694,6 +3787,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                           // Manual editing - update transcript directly
                           const typedValue = e.target.value;
                           setTranscript(typedValue);
+                          transcriptRef.current = typedValue;
                           lastTranscriptUpdate.current = Date.now(); // Track manual updates too
                           
                           // Track manual edits for response type detection

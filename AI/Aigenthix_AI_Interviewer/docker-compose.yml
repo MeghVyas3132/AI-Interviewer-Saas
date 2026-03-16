@@ -29,6 +29,12 @@ services:
       - NODE_ENV=production
       # ...other env vars...
       - NEXT_PUBLIC_WS_PROXY_URL=${NEXT_PUBLIC_WS_PROXY_URL:-ws://localhost/api/assemblyai/stream}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_TTS_MODEL=${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      - OPENAI_TTS_VOICE=${OPENAI_TTS_VOICE:-marin}
+      - OPENAI_TTS_VOICE_FEMALE=${OPENAI_TTS_VOICE_FEMALE:-}
+      - OPENAI_TTS_VOICE_MALE=${OPENAI_TTS_VOICE_MALE:-}
+      - OPENAI_TTS_RESPONSE_FORMAT=${OPENAI_TTS_RESPONSE_FORMAT:-mp3}
     restart: unless-stopped
     networks:
       - app-network
@@ -43,6 +49,9 @@ services:
       - .env
     environment:
       - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - ASSEMBLYAI_STREAMING_MODEL=${ASSEMBLYAI_STREAMING_MODEL:-universal-streaming-english}
+      - ASSEMBLYAI_STREAMING_ENCODING=${ASSEMBLYAI_STREAMING_ENCODING:-pcm_s16le}
+      - ASSEMBLYAI_FORMAT_TURNS=${ASSEMBLYAI_FORMAT_TURNS:-false}
     restart: unless-stopped
     networks:
       - app-network

@@ -26,6 +26,7 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
   const sessionReadyRef = useRef<boolean>(false);
   const audioBufferRef = useRef<Int16Array[]>([]);
   const beginTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const chunkCountRef = useRef<number>(0);
 
   const [status, setStatus] = useState<AssemblyAIRealtimeState>('idle');
   const [partialTranscript, setPartialTranscript] = useState('');
@@ -56,7 +57,7 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
     }
   }, []);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((options?: { preserveError?: boolean }) => {
     if (beginTimeoutRef.current) {
       clearTimeout(beginTimeoutRef.current);
       beginTimeoutRef.current = null;
@@ -71,11 +72,11 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
     }
     sessionReadyRef.current = false;
     audioBufferRef.current = [];
-    if (error) {
+    if (!options?.preserveError) {
       setError(null);
     }
     cleanupAudioNodes();
-    setStatus('idle');
+    setStatus(options?.preserveError ? 'error' : 'idle');
   }, [cleanupAudioNodes]);
 
   const resetTranscripts = useCallback(() => {
@@ -90,10 +91,12 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
       return;
     }
 
+    console.log('[AssemblyAI] start()', { sampleRate });
     setError(null);
     setStatus('connecting');
     sessionReadyRef.current = false;
     audioBufferRef.current = [];
+    chunkCountRef.current = 0;
 
     try {
       // Get microphone access first
@@ -109,6 +112,9 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
       // Setup audio context
       const audioContext = new AudioContext({ sampleRate });
       audioContextRef.current = audioContext;
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
 
       const source = audioContext.createMediaStreamSource(mediaStream);
       sourceRef.current = source;
@@ -127,14 +133,14 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
       wsRef.current = socket;
 
       socket.onopen = () => {
-        console.log('Connected to WebSocket proxy, waiting for AssemblyAI session...');
+        console.log('[AssemblyAI] WS proxy connected', wsUrl);
         // Set a timeout to wait for Begin message (10 seconds)
         beginTimeoutRef.current = setTimeout(() => {
           if (!sessionReadyRef.current) {
             console.error('Timeout waiting for AssemblyAI Begin message');
             setError('Timeout waiting for session to start');
             setStatus('error');
-            stop();
+            stop({ preserveError: true });
           }
         }, 10000);
       };
@@ -169,20 +175,17 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
       };
 
       const handleMessage = (data: any) => {
-          
-          // Handle v3 message types according to API docs
-          if (data.type === 'Begin') {
+          const messageType = data?.type ?? data?.message_type ?? data?.messageType;
+
+          const markSessionReady = () => {
+            if (sessionReadyRef.current) return;
             console.log('Session began:', data.id, 'Expires at:', data.expires_at);
-            // Clear timeout
             if (beginTimeoutRef.current) {
               clearTimeout(beginTimeoutRef.current);
               beginTimeoutRef.current = null;
             }
-            // Session is ready, we can start sending audio
             sessionReadyRef.current = true;
-            setStatus('listening'); // Now we're actually listening
-            
-            // Send any buffered audio
+            setStatus('listening');
             if (audioBufferRef.current.length > 0) {
               console.log('Sending buffered audio chunks:', audioBufferRef.current.length);
               audioBufferRef.current.forEach(chunk => {
@@ -192,8 +195,21 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
               });
               audioBufferRef.current = [];
             }
-          } else if (data.type === 'Turn') {
-            const transcriptText = data.transcript ?? '';
+          };
+          
+          // Handle v3/v2 session begin message variants
+          if (messageType === 'Begin' || messageType === 'SessionBegins' || messageType === 'SessionStarted') {
+            markSessionReady();
+            return;
+          }
+
+          // If transcripts arrive before the Begin message, treat session as ready.
+          if (!sessionReadyRef.current && (messageType === 'Turn' || messageType === 'PartialTranscript' || messageType === 'FinalTranscript')) {
+            markSessionReady();
+          }
+
+          if (messageType === 'Turn') {
+            const transcriptText = data.transcript ?? data.text ?? '';
             
             // Check if this is a final or partial transcript
             if (data.end_of_turn === true) {
@@ -227,11 +243,33 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
               // Partial transcript (interim results)
               setPartialTranscript(transcriptText);
             }
-          } else if (data.type === 'Termination') {
+          } else if (messageType === 'PartialTranscript') {
+            const transcriptText = data.text ?? data.transcript ?? '';
+            if (transcriptText.trim()) {
+              console.log('[AssemblyAI] PartialTranscript:', transcriptText);
+            }
+            setPartialTranscript(transcriptText);
+          } else if (messageType === 'FinalTranscript') {
+            const transcriptText = data.text ?? data.transcript ?? '';
+            if (transcriptText.trim()) {
+              console.log('[AssemblyAI] FinalTranscript:', transcriptText);
+              const turnOrder = data.audio_start ?? Date.now();
+              setSegments(prev => [
+                ...prev,
+                {
+                  id: `final-${turnOrder}`,
+                  turnOrder: typeof turnOrder === 'number' ? turnOrder : Date.now(),
+                  text: transcriptText.trim(),
+                  timestamp: Date.now(),
+                },
+              ]);
+            }
+            setPartialTranscript('');
+          } else if (messageType === 'Termination') {
             console.warn('Session terminated:', data);
             setError('Session terminated');
             setStatus('error');
-            stop();
+            stop({ preserveError: true });
           }
       };
 
@@ -258,9 +296,10 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
           if (event.code !== 1005 || sessionReadyRef.current) {
             // Only set error if it's not a 1005 or if we were already connected
             setError(`Connection closed: ${event.reason || `Code ${event.code}`}`);
+            setStatus('error');
           }
         }
-        stop();
+        stop({ preserveError: event.code !== 1000 && event.code !== 1001 });
       };
 
       // Setup audio processing
@@ -283,21 +322,24 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
         // Convert to 16-bit PCM
         const int16Buffer = convertFloat32ToInt16(targetData);
         
-        // Wait for session to be ready (Begin message received)
+        // Send audio immediately so AssemblyAI can initialize the session.
         if (!sessionReadyRef.current) {
-          // Buffer audio until session is ready
-          audioBufferRef.current.push(int16Buffer);
-          // Limit buffer size to prevent memory issues (max ~1 second of audio)
-          if (audioBufferRef.current.length > 20) {
-            audioBufferRef.current.shift();
+          wsRef.current.send(int16Buffer);
+          chunkCountRef.current += 1;
+          if (chunkCountRef.current === 1 || chunkCountRef.current % 50 === 0) {
+            console.log('[AssemblyAI] Sent audio chunks (pre-begin):', chunkCountRef.current);
           }
           return;
         }
-        
+
         // Send raw PCM data directly (v3 accepts binary data)
         // Audio chunks should be between 50ms-1000ms
         // Our buffer size (1024 samples at 16kHz = ~64ms) is within range
         wsRef.current.send(int16Buffer);
+        chunkCountRef.current += 1;
+        if (chunkCountRef.current === 1 || chunkCountRef.current % 50 === 0) {
+          console.log('[AssemblyAI] Sent audio chunks:', chunkCountRef.current);
+        }
       };
 
       source.connect(processor);
@@ -307,7 +349,7 @@ export function useAssemblyAIRealtime(sampleRate = DEFAULT_SAMPLE_RATE) {
       console.error('Unable to start AssemblyAI streaming', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       setStatus('error');
-      stop();
+      stop({ preserveError: true });
     }
   }, [sampleRate, status, stop]);
 

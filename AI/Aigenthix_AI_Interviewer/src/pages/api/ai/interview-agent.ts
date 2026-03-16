@@ -28,6 +28,8 @@ export default async function handler(
       resumeText,
       language,
       conversationHistory,
+      referenceQuestions,
+      eventType,
       interviewData,
       currentAffairsMetadata,
       questionAttempts,
@@ -42,8 +44,10 @@ export default async function handler(
       isEmailInterview,
     } = req.body;
 
-    // Validate required fields
-    if (!currentQuestion || !answer) {
+    const normalizedEvent = typeof eventType === 'string' ? eventType : 'answer';
+
+    // Validate required fields for answer events
+    if (normalizedEvent === 'answer' && (!currentQuestion || !answer)) {
       return res.status(400).json({
         success: false,
         error: 'currentQuestion and answer are required',
@@ -85,13 +89,16 @@ export default async function handler(
     
     // Prepare input for interview agent
     const input: InterviewAgentInput = {
-      currentTranscript: answer,
+      currentTranscript: answer || '',
+      currentQuestion: currentQuestion || '',
+      eventType: normalizedEvent as any,
       jobRole: jobTitle || 'General',
       company: company || '',
       college: college,
       resumeText: resumeText || '',
       language: language || 'English',
       conversationHistory: formattedHistory,
+      referenceQuestions: Array.isArray(referenceQuestions) ? referenceQuestions : undefined,
       videoFrameDataUri: videoFrameDataUri,
       realQuestionCount: questionsAnswered || formattedHistory.length,
       recentScores: recentScores || [],
