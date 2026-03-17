@@ -105,7 +105,7 @@ services:
       - backend
       - postgres
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
       NEXT_PUBLIC_WS_PROXY_URL: ws://localhost:9003
       DATABASE_URL: postgresql://ai_interviewer_user:ai_interviewer_password@postgres:5432/ai_interviewer_db
       PORT: 3000
@@ -150,7 +150,7 @@ services:
       ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
       ASSEMBLYAI_STREAMING_MODEL: ${ASSEMBLYAI_STREAMING_MODEL:-universal-streaming-english}
       ASSEMBLYAI_STREAMING_ENCODING: ${ASSEMBLYAI_STREAMING_ENCODING:-pcm_s16le}
-      ASSEMBLYAI_FORMAT_TURNS: ${ASSEMBLYAI_FORMAT_TURNS:-false}
+      ASSEMBLYAI_FORMAT_TURNS: ${ASSEMBLYAI_FORMAT_TURNS:-true}
       PORT: 9003
       WS_PROXY_PORT: 9003
       # Allow WS proxy to know AI service URL if it needs to call backend

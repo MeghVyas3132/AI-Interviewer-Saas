@@ -39,6 +39,7 @@ interface ASRSegment {
 
 interface AdaptiveFeedbackResult {
   feedback: string;
+  visualFeedback?: string;
   nextQuestion?: string;
   nextQuestionKind?: 'intro' | 'resume' | 'core' | 'followup' | 'wrapup' | 'closing' | 'candidate' | 'other';
   shouldRetryCurrentQuestion: boolean;
@@ -221,7 +222,6 @@ export default function InterviewRoomPage() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
-  const [isAIThinking, setIsAIThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [draftAnswer, setDraftAnswer] = useState('');
@@ -1326,15 +1326,34 @@ export default function InterviewRoomPage() {
     return cleaned;
   }, []);
 
+  const captureVideoFrame = useCallback((): string | undefined => {
+    if (!videoRef.current) return undefined;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return undefined;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return undefined;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.8);
+    } catch (err) {
+      console.warn('Failed to capture video frame', err);
+      return undefined;
+    }
+  }, []);
+
   const requestAiTurn = useCallback(async (
     eventType: 'start' | 'answer' | 'silence_prompt' | 'low_confidence' | 'system',
     answerText: string,
   ): Promise<AdaptiveFeedbackResult> => {
-    setIsAIThinking(true);
     try {
       const conversationHistory = buildConversationHistory(
         messagesRef.current.filter((item) => item.role === 'ai' || item.role === 'user'),
       );
+      
+      const videoFrameDataUri = captureVideoFrame();
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 9000);
@@ -1356,6 +1375,7 @@ export default function InterviewRoomPage() {
           })(),
           referenceQuestions: session?.questions_generated || [],
           eventType,
+          videoFrameDataUri,
         }),
         signal: controller.signal,
       });
@@ -1368,6 +1388,7 @@ export default function InterviewRoomPage() {
 
       const payload = await response.json();
       const feedback = String(payload.contentFeedback || '').trim();
+      const visualFeedback = payload.visualFeedback ? String(payload.visualFeedback).trim() : undefined;
       const nextQuestion = String(payload.nextQuestion || '').trim();
       const shouldRetryCurrentQuestion = Boolean(payload.shouldRetryQuestion);
       const isInterviewOver = Boolean(payload.isInterviewOver);
@@ -1383,6 +1404,7 @@ export default function InterviewRoomPage() {
 
       return {
         feedback,
+        visualFeedback,
         nextQuestion: nextQuestion || undefined,
         nextQuestionKind,
         shouldRetryCurrentQuestion,
@@ -1390,8 +1412,6 @@ export default function InterviewRoomPage() {
       };
     } catch {
       return { feedback: '', shouldRetryCurrentQuestion: false };
-    } finally {
-      setIsAIThinking(false);
     }
   }, [buildConversationHistory, normalizeQuestionKey, resumeText, session?.company_name, session?.position, session?.questions_generated]);
 
@@ -1475,6 +1495,7 @@ export default function InterviewRoomPage() {
         addMessage('ai', sanitizedFeedback, {
           transcript_source: 'ai',
           is_final: true,
+          flags: adaptiveFeedback.visualFeedback ? [`visual_feedback:${adaptiveFeedback.visualFeedback}`] : [],
         });
         await speakText(sanitizedFeedback, { gender: 'female' });
       }
@@ -1489,6 +1510,7 @@ export default function InterviewRoomPage() {
         addMessage('ai', finalMessage, {
           transcript_source: 'ai',
           is_final: true,
+          flags: adaptiveFeedback.visualFeedback ? [`visual_feedback:${adaptiveFeedback.visualFeedback}`] : [],
         });
         await speakText(finalMessage, { gender: 'female' });
       }
@@ -1503,6 +1525,7 @@ export default function InterviewRoomPage() {
       addMessage('ai', combinedMessage, {
         transcript_source: 'ai',
         is_final: true,
+        flags: adaptiveFeedback.visualFeedback ? [`visual_feedback:${adaptiveFeedback.visualFeedback}`] : [],
       });
       await speakText(combinedMessage, { gender: 'female' });
     }
@@ -1962,16 +1985,6 @@ export default function InterviewRoomPage() {
                 </div>
               </div>
             ))}
-            {isAIThinking && (
-              <div className="flex justify-start">
-                <div className="max-w-[70%] p-3 rounded-xl bg-blue-900/60 text-white text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 bg-white/80 rounded-full animate-pulse"></span>
-                    <span>AI is thinking…</span>
-                  </div>
-                </div>
-              </div>
-            )}
             <div ref={messagesEndRef} />
           </div>
 

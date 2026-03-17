@@ -1072,11 +1072,33 @@ async def generate_interview_verdict(
 
     qa_pairs = extract_qa_pairs(transcript)
 
-    # Format transcript for AI
-    transcript_text = "\n".join([
-        f"[{msg.get('role', 'unknown').upper()}]: {msg.get('content', '')}"
-        for msg in transcript
-    ])
+    # Format transcript for AI and extract visual feedback
+    transcript_text_lines = []
+    visual_feedback_highlights = []
+    
+    for msg in transcript:
+        role = str(msg.get('role', 'unknown')).upper()
+        content = msg.get('content', '')
+        transcript_text_lines.append(f"[{role}]: {content}")
+        
+        # Check for visual_feedback in meta.flags
+        meta = msg.get('meta') or {}
+        flags = meta.get('flags') or []
+        for flag in flags:
+            if isinstance(flag, str) and flag.startswith('visual_feedback:'):
+                feedback = flag.split(':', 1)[1]
+                visual_feedback_highlights.append(feedback)
+    
+    transcript_text = "\n".join(transcript_text_lines)
+    
+    visual_obs_context = ""
+    if visual_feedback_highlights:
+        # De-duplicate feedback
+        unique_highlights = list(set(visual_feedback_highlights))
+        visual_obs_context = "\nVISUAL OBSERVATIONS & SYSTEM ALERTS:\n"
+        for obs in unique_highlights:
+            visual_obs_context += f"- {obs}\n"
+        visual_obs_context += "IMPORTANT: If multiple people were detected, this is a critical integrity issue. Adjust overall_score and recommendation accordingly.\n"
 
     def fallback_verdict(reason: str) -> Dict[str, Any]:
         """Deterministic fallback so verdict generation never blocks interview completion."""
@@ -1205,7 +1227,7 @@ async def generate_interview_verdict(
     position_context = f"Position: {position}\n" if position else ""
     
     prompt = f"""You are an expert technical interview evaluator with 15+ years of hiring experience. Analyze this interview transcript and provide a comprehensive, production-ready evaluation.
-
+{visual_obs_context}
 {position_context}{ats_context}{resume_context}
 
 INTERVIEW TRANSCRIPT:

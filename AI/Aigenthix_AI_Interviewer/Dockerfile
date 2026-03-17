@@ -37,6 +37,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/ws-proxy-server.js ./ws-proxy-server.js
+COPY --from=builder --chown=nextjs:nodejs /app/ws-proxy-server-key-manager.js ./ws-proxy-server-key-manager.js
 
 USER nextjs
 
