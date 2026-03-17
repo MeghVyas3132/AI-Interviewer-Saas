@@ -1878,7 +1878,8 @@ const orchestrateJobInterviewNextQuestion = (
   const resumeProfile = resumeHasData ? extractResumeProfile(resumeText) : null;
   const resumeAnchors = resumeProfile ? selectResumeAnchors(buildResumeAnchors(resumeProfile, resumeText)) : [];
   const allowedResumeAnchors = resumeAnchors.filter(anchor => anchor.type === 'experience' || anchor.type === 'project');
-  const resumeEnabled = flags.resumeProbe && resumeHasData && allowedResumeAnchors.length > 0;
+  // Resume stage must still run even when anchors are sparse; fallback resume prompts will be used.
+  const resumeEnabled = flags.resumeProbe && resumeHasData;
 
   const classifications: QuestionKind[] = [];
   historyQuestions.forEach((question, idx) => {
@@ -1905,7 +1906,9 @@ const orchestrateJobInterviewNextQuestion = (
   const lastQuestion = historyQuestions.length > 0 ? historyQuestions[historyQuestions.length - 1] : '';
   const lastIsClosing = isClosingQuestion(lastQuestion) || isCandidateQuestion(lastQuestion);
 
-  const introAskedCount = classifications.filter(kind => kind === 'intro').length;
+  // Intro is strictly a single opening turn. If any interview question already exists,
+  // treat intro as already consumed to avoid duplicate intro loops.
+  const introAskedCount = historyQuestions.length > 0 ? 1 : 0;
   // Primary resume count from classifications
   const resumeAskedByClass = classifications.filter(kind => kind === 'resume').length;
   // Secondary resume count: count anchors whose generated question already appeared in history (more reliable)
@@ -1926,9 +1929,11 @@ const orchestrateJobInterviewNextQuestion = (
   const closingAsked = classifications.filter(kind => kind === 'closing').length;
 
   const mainQuestionsAsked = introAskedCount + resumeAsked + coreAsked;
-  const resumeTarget = resumeEnabled ? Math.min(RESUME_QUESTION_TARGET, allowedResumeAnchors.length || 0) : 0;
+  const resumeTarget = resumeEnabled ? RESUME_QUESTION_TARGET : 0;
   const mainTarget = JOB_MAIN_QUESTION_TARGET;
-  const coreTarget = Math.max(0, mainTarget - 1 - resumeTarget);
+  const coreTarget = resumeEnabled
+    ? CORE_QUESTION_TARGET
+    : Math.max(0, mainTarget - 1 - resumeTarget);
   const mainRemaining = Math.max(0, mainTarget - mainQuestionsAsked);
 
   // Per-question follow-up budget: count consecutive followups after the last main question
@@ -1966,6 +1971,37 @@ const orchestrateJobInterviewNextQuestion = (
   }
 
   // 2. Check if all main questions are done → closing/wrapup
+  // Hard guard: force closing at turn 10 (after 9 pre-closing interview questions).
+  // This protects against occasional classification drift that can otherwise delay closing.
+  if (historyQuestions.length >= JOB_MAIN_QUESTION_TARGET) {
+    if (closingAsked < 1) {
+      return {
+        kind: 'closing',
+        isInterviewOver: false,
+        questionCategory: getQuestionCategory('closing', lastKind),
+        corePool: [],
+        mainQuestionsAsked,
+        mainQuestionsTarget: mainTarget,
+        resumeTarget,
+        coreTarget,
+        followupBudgetRemaining,
+        reason: 'turn_10_closing_guard',
+      };
+    }
+    return {
+      kind: 'wrapup',
+      isInterviewOver: true,
+      questionCategory: getQuestionCategory('wrapup', lastKind),
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: mainTarget,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'closing_already_asked_guard',
+    };
+  }
+
   if (mainRemaining <= 0) {
     if (closingAsked < 1) {
       return {
@@ -2025,25 +2061,30 @@ const orchestrateJobInterviewNextQuestion = (
 
   // 4. Resume-based technical questions (phase 2, after intro)
   if (resumeSequencePending) {
-    const preferType: ResumeAnchorType = resumeAsked % 2 === 0 ? 'experience' : 'project';
+    const preferType: ResumeAnchorType = RESUME_SEQUENCE_ORDER[resumeAsked % RESUME_SEQUENCE_ORDER.length] || 'experience';
     const anchor =
       selectUnusedAnchorByType(allowedResumeAnchors, historyQuestions, preferType) ||
       selectUnusedAnchor(allowedResumeAnchors, historyQuestions);
-    if (anchor) {
-      return {
-        kind: 'resume',
-        isInterviewOver: false,
-        questionCategory: getQuestionCategory('resume', lastKind),
-        resumeAnchor: anchor,
-        corePool: [],
-        mainQuestionsAsked,
-        mainQuestionsTarget: mainTarget,
-        resumeTarget,
-        coreTarget,
-        followupBudgetRemaining,
-        reason: 'resume_sequence',
-      };
-    }
+
+    const resumeAnchor = anchor || {
+      type: preferType,
+      title: preferType === 'project' ? 'a key project from your resume' : 'your recent experience from the resume',
+      evidenceLine: '',
+    };
+
+    return {
+      kind: 'resume',
+      isInterviewOver: false,
+      questionCategory: getQuestionCategory('resume', lastKind),
+      resumeAnchor,
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: mainTarget,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'resume_sequence',
+    };
   }
 
   // 5. Core / HR-generated questions (phase 3, after resume questions)
