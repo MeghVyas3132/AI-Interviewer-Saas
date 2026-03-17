@@ -16,6 +16,7 @@ import { getCachedQuestions, generateCacheKey } from '@/ai/question-cache';
 import { generateCurrentAffairsQuestion } from './current-affairs-generator';
 import { getExamConfigByExamAndSubcategory } from '@/lib/postgres-data-store';
 import { withOpenAIApiKeyRotation, initializeOpenAIApiKeyManager } from '@/lib/openai-api-key-manager';
+import { getInterviewPromptTemplate, getEvaluationSystemPrompt } from './interview-instructions';
 
 const InterviewHistorySchema = z.object({
     question: z.string(),
@@ -1383,24 +1384,7 @@ const buildEvaluationPrompt = (
   const referenceQuestions = (input.referenceQuestions || []).slice(0, 12);
   const eventType = input.eventType || 'answer';
 
-  const system = [
-    'You are a professional interview coach.',
-    'Return ONLY valid JSON, no prose.',
-    'Use concise, constructive feedback (1-2 sentences max per field).',
-    'Do NOT include generic acknowledgements or canned phrases.',
-    'Avoid phrases like "provide more", "provide specific", or "please share your background".',
-    'Keep questions technical and concrete; avoid credential or location-based questions.',
-    'Focus on experience, projects, and skills; do not ask about education, location, or personal identifiers.',
-    'Do not mention company names, client names, locations, or personal identifiers from the resume or company field, except in the intro greeting or closing fit question where company name may be included.',
-    'Core questions must be selected verbatim from the provided core_question_pool.',
-    'Do not repeat previous questions; if it is similar, choose a different angle.',
-    'When asking a closing fit-for-role question, vary the wording each time (do not repeat the same phrasing).',
-    'Do NOT quote or repeat resume text verbatim.',
-    'Do NOT list the full resume or resume summary in your response.',
-    'Do NOT repeat the candidate answer verbatim; if you echo, limit to 8 words.',
-    'Ensure nextQuestion is a single message with any short transition included.',
-    'nextQuestion must be a clear question ending with a question mark.',
-  ].join(' ');
+  const system = getEvaluationSystemPrompt();
 
   const sanitizedResumeAnchor = plan.resumeAnchor
     ? {
@@ -1624,8 +1608,9 @@ const mergeEvaluation = (
   if (updated.nextQuestion) {
     updated.nextQuestion = stripLeadingAcknowledgement(updated.nextQuestion);
     if (plan.kind === 'core' && plan.corePool.length > 0) {
-      const matched = findMatchingCoreQuestion(updated.nextQuestion, plan.corePool);
-      updated.nextQuestion = matched || plan.corePool[0];
+      // Allow LLM to ask dynamically generated questions instead of forcing a fallback from the pool:
+      // const matched = findMatchingCoreQuestion(updated.nextQuestion, plan.corePool);
+      // updated.nextQuestion = matched || plan.corePool[0];
     }
     if (plan.kind === 'followup' && hasBannedFollowupPhrasing(updated.nextQuestion)) {
       const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
@@ -2471,7 +2456,17 @@ const prompt = ai.definePrompt({
     temperature: 0.7, // Higher temperature for more natural, varied responses
     topP: 0.9,       // Focused sampling for better question quality
   },
-  prompt: `You are Aigenthix AI Powered Coach, a friendly and professional AI interview coach. Your tone should be encouraging and supportive. Conduct a mock interview that feels like a natural, flowing conversation with a real human interviewer, not a rigid Q&A session.
+  prompt: getInterviewPromptTemplate(),
+});
+
+// Legacy prompt content removed — now served from interview-instructions.ts
+// The prompt template uses Handlebars syntax and receives all InterviewAgentInput fields
+// plus additional computed fields: hasResumeData, isEmailInterview, referenceQuestions,
+// catInsights, currentAffairsQuestion, currentAffairsMetadata
+
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// @ts-ignore — keeping old closing marker as reference for line-number stability
+const _LEGACY_PROMPT_REMOVED = `You are Aigenthix AI Powered Coach, a friendly and professional AI interview coach. Your tone should be encouraging and supportive. Conduct a mock interview that feels like a natural, flowing conversation with a real human interviewer, not a rigid Q&A session.
 
 **CRITICAL: Make every response feel completely natural and human-like. Use conversational language, varied expressions, and natural transitions. Avoid robotic or repetitive phrases at all costs.**
 
@@ -3534,8 +3529,8 @@ Your tasks are:
 - **Double-check that your question uses a different question starter and explores a different topic than previous questions**
 
 Provide your response in the required structured format.
-`,
-});
+`;
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 const interviewAgentFlow = ai.defineFlow(
   {
@@ -3770,8 +3765,9 @@ const interviewAgentFlow = ai.defineFlow(
         output.nextQuestion = buildFallbackQuestionFromPlan(plan, input);
       }
       if (plan.kind === 'core' && plan.corePool.length > 0 && output.nextQuestion) {
-        const matched = findMatchingCoreQuestion(output.nextQuestion, plan.corePool);
-        output.nextQuestion = matched || plan.corePool[0];
+        // Allow LLM to ask dynamically generated questions instead of forcing a fallback from the pool:
+        // const matched = findMatchingCoreQuestion(output.nextQuestion, plan.corePool);
+        // output.nextQuestion = matched || plan.corePool[0];
       }
       if (plan.kind === 'closing' && output.nextQuestion && !isFitQuestion(output.nextQuestion)) {
         output.nextQuestion = buildClosingFitQuestion(input);

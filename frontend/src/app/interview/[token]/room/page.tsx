@@ -137,23 +137,6 @@ function extractQuestionFromAiMessage(text: string): string {
   return cleaned;
 }
 
-function buildGuaranteedWelcome(candidateName: string | undefined, aiFeedback: string): string {
-  const trimmedFeedback = (aiFeedback || '').trim();
-  const safeName = (candidateName || '').trim();
-  const hasWelcome = /\b(welcome|great to meet|glad to have you|let'?s get started)\b/i.test(trimmedFeedback);
-  const hasName = safeName
-    ? new RegExp(`\\b${escapeRegex(safeName.split(' ')[0])}\\b`, 'i').test(trimmedFeedback)
-    : true;
-
-  if (trimmedFeedback && hasWelcome && hasName) {
-    return trimmedFeedback;
-  }
-
-  return safeName
-    ? `Welcome ${safeName}. Let's get started with the interview.`
-    : "Welcome. Let's get started with the interview.";
-}
-
 function getWsProxyBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_WS_PROXY_URL;
   if (envUrl) {
@@ -240,6 +223,7 @@ export default function InterviewRoomPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [isAIThinking, setIsAIThinking] = useState(false);
+  const isAIThinkingRef = useRef(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [draftAnswer, setDraftAnswer] = useState('');
@@ -1366,6 +1350,7 @@ export default function InterviewRoomPage() {
     answerText: string,
   ): Promise<AdaptiveFeedbackResult> => {
     setIsAIThinking(true);
+    isAIThinkingRef.current = true;
     try {
       const conversationHistory = buildConversationHistory(
         messagesRef.current.filter((item) => item.role === 'ai' || item.role === 'user'),
@@ -1432,6 +1417,7 @@ export default function InterviewRoomPage() {
       return { feedback: '', shouldRetryCurrentQuestion: false };
     } finally {
       setIsAIThinking(false);
+      isAIThinkingRef.current = false;
     }
   }, [
     buildConversationHistory,
@@ -1444,7 +1430,7 @@ export default function InterviewRoomPage() {
   ]);
 
   const submitAnswer = useCallback(async () => {
-    if (interviewEndedRef.current || isAISpeakingRef.current) return;
+    if (interviewEndedRef.current || isAISpeakingRef.current || isAIThinkingRef.current) return;
 
     const finalText = finalSegmentsRef.current.map((segment) => segment.text).join(' ').trim();
     const interimText = interimTranscriptRef.current.trim();
@@ -1730,7 +1716,7 @@ export default function InterviewRoomPage() {
     if (!interviewStarted || interviewEnded) return;
 
     const interval = setInterval(() => {
-      if (!isListeningRef.current || isAISpeakingRef.current || interviewEndedRef.current) return;
+      if (!isListeningRef.current || isAISpeakingRef.current || interviewEndedRef.current || isAIThinkingRef.current) return;
 
       const idleForMs = Date.now() - lastSpeechTimeRef.current;
       if (idleForMs < LONG_SILENCE_PROMPT_MS) {
@@ -1781,11 +1767,13 @@ export default function InterviewRoomPage() {
     asrWantedRef.current = true;
     const startTurn = await requestAiTurn('start', '');
 
-    const welcomeText = buildGuaranteedWelcome(session?.candidate_name, startTurn.feedback || '');
     const firstQuestion = isLikelyQuestion(startTurn.nextQuestion || '')
       ? (startTurn.nextQuestion || '').trim()
       : 'Tell me about yourself and your experience relevant to this role.';
-    const messageText = combineFeedbackWithQuestion(welcomeText, firstQuestion);
+    
+    // The LLM naturally outputs a greeting in feedback and/or nextQuestion based on standard interview instructions.
+    // There is no need for artificial string concatenation which incorrectly mixes names.
+    const messageText = combineFeedbackWithQuestion(startTurn.feedback || '', firstQuestion);
     if (messageText) {
       addMessage('ai', messageText, {
         transcript_source: 'ai',

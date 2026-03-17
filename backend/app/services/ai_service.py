@@ -556,26 +556,52 @@ async def generate_questions(job_description: str, max_questions: int = 10, mode
     Uses Groq as primary provider with key rotation for rate limit mitigation.
     Returns: { "questions": ["q1", "q2", ...], "raw": <provider response> }
     """
-    prompt = f"""You are an expert TECHNICAL interviewer for software engineering and tech roles.
+    prompt = f"""You are a senior professional interviewer preparing interview questions for a real job interview. You are NOT a quiz maker — you are a hiring manager crafting questions that test real competence.
 
 JOB DESCRIPTION/ROLE:
 {job_description}
 
-Generate EXACTLY {max_questions} technical interview questions that would be asked TO A CANDIDATE applying for this role.
+Generate EXACTLY {max_questions} interview questions that a senior interviewer would ask in a real interview for this role.
 
-IMPORTANT RULES:
-1. Questions must be TECHNICAL questions that test the candidate's skills
-2. Questions should be what an interviewer would ASK the candidate, NOT questions about how to create interview questions
-3. Include a mix of:
-   - Technical concept questions (e.g., "Explain the difference between SQL and NoSQL databases")
-   - Problem-solving questions (e.g., "How would you design a caching system for a high-traffic website?")
-   - Experience-based questions (e.g., "Describe a complex bug you debugged and how you resolved it")
-   - System design questions for senior roles (e.g., "Design a URL shortener service")
-4. Questions should be appropriate for the seniority level mentioned in the job description
-5. Each question should be clear, specific, and directly related to the technical requirements of the role
+QUESTION QUALITY RULES:
+1. Questions must sound like a REAL interviewer asking them — conversational, professional, and specific
+2. Each question must be directly relevant to the job description/role above
+3. Questions should test practical knowledge and real-world experience, not textbook knowledge
+4. Use scenarios and situations, not definitions or lists
+
+REQUIRED QUESTION DISTRIBUTION (for {max_questions} questions):
+- 2 CONCEPTUAL questions: Test understanding of core concepts relevant to the role
+  Example: "How would you explain the difference between horizontal and vertical scaling to a non-technical stakeholder?"
+  NOT: "Define horizontal scaling."
+
+- 3 SCENARIO-BASED questions: Present realistic work situations
+  Example: "If a service you own started throwing 500 errors during peak traffic, walk me through your debugging approach."
+  NOT: "What is a 500 error?"
+
+- 2 SYSTEM DESIGN / ARCHITECTURE questions: Test ability to design solutions
+  Example: "How would you design a notification system that needs to handle millions of messages per day?"
+  NOT: "List the components of a notification system."
+
+- 2 EXPERIENCE-BASED questions: Draw on past work experience
+  Example: "Tell me about a time you had to refactor a critical piece of infrastructure. What was your approach?"
+  NOT: "What is refactoring?"
+
+- 1 BEHAVIORAL / CULTURAL FIT question: Assess soft skills and team dynamics
+  Example: "Describe a situation where you disagreed with a technical decision. How did you handle it?"
+  NOT: "Are you a team player?"
+
+ANTI-HALLUCINATION RULES:
+- Only reference REAL technologies, frameworks, tools, and methodologies that actually exist
+- Do not invent fake libraries, protocols, or technical concepts
+- Ground questions in the actual technologies and skills mentioned in the job description
+
+PROFESSIONAL TONE:
+- Questions should feel like they're coming from a knowledgeable interviewer, not a textbook
+- Use "walk me through", "tell me about", "how would you", "describe" — not "define", "list", "what is"
+- Each question should invite a detailed, thoughtful response
 
 Return a JSON object with ONLY a "questions" key containing an array of {max_questions} question strings.
-Example format: {{"questions": ["What is the time complexity of a binary search algorithm?", "Explain how you would implement authentication in a REST API", ...]}}
+Example format: {{"questions": ["If you inherited a legacy codebase with no tests, how would you approach adding test coverage without disrupting active development?", "Walk me through how you would design a rate limiting system for a public API", ...]}}
 
 Return JSON only, no markdown, no explanation."""
 
