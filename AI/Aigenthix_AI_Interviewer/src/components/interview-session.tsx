@@ -298,6 +298,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const autoSubmitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoSubmitInProgressRef = useRef<boolean>(false);
   const lastAutoSubmittedAnswerRef = useRef<string>("");
+  const submitInFlightRef = useRef<boolean>(false);
   const handleSubmitRef = useRef<(() => Promise<void>) | null>(null);
   const lastSpeechEngineKickRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -369,7 +370,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   }, [interviewMode, conversationState, isMuted]);
 
   useEffect(() => {
-    if (!hasCameraPermission || !hasActiveVideoStream || conversationState === 'finished') {
+    if (!hasCameraPermission || conversationState === 'finished') {
       return;
     }
     if (typeof window === 'undefined' || !(window as any).FaceDetector) {
@@ -427,7 +428,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [hasCameraPermission, hasActiveVideoStream, conversationState, isPaused, toast]);
+  }, [hasCameraPermission, conversationState, isPaused, toast]);
 
   // Detect AssemblyAI failure and switch to fallback
   useEffect(() => {
@@ -1447,8 +1448,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
 
   // Terminate interview immediately on tab switch/minimize/blur (token-based proctored interviews)
   useEffect(() => {
-    // Only enforce tab switching for proctored interviews with session token
-    const shouldEnforceTabSwitching = !!sessionToken && isProctored;
+    // Enforce tab/window switching for all proctored interviews.
+    const shouldEnforceTabSwitching = isProctored;
     if (!shouldEnforceTabSwitching) {
       return;
     }
@@ -1951,6 +1952,11 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   };
 
   const handleSubmit = async () => {
+    if (submitInFlightRef.current) {
+      console.log('Submit blocked - previous submission still in flight');
+      return;
+    }
+
     const currentAnswer = (transcriptRef.current || transcript).trim();
     const sanitizedAnswer = redactProfanity(currentAnswer);
     const lowerQuestion = (currentQuestion || '').toLowerCase();
@@ -1970,6 +1976,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         return;
     }
 
+    submitInFlightRef.current = true;
+
     if (PROFANITY_DETECT_REGEX.test(currentAnswer)) {
       const violationMessage = 'Your interview has ended due to use of inappropriate language.';
       const proctorEvent = recordProctorEvent({
@@ -1981,6 +1989,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         setConversationLog(prev => [...prev, { speaker: 'user', text: sanitizedAnswer }]);
       }
       await endInterviewAndRedirectToEnded({ finalMessage: violationMessage, proctorEvent });
+      submitInFlightRef.current = false;
       return;
     }
 
@@ -2010,6 +2019,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       
       // Actually move to the next question by calling the interview agent
       setConversationState('thinking');
+      conversationStateRef.current = 'thinking';
       
       try {
         const videoFrameDataUri = (interviewMode === 'voice' && hasCameraPermission) ? captureVideoFrame() : undefined;
@@ -2053,10 +2063,12 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         setConversationState('listening');
       }
       
+      submitInFlightRef.current = false;
       return;
     }
     
     setConversationState('thinking');
+    conversationStateRef.current = 'thinking';
     
     const videoFrameDataUri = (interviewMode === 'voice' && hasCameraPermission) ? captureVideoFrame() : undefined;
 
@@ -2215,8 +2227,12 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       const isRealQuestion = !isGeneralQuestion && (result as any).overallScore !== undefined;
       
       // If this is a general question, we should not show scores for it
+      const multipleFaceViolations = proctoringEventsRef.current.filter(ev => ev.event === 'multiple_faces').length;
+      const proctoringPenalty = Math.min(3, multipleFaceViolations);
+
       const feedbackWithScores = isRealQuestion ? {
         ...newFeedback,
+        overallScore: Math.max(1, (newFeedback.overallScore || 0) - proctoringPenalty),
         isDisqualified: (result as any).isDisqualified
       } : {
         ...newFeedback,
@@ -2534,6 +2550,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         setCurrentQuestion(fallbackQuestion);
       }
     } finally {
+      submitInFlightRef.current = false;
       lastResultIndex.current = 0;
     }
   };
