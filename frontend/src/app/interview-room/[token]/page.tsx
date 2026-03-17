@@ -144,6 +144,7 @@ export default function InterviewRoomPage() {
             sessionId={sessionToken}
             candidateId={candidateId}
             mode="voice"
+            proctoringMode="proctored"
             onRegisterTerminate={registerTerminateHandler}
             onViolation={handleViolation}
           />

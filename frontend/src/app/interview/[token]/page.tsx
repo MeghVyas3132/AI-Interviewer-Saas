@@ -85,12 +85,9 @@ export default function InterviewLandingPage() {
         const scheduledTime = new Date(data.scheduled_time);
         const now = new Date();
         const windowStart = new Date(scheduledTime.getTime() - 15 * 60000);
-        const windowEnd = new Date(scheduledTime.getTime() + (data.duration_minutes + 30) * 60000);
 
         if (now < windowStart) {
           setCurrentStep('not-started');
-        } else if (now > windowEnd) {
-          setCurrentStep('expired');
         } else if (data.status === 'completed') {
           setCurrentStep('expired');
         } else {
