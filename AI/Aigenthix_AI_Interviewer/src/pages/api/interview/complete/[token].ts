@@ -426,6 +426,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           const authenticityScore = 100 - plagiarismScore;
 
+          // Apply proctoring violation penalties to overall score
+          // Multiple face detections: -5 points per occurrence (max -20)
+          // Tab switches would already end the interview, but if any recorded: -10 per occurrence
+          const faceViolationPenalty = Math.min(20, (resolvedProctoringSummary.multipleFaces || 0) * 5);
+          const tabSwitchPenalty = Math.min(30, (resolvedProctoringSummary.tabSwitches || 0) * 10);
+          const totalProctoringPenalty = faceViolationPenalty + tabSwitchPenalty;
+
+          if (totalProctoringPenalty > 0) {
+            console.log('Applying proctoring penalties:', {
+              faceViolationPenalty,
+              tabSwitchPenalty,
+              totalProctoringPenalty,
+              originalScore: overallScore
+            });
+            overallScore = Math.max(0, overallScore - totalProctoringPenalty);
+          }
+
           // Determine status
           let candidateStatus = 'pending';
           if (overallScore >= 60) {

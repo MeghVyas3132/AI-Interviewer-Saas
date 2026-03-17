@@ -159,6 +159,42 @@ export function InterviewSession({
     };
   }, [sessionId]);
 
+  // ── Tab/Window switching detection (proctored interviews) ─────────────────
+  useEffect(() => {
+    // Only enforce for proctored interviews
+    if (proctoringMode !== 'proctored' || interviewComplete || terminatedReason) return;
+
+    let violationFired = false;
+
+    const handleVisibilityChange = () => {
+      if (violationFired) return;
+      if (document.visibilityState === 'hidden') {
+        violationFired = true;
+        const msg = 'Interview ended: tab switching is not allowed during a proctored interview.';
+        proctoringNotesRef.current.push(`[TAB_SWITCH] ${new Date().toISOString()}`);
+        onViolation?.('tab_switch', msg);
+        terminateInterview('tab_switch');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      if (violationFired) return;
+      violationFired = true;
+      const msg = 'Interview ended: switching windows is not allowed during a proctored interview.';
+      proctoringNotesRef.current.push(`[WINDOW_SWITCH] ${new Date().toISOString()}`);
+      onViolation?.('window_switch', msg);
+      terminateInterview('window_switch');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [proctoringMode, interviewComplete, terminatedReason, terminateInterview, onViolation]);
+
   // ── Start camera + face detection ──────────────────────────────────────────
   useEffect(() => {
     if (interviewComplete || terminatedReason) return;

@@ -358,7 +358,8 @@ const enforceUniqueNextQuestion = (
 
 const FOLLOWUP_BUDGET_MAX = 2;
 const MAIN_QUESTION_TARGET = 10;
-const RESUME_QUESTION_TARGET = 3;
+const RESUME_QUESTION_TARGET = 3; // Q2-Q4: exactly 3 resume questions
+const CORE_QUESTION_TARGET = 5;   // Q5-Q9: exactly 5 HR-generated questions
 const JOB_MAIN_QUESTION_TARGET = 9; // 1 intro + 3 resume + 5 HR = 9 main, then closing = 10 total
 const RESUME_SEQUENCE_ORDER: ResumeAnchorType[] = ['experience', 'project', 'experience'];
 
@@ -920,6 +921,8 @@ const buildResumeSummary = (resumeText: string): string => {
 
 const isIntroQuestion = (question: string): boolean => {
   const q = (question || '').toLowerCase();
+  // Only match TRUE intro questions - NOT HR questions that happen to contain greetings
+  // Intro question must be the welcoming "tell me about yourself" type question
   return (
     /tell me about yourself/.test(q) ||
     /walk me through your background/.test(q) ||
@@ -934,9 +937,8 @@ const isIntroQuestion = (question: string): boolean => {
     /ready to begin/.test(q) ||
     /shall we get started/.test(q) ||
     /ready to start/.test(q) ||
-    /welcome to/.test(q) ||
-    // Any greeting that asks about experience/background for this role
-    (/^(hello|hi|welcome)\b/.test(q) && /experience relevant|about yourself|your background/.test(q))
+    // Welcome that directly asks about background (not generic welcome + HR question)
+    (/^(hello|hi|welcome)/.test(q) && /tell me about yourself|about yourself and your experience/.test(q))
   );
 };
 
@@ -1430,14 +1432,16 @@ const buildEvaluationPrompt = (
     '- If Event=answer: analyze answer quality and generate nextQuestion.',
     '',
     'Next question rules:',
-    '- Obey NextQuestionPlan.next_kind. If it is wrapup, set isInterviewOver=true and nextQuestion as a short closing statement (not a question).',
+    '- Obey NextQuestionPlan.next_kind strictly. The flow is: intro(1) -> resume(3) -> core(5) -> closing(1) = 10 questions total.',
+    '- If next_kind=wrapup, set isInterviewOver=true and nextQuestion as a short closing statement (not a question).',
     '- If next_kind=core and core_question_pool is non-empty, choose ONE question verbatim from the pool (prefer the first unused). Do not rewrite it.',
-    '- If next_kind=resume, ask about resume_anchor.title without naming any company/location; focus on technical ownership, design decisions, and measurable impact.',
+    '- If next_kind=resume, ask about resume_anchor.title focusing on technical ownership, design decisions, and measurable impact. Do NOT repeat any previous questions.',
     '- If next_kind=followup, ask one probing technical follow-up aligned to followup_intent (specificity, ownership, depth, or impact). Avoid "provide more" phrasing.',
     '- If next_kind=intro, greet briefly, include candidate name, company, and role if provided, then ask "tell me about yourself and your experience relevant to [role]". End with a question.',
     '- If next_kind=closing, ask a fit-for-role question (why a strong fit / why choose you / strongest evidence) with varied wording. Keep it a question and set isInterviewOver=false.',
-    '- If the candidate says they do not know or want to skip, acknowledge briefly and move on to the next question.',
+    '- If the candidate says they do not know or want to skip, acknowledge briefly and move on to the next question without asking followups.',
     '- Never output multiple questions; keep nextQuestion to one question only.',
+    '- NEVER repeat a question that was already asked in the conversation. Each question must be unique.',
     '',
     'Return JSON with keys:',
     'contentFeedback, toneFeedback, clarityFeedback, ideasScore, organizationScore, accuracyScore, voiceScore, grammarScore, stopWordsScore, overallScore, isCorrectAnswer, shouldRetryQuestion, hint, explanation, nextQuestion, isInterviewOver',
@@ -1785,21 +1789,40 @@ const selectUnusedAnchor = (anchors: ResumeAnchor[], historyQuestions: string[])
   const fallback = anchors.filter(anchor => anchor.type !== 'experience' && anchor.type !== 'project');
   const ordered = priority.length > 0 ? [...priority, ...fallback] : anchors;
 
+  // Track which anchors have been used to prevent any duplicates
+  const usedAnchors = new Set<string>();
+
   for (const anchor of ordered) {
     const key = normalizeForCompare(anchor.title);
+
+    // Skip if this anchor was already marked as used in this selection round
+    if (usedAnchors.has(key)) continue;
+
     // Pre-generate the question this anchor would produce — check if it's already in history
     const generatedQuestion = normalizeForCompare(buildResumeQuestion(anchor));
 
     const used = normalizedHistory.some(question => {
       // Check generated question similarity first (most reliable)
-      if (generatedQuestion && question.includes(generatedQuestion.substring(0, Math.min(60, generatedQuestion.length)))) return true;
+      // Use a shorter prefix check and also check from the beginning
+      const prefix30 = generatedQuestion.substring(0, 30);
+      const prefix60 = generatedQuestion.substring(0, Math.min(60, generatedQuestion.length));
+      if (prefix30 && question.includes(prefix30)) return true;
+      if (prefix60 && question.includes(prefix60)) return true;
+
+      // Also check if the history question is similar overall
+      if (questionSimilarity(question, generatedQuestion) >= 0.5) return true;
+
       // Fallback: check anchor metadata fields
-      if (key && question.includes(key)) return true;
+      if (key && key.length > 3 && question.includes(key)) return true;
       if (anchor.company && question.includes(normalizeForCompare(anchor.company))) return true;
       if (anchor.role && question.includes(normalizeForCompare(anchor.role))) return true;
       return false;
     });
-    if (!used) return anchor;
+
+    if (!used) {
+      usedAnchors.add(key);
+      return anchor;
+    }
   }
   return undefined;
 };
@@ -1842,7 +1865,8 @@ const orchestrateJobInterviewNextQuestion = (
 ): NextQuestionPlan => {
   const flags = {
     resumeProbe: process.env.INTERVIEW_RESUME_PROBE_ENABLED !== 'false',
-    followup: process.env.INTERVIEW_FOLLOWUP_ENABLED !== 'false',
+    // Followups disabled by default - only enable if explicitly set to 'true'
+    followup: process.env.INTERVIEW_FOLLOWUP_ENABLED === 'true',
   };
 
   const historyQuestions = flowInput.conversationHistory
@@ -1858,12 +1882,15 @@ const orchestrateJobInterviewNextQuestion = (
 
   const classifications: QuestionKind[] = [];
   historyQuestions.forEach((question, idx) => {
-    // The first question in history is the intro greeting — but ONLY if it actually looks like one.
-    // If history is stale/empty and a core question appears at idx=0, don't mislabel it as intro.
+    // STRICT RULE: Only the FIRST question (idx === 0) can be classified as 'intro'
+    // Any subsequent question that looks like intro should be classified based on content
     if (idx === 0 && isIntroQuestion(question)) {
       classifications.push('intro');
     } else {
-      classifications.push(classifyQuestion(question, resumeAnchors, historyQuestions[idx - 1]));
+      // For non-first questions, classify based on content but NEVER as 'intro'
+      const classification = classifyQuestion(question, resumeAnchors, historyQuestions[idx - 1]);
+      // If any non-first question would be classified as 'intro', treat it as 'core' instead
+      classifications.push(classification === 'intro' ? 'core' : classification);
     }
   });
 
@@ -1968,14 +1995,14 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
-  // 3. Per-question follow-up: only when last answer was low quality and budget remains
+  // 3. Per-question follow-up: ONLY for core (HR-generated) questions when answer is very vague
   //    Follow-ups do NOT count toward the 10-question total.
-  //    Only allow follow-ups on resume or core questions, not during phase transitions.
+  //    DISABLED for resume questions - we want to move through the interview flow smoothly
   const qualityCheck = detectAnswerQuality(flowInput.currentTranscript || '');
   const shouldFollowup =
     flags.followup &&
     followupBudgetRemaining > 0 &&
-    (lastMainKind === 'core' || lastMainKind === 'resume') &&
+    lastMainKind === 'core' && // ONLY core questions, NOT resume
     !lastIsClosing &&
     qualityCheck.low !== null &&
     !isDeferralAnswer(flowInput.currentTranscript || '');

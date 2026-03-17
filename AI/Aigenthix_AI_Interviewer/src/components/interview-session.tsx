@@ -1348,6 +1348,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     let proctorViolationFired = false;
 
     const terminateOnViolation = (reason: string, proctorEventType: 'tab_switch' | 'window_switch') => {
+      // Only terminate for proctored interviews
+      if (!isProctored) return;
       if (proctorViolationFired) return;
       if (conversationStateRef.current === 'finished') return;
       proctorViolationFired = true;
@@ -1365,16 +1367,16 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       });
     };
 
-    // Terminate immediately on tab switch
+    // Terminate immediately on tab switch (only for proctored interviews)
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && conversationStateRef.current !== 'finished') {
+      if (isProctored && document.visibilityState === 'hidden' && conversationStateRef.current !== 'finished') {
         terminateOnViolation('tab_switch_detected', 'tab_switch');
       }
     };
 
-    // Terminate on window blur (user switches to another app/window)
+    // Terminate on window blur (user switches to another app/window) - only for proctored interviews
     const handleWindowBlur = () => {
-      if (conversationStateRef.current !== 'finished') {
+      if (isProctored && conversationStateRef.current !== 'finished') {
         terminateOnViolation('window_blur_detected', 'window_switch');
       }
     };
@@ -1443,9 +1445,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     };
   }, [currentProctoringMode, sessionToken]);
 
-  // Terminate interview immediately on tab switch/minimize/blur (token-based interviews)
+  // Terminate interview immediately on tab switch/minimize/blur (token-based proctored interviews)
   useEffect(() => {
-    const shouldEnforceTabSwitching = !!sessionToken;
+    // Only enforce tab switching for proctored interviews with session token
+    const shouldEnforceTabSwitching = !!sessionToken && isProctored;
     if (!shouldEnforceTabSwitching) {
       return;
     }
@@ -1477,7 +1480,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [sessionToken, conversationState]);
+  }, [sessionToken, conversationState, isProctored]);
 
   // Emergency keyboard shortcut for ending interview (Ctrl+Shift+E)
   useEffect(() => {
