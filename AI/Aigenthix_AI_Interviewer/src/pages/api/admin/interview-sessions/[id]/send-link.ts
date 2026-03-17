@@ -37,25 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ success: false, error: 'Session not found' });
     }
 
-    // Check if session is still valid
-    // Use scheduled_end_time if available, otherwise expires_at
-    const currentTime = new Date().getTime();
-    let actualExpiryTime: number;
-    
-    if (session.scheduled_end_time) {
-      actualExpiryTime = new Date(session.scheduled_end_time).getTime();
-    } else {
-      actualExpiryTime = new Date(session.expires_at).getTime();
-    }
-    
-    if (currentTime > actualExpiryTime) {
-      return res.status(400).json({ 
-        success: false, 
-        error: session.scheduled_end_time
-          ? 'The interview window has ended. Please contact the administrator to schedule a new interview.'
-          : 'Interview session has expired'
-      });
-    }
+    // Sessions are intentionally non-expiring by time; only completed/abandoned status should block usage.
 
     const candidate = await getCandidateById(session.candidate_id);
     if (!candidate) {
