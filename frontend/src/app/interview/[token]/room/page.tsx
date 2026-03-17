@@ -63,6 +63,7 @@ const AUTO_SUBMIT_ENABLED = false;
 const LONG_SILENCE_PROMPT_MS = 12000;
 const LOW_CONFIDENCE_THRESHOLD = 0.55;
 const MAIN_QUESTION_TARGET = 10;
+const PROCTORING_EVENT_COOLDOWN_MS = 1500;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const MAX_RESUME_PAYLOAD_LENGTH = 50000;
 const WS_RECONNECT_BACKOFF_MS = [400, 900, 1600, 2500, 4000, 6000];
@@ -70,6 +71,12 @@ const MAX_RETRY_PER_QUESTION = 1;
 const RETRY_ELIGIBLE_MAX_WORDS = 10;
 const TTS_429_COOLDOWN_MS = 5 * 60 * 1000;
 const STT_HEALTH_TIMEOUT_MS = 8000;
+
+const PROFANITY_TERMS = [
+  'fuck', 'shit', 'bitch', 'asshole', 'dick', 'cunt', 'motherfucker',
+  'bastard', 'slut', 'whore', 'fucker', 'fucking', 'bullshit',
+];
+const PROFANITY_REGEX = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'i');
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -233,6 +240,8 @@ export default function InterviewRoomPage() {
   const [endpointState, setEndpointState] = useState<'idle' | 'speech' | 'silence_grace' | 'finalize'>('idle');
   const [sttHealthState, setSttHealthState] = useState<'idle' | 'healthy' | 'unhealthy'>('idle');
   const [cameraUnavailable, setCameraUnavailable] = useState(false);
+  const [proctoringViolationMessage, setProctoringViolationMessage] = useState<string | null>(null);
+  const [multiFaceWarning, setMultiFaceWarning] = useState<string | null>(null);
   const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>({
     status: 'idle',
     message: 'Readiness checks have not run yet.',
@@ -275,6 +284,8 @@ export default function InterviewRoomPage() {
   const asrConnectedRef = useRef<boolean>(false);
   const shouldStreamAudioRef = useRef<boolean>(false);
   const asrSegmentCounterRef = useRef<number>(0);
+  const lastProctorViolationAtRef = useRef<number>(0);
+  const lastMultiFaceWarningAtRef = useRef<number>(0);
   const interimTranscriptRef = useRef<string>('');
   const finalSegmentsRef = useRef<ASRSegment[]>([]);
 
@@ -1438,6 +1449,14 @@ export default function InterviewRoomPage() {
 
     if (!answerText) return;
 
+    if (PROFANITY_REGEX.test(answerText)) {
+      await terminateForProctoringViolation(
+        'profanity_detected',
+        'Interview ended: inappropriate language was detected in your response.'
+      );
+      return;
+    }
+
     const confidences = finalSegmentsRef.current
       .map((segment) => segment.confidence)
       .filter((value): value is number => typeof value === 'number');
@@ -1566,6 +1585,7 @@ export default function InterviewRoomPage() {
     speakText,
     startListening,
     stopListening,
+    terminateForProctoringViolation,
   ]);
 
   useEffect(() => {
@@ -1705,6 +1725,86 @@ export default function InterviewRoomPage() {
   }, [loading]);
 
   useEffect(() => {
+    if (!interviewStarted || interviewEnded) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && !interviewEndedRef.current) {
+        void terminateForProctoringViolation(
+          'tab_switch',
+          'Interview ended: tab switching is not allowed during this interview.'
+        );
+      }
+    };
+
+    const handleWindowBlur = () => {
+      if (!interviewEndedRef.current) {
+        void terminateForProctoringViolation(
+          'window_switch',
+          'Interview ended: switching windows is not allowed during this interview.'
+        );
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [interviewEnded, interviewStarted, terminateForProctoringViolation]);
+
+  useEffect(() => {
+    if (!interviewStarted || interviewEnded || cameraUnavailable) return;
+    if (typeof window === 'undefined' || !(window as any).FaceDetector) return;
+
+    const detector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 5 });
+    let cancelled = false;
+
+    const detectFaces = async () => {
+      if (cancelled || interviewEndedRef.current || !videoRef.current) return;
+      if (videoRef.current.readyState < 2 || !videoRef.current.videoWidth || !videoRef.current.videoHeight) return;
+
+      try {
+        const canvas = document.createElement('canvas');
+        const width = Math.max(160, Math.floor(videoRef.current.videoWidth * 0.35));
+        const height = Math.max(120, Math.floor(videoRef.current.videoHeight * (width / videoRef.current.videoWidth)));
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.drawImage(videoRef.current, 0, 0, width, height);
+        const faces = await detector.detect(canvas);
+        if (faces.length > 1) {
+          const now = Date.now();
+          if (now - lastMultiFaceWarningAtRef.current > 15000) {
+            lastMultiFaceWarningAtRef.current = now;
+            const warning = `Multiple faces detected (${faces.length}). This will negatively impact your final verdict.`;
+            setMultiFaceWarning(warning);
+            window.setTimeout(() => setMultiFaceWarning(null), 5000);
+            addMessage('ai', warning, {
+              transcript_source: 'system',
+              is_final: true,
+              flags: ['multiple_faces_detected'],
+            });
+          }
+        }
+      } catch {
+        // Ignore intermittent face detection failures
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void detectFaces();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [addMessage, cameraUnavailable, interviewEnded, interviewStarted]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -1817,6 +1917,40 @@ export default function InterviewRoomPage() {
     teardownASRSession();
   };
 
+  async function terminateForProctoringViolation(reason: string, message: string) {
+    const now = Date.now();
+    if (now - lastProctorViolationAtRef.current < PROCTORING_EVENT_COOLDOWN_MS) {
+      return;
+    }
+    lastProctorViolationAtRef.current = now;
+
+    if (interviewEndedRef.current) return;
+
+    setProctoringViolationMessage(message);
+    addMessage('ai', message, {
+      transcript_source: 'system',
+      is_final: true,
+      flags: [`proctor_violation:${reason}`],
+    });
+
+    stopListening();
+    clearPendingNextQuestion();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if ('speechSynthesis' in window) {
+      speechSynthesis.cancel();
+    }
+
+    setInterviewEnded(true);
+    interviewEndedRef.current = true;
+    asrWantedRef.current = false;
+
+    await saveTranscript();
+    teardownASRSession();
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -1844,8 +1978,25 @@ export default function InterviewRoomPage() {
     );
   }
 
+  if (proctoringViolationMessage) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
+        <div className="max-w-xl w-full bg-gray-800 border border-red-500/40 rounded-xl p-6 text-center">
+          <h2 className="text-2xl font-semibold text-red-300 mb-3">Interview Ended</h2>
+          <p className="text-gray-200 mb-4">{proctoringViolationMessage}</p>
+          <p className="text-gray-400 text-sm">Your session has been recorded and closed.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {multiFaceWarning && (
+        <div className="fixed top-4 right-4 z-50 bg-amber-600 text-white px-4 py-3 rounded-lg shadow-lg max-w-sm">
+          {multiFaceWarning}
+        </div>
+      )}
       <header className="bg-gray-800 border-b border-gray-700 px-6 py-3">
         <div className="flex items-center justify-between">
           <div>
