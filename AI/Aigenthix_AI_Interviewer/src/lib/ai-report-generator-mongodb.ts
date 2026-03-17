@@ -4,6 +4,11 @@ import { CandidateSummary as CandidateSummaryModel } from './models/CandidateSum
 import { getInterviewSessions } from './postgres-data-store';
 import { calculatePlagiarismScore } from './plagiarism-detector';
 
+const stripProctorEvents = (items: any[]): any[] => {
+  if (!Array.isArray(items)) return [];
+  return items.filter(item => !item?.isProctorEvent);
+};
+
 // Types for report data
 export interface CandidateSummary {
   candidate_id: string;
@@ -332,7 +337,7 @@ export class AIReportGeneratorMongoDB {
     
     // Handle partial interviews (abandoned)
     const isPartial = status === 'abandoned' || results_json?.isPartial;
-    const interviewData = results_json?.interviewData || results_json?.finalReport?.questions || [];
+    const interviewData = stripProctorEvents(results_json?.interviewData || results_json?.finalReport?.questions || []);
     
     console.log(`Extracting candidate data for session:`, {
       token: session.token,
@@ -394,9 +399,10 @@ export class AIReportGeneratorMongoDB {
     // For partial interviews, calculate scores from interviewData
     // Include ALL answered questions, even if they don't have feedback yet (for very early abandons)
     // For token-based interviews, we want to analyze whatever data is available
-    const qaItems = isPartial 
-      ? interviewData.filter((q: any) => q.answer && (q.feedback || q.scoring || q.question))
-      : (report.questions || interviewData || []).filter((q: any) => q.answer && (q.scoring || q.feedback || q.question));
+    const scoringPool = isPartial
+      ? interviewData
+      : stripProctorEvents(report.questions || interviewData || []);
+    const qaItems = scoringPool.filter((q: any) => q.answer && (q.scoring || q.feedback || q.question));
     
     // Extract scores from report (if available)
     const scores = report.score || {};
@@ -1043,6 +1049,7 @@ export class AIReportGeneratorMongoDB {
           interviewData = resultsJson;
         }
         
+        interviewData = stripProctorEvents(interviewData);
         if (interviewData.length === 0) continue; // Skip if no interview data
         
         // Extract scores (same logic as before)
@@ -1567,4 +1574,3 @@ export class AIReportGeneratorMongoDB {
 }
 
 export const aiReportGenerator = new AIReportGeneratorMongoDB();
-

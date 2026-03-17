@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getInterviewSessionByToken } from '@/lib/postgres-data-store';
+import { getInterviewSessionByToken, updateInterviewSession } from '@/lib/postgres-data-store';
 
 /**
  * API endpoint to log proctoring events (non-blocking)
@@ -30,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const { token, event, reason, timestamp } = body;
+    const { token, event, reason, detail, timestamp } = body;
 
     if (!token || !event) {
       // Return success even if data is missing - logging is non-critical
@@ -45,19 +45,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Log the event (in a real implementation, you might want to store this in a separate audit table)
+    const eventTimestamp = timestamp || new Date().toISOString();
+
     console.log('[Proctor Event]', {
       token,
       sessionId: session.id,
       event,
       reason,
-      timestamp: timestamp || new Date().toISOString(),
+      detail,
+      timestamp: eventTimestamp,
     });
 
-    // Optional: Store in database for audit trail
-    // For now, we'll just log to console. In production, you might want to:
-    // 1. Create a proctor_events table
-    // 2. Store events with session_id, event_type, reason, timestamp
-    // 3. Query these events for admin audit purposes
+    // Store in results_json for audit trail (best-effort)
+    try {
+      const rawResults = (session as any).results_json;
+      const resultsJson = typeof rawResults === 'string'
+        ? JSON.parse(rawResults || '{}')
+        : (rawResults || {});
+
+      const existingEvents = Array.isArray(resultsJson.proctoringEvents)
+        ? resultsJson.proctoringEvents
+        : [];
+
+      const nextEvents = [
+        ...existingEvents,
+        { event, reason, detail, at: eventTimestamp },
+      ];
+
+      const proctoringSummary = {
+        totalEvents: nextEvents.length,
+        tabSwitches: nextEvents.filter(ev => ev.event === 'tab_switch').length,
+        multipleFaces: nextEvents.filter(ev => ev.event === 'multiple_faces').length,
+        profanityDetected: nextEvents.some(ev => ev.event === 'profanity_detected'),
+      };
+
+      await updateInterviewSession(session.id, {
+        results_json: {
+          ...resultsJson,
+          proctoringEvents: nextEvents,
+          proctoringSummary,
+        },
+      });
+    } catch (persistError) {
+      console.warn('Failed to persist proctor event to results_json:', persistError);
+    }
 
     // Return success immediately (non-blocking)
     res.status(200).json({ 
@@ -67,7 +98,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         token,
         event,
         reason,
-        timestamp: timestamp || new Date().toISOString(),
+        detail,
+        timestamp: eventTimestamp,
       }
     });
 
@@ -80,5 +112,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
-
 

@@ -9,6 +9,8 @@ type Options = {
   anyKeyTriggersConfirmation?: boolean; // optional admin toggle
   triggerKeys?: string[]; // default ['Escape']
   visibilityGraceSeconds?: number; // optional auto-pause grace
+  monitorVisibility?: boolean;
+  monitorBeforeUnload?: boolean;
 };
 
 export function useProctorGuard({
@@ -18,6 +20,8 @@ export function useProctorGuard({
   anyKeyTriggersConfirmation = false,
   triggerKeys = ["Escape"],
   visibilityGraceSeconds = 10,
+  monitorVisibility = true,
+  monitorBeforeUnload = true,
 }: Options) {
   const [isModalOpen, setModalOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -124,6 +128,7 @@ export function useProctorGuard({
     };
 
     const onVisibilityChange = () => {
+      if (!monitorVisibility) return;
       if (document.hidden) {
         tryShowModal("visibility-hidden");
         logEvent("visibility_change", "tab_switch");
@@ -145,6 +150,7 @@ export function useProctorGuard({
     };
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!monitorBeforeUnload) return;
       // Show native browser warning
       const message =
         "You have an ongoing proctored interview. Are you sure you want to leave?";
@@ -206,4 +212,3 @@ export function useProctorGuard({
     confirmEnd,
   };
 }
-

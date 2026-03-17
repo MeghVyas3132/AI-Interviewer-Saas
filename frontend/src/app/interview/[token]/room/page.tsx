@@ -97,7 +97,7 @@ function wordCount(value: string): number {
 
 function looksLikeNoIdeaAnswer(value: string): boolean {
   const text = value.toLowerCase();
-  return /(i don't know|i do not know|not sure|no idea|can't recall|cannot recall|skip this)/.test(text);
+  return /(i don't know|i dont know|i do not know|dont know|not sure|no idea|can't recall|cannot recall|idk|skip|pass)/.test(text);
 }
 
 function combineFeedbackWithQuestion(feedback: string, question: string): string {
@@ -118,6 +118,23 @@ function isLikelyQuestion(text: string): boolean {
   if (!cleaned) return false;
   if (cleaned.includes('?')) return true;
   return /^(tell me|describe|explain|walk me through|how|what|why|when|where|which|can you|could you|do you|did you|would you|have you|give me|share)\b/i.test(cleaned);
+}
+
+function extractQuestionFromAiMessage(text: string): string {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return '';
+  const questionMatches = cleaned.match(/[^?]*\?/g);
+  if (questionMatches && questionMatches.length > 0) {
+    return questionMatches[questionMatches.length - 1].trim();
+  }
+  const sentences = cleaned.split(/[.!?]\s+/);
+  for (let i = sentences.length - 1; i >= 0; i -= 1) {
+    const sentence = sentences[i]?.trim();
+    if (sentence && isLikelyQuestion(sentence)) {
+      return sentence;
+    }
+  }
+  return cleaned;
 }
 
 function buildGuaranteedWelcome(candidateName: string | undefined, aiFeedback: string): string {
@@ -420,7 +437,7 @@ export default function InterviewRoomPage() {
 
     for (const item of messageList) {
       if (item.role === 'ai') {
-        const aiText = (item.content || '').trim();
+        const aiText = extractQuestionFromAiMessage(item.content || '');
         if (aiText) {
           pendingQuestion = aiText;
         }
@@ -1483,7 +1500,8 @@ export default function InterviewRoomPage() {
       ? questionRetryCountRef.current.get(currentQuestionKey) || 0
       : 0;
     const answerWords = wordCount(answerText);
-    const retryEligibleAnswer = looksLikeNoIdeaAnswer(answerText) || answerWords <= RETRY_ELIGIBLE_MAX_WORDS;
+    const isDeferral = looksLikeNoIdeaAnswer(answerText);
+    const retryEligibleAnswer = !isDeferral && answerWords <= RETRY_ELIGIBLE_MAX_WORDS;
     const shouldRetryCurrentQuestion = Boolean(
       adaptiveFeedback.shouldRetryCurrentQuestion &&
       retryEligibleAnswer &&

@@ -251,9 +251,7 @@ export default function InterviewStartPage({ params }: InterviewStartPageProps) 
         const errorMsg = error.message.toLowerCase();
         
         // Check for specific error types - order matters (most specific first)
-        if (errorMsg.includes('expired')) {
-          errorMessage = 'Your interview session has expired. Please contact the administrator to schedule a new interview.';
-        } else if (errorMsg.includes('already been completed')) {
+        if (errorMsg.includes('already been completed')) {
           errorMessage = 'This interview has already been completed. The link is no longer accessible.';
         } else if (errorMsg.includes('abandoned')) {
           errorMessage = 'This interview session has been abandoned. Please contact the administrator to schedule a new interview.';
@@ -841,4 +839,3 @@ export default function InterviewStartPage({ params }: InterviewStartPageProps) 
     </div>
   );
 }
-

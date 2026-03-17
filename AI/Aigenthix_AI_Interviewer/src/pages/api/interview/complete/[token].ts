@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const { token } = req.query;
-    const { resultsJson, report, interviewData } = req.body;
+    const { resultsJson, report, interviewData, proctoringEvents, proctoringSummary } = req.body;
 
     if (!token || typeof token !== 'string') {
       return res.status(400).json({ 
@@ -69,6 +69,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? `proctor_${proctorEvent.event}_${proctorEvent.reason}` 
       : 'normal_completion';
 
+    const resolvedProctoringEvents = Array.isArray(proctoringEvents)
+      ? proctoringEvents
+      : (resultsJson?.proctoringEvents || []);
+    const resolvedProctoringSummary = proctoringSummary || resultsJson?.proctoringSummary || {
+      totalEvents: Array.isArray(resolvedProctoringEvents) ? resolvedProctoringEvents.length : 0,
+      tabSwitches: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.filter((ev: any) => ev?.event === 'tab_switch').length
+        : 0,
+      multipleFaces: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.filter((ev: any) => ev?.event === 'multiple_faces').length
+        : 0,
+      profanityDetected: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.some((ev: any) => ev?.event === 'profanity_detected')
+        : false,
+    };
+
     // Log completion event (including proctoring events if any)
     console.log('[Interview Complete]', {
       sessionId: session.id,
@@ -83,13 +99,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await updateInterviewSession(session.id, {
       status: 'completed',
       completed_at: endTime,
-      results_json: {
+        results_json: {
         ...(session.results_json || {}),
         finalReport: report || resultsJson || null,
         completedAt: endTime,
         interviewData: actualInterviewData,
         completionReason, // Log how the interview was completed
         proctorEvent: proctorEvent || null, // Include proctoring event if applicable
+        proctoringEvents: resolvedProctoringEvents,
+        proctoringSummary: resolvedProctoringSummary,
       }
     });
 
@@ -143,6 +161,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 finalReport: report || resultsJson || null,
                 completedAt: endTime,
                 interviewData: interviewDataArray, // Ensure interview data is in resultsJson too
+                proctoringEvents: resolvedProctoringEvents,
+                proctoringSummary: resolvedProctoringSummary,
               },
               status: 'completed',
               startedAt: session.started_at ? new Date(session.started_at) : new Date(),
@@ -195,9 +215,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 };
               }
 
+              const isProctorEvent = qa?.isProctorEvent === true;
               return {
                 id: `qa-${session.id}-${idx}`,
-                type: 'qa',
+                type: isProctorEvent ? 'proctor' : 'qa',
                 at: qa.timestamp ? new Date(qa.timestamp) : (qa.at ? new Date(qa.at) : new Date(endTime)),
                 question: qa.question || '',
                 answer: qa.answer || '',
@@ -558,4 +579,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
-

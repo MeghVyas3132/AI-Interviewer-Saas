@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Calendar, Clock, User, Briefcase, FileText, AlertCircle, CheckCircle, Upload, X } from 'lucide-react';
+import { Loader2, Calendar, User, Briefcase, FileText, AlertCircle, CheckCircle, Upload, X } from 'lucide-react';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
@@ -121,49 +121,6 @@ export default function InterviewPage({ params }: InterviewPageProps) {
       setLoading(false);
         }
     };
-
-  // Check if session is expired - uses scheduled_end_time if available, otherwise expires_at
-  // This matches the backend validation logic
-  const isExpired = (session: InterviewSession | null): boolean => {
-    if (!session) return true;
-    
-    const currentTime = new Date().getTime();
-    let actualExpiryTime: number;
-    
-    // Use scheduled_end_time if available (takes precedence over expires_at)
-    if (session.scheduled_end_time) {
-      const scheduledEndTime = new Date(session.scheduled_end_time).getTime();
-      if (!isNaN(scheduledEndTime)) {
-        actualExpiryTime = scheduledEndTime;
-      } else {
-        // Fall back to expires_at if scheduled_end_time is invalid
-        actualExpiryTime = new Date(session.expires_at).getTime();
-      }
-    } else {
-      // Use expires_at if no scheduled_end_time
-      actualExpiryTime = new Date(session.expires_at).getTime();
-    }
-    
-    // Also check if status is explicitly 'expired' (unless we're within scheduled window)
-    if (session.status === 'expired') {
-      // If we have a scheduled window, check if we're actually within it
-      if (session.scheduled_end_time) {
-        const scheduledEndTime = new Date(session.scheduled_end_time).getTime();
-        const scheduledStartTime = session.scheduled_time ? new Date(session.scheduled_time).getTime() : null;
-        const isWithinWindow = (!scheduledStartTime || currentTime >= scheduledStartTime) && currentTime <= scheduledEndTime;
-        
-        // If we're within the window, don't consider it expired (status will be reset by backend)
-        if (isWithinWindow) {
-          return false;
-        }
-      }
-      // If status is expired and we're not within a scheduled window, it's expired
-      return true;
-    }
-    
-    // Check if current time is past the actual expiry time
-    return currentTime > actualExpiryTime;
-  };
 
   const isCompleted = (status: string) => {
     return status === 'completed';
@@ -595,33 +552,15 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                       }
                     </span>
                   </div>
-                  {session.scheduled_end_time ? (
-                    <div className="flex items-center">
-                      <Clock className="h-4 w-4 mr-2 text-gray-500" />
-                      <span>
-                        Expires: {new Date(session.scheduled_end_time).toLocaleString()}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center">
-                      <Clock className="h-4 w-4 mr-2 text-gray-500" />
-                      <span>
-                        Expires: {session.scheduled_end_time 
-                          ? new Date(session.scheduled_end_time).toLocaleString()
-                          : new Date(session.expires_at).toLocaleString()}
-                      </span>
-                    </div>
-                  )}
                   <div className="flex items-center">
                     <Badge 
                       variant={
                         session.status === 'completed' ? 'default' :
                         session.status === 'in_progress' ? 'default' :
-                        session.status === 'expired' ? 'destructive' :
                         'secondary'
                       }
                         >
-                      {session.status}
+                      {session.status === 'expired' ? 'pending' : session.status}
                     </Badge>
                   </div>
                 </div>
@@ -631,17 +570,6 @@ export default function InterviewPage({ params }: InterviewPageProps) {
         </Card>
 
         {/* Status Messages */}
-        {isExpired(session) && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              {session.scheduled_end_time && new Date(session.scheduled_end_time) > new Date()
-                ? 'The interview window has ended. Please contact the HR team for assistance.'
-                : 'This interview link has expired. Please contact the HR team for assistance.'}
-            </AlertDescription>
-          </Alert>
-        )}
-
         {isCompleted(session.status) && (
           <Alert className="mb-6">
             <CheckCircle className="h-4 w-4" />
@@ -715,7 +643,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                 </Card>
 
         {/* Resume Upload Section */}
-        {!isExpired(session) && !isCompleted(session.status) && (
+        {!isCompleted(session.status) && (
           <Card className="mb-6">
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -820,7 +748,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
 
         {/* Action Buttons */}
         <div className="text-center">
-          {!isExpired(session) && !isCompleted(session.status) ? (
+          {!isCompleted(session.status) ? (
             <Button 
               size="lg" 
               onClick={handleStartInterview}
@@ -847,12 +775,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
           ) : (
             <div className="space-y-4">
               <p className="text-gray-600">
-                {isExpired(session) 
-                  ? (session.scheduled_end_time && new Date(session.scheduled_end_time) > new Date()
-                      ? 'The interview window has ended.'
-                      : 'This interview link has expired.')
-                  : 'You have already completed this interview.'
-                }
+                You have already completed this interview.
               </p>
             </div>
           )}

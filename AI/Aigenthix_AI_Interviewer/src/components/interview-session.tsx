@@ -31,6 +31,12 @@ import type { Scoring } from '@/lib/data-store';
 type Feedback = Omit<InterviewAgentOutput, 'nextQuestion' | 'isInterviewOver'> & { scoring: Scoring };
 type ConversationState = 'loading' | 'speaking' | 'listening' | 'thinking' | 'finished' | 'idle' | 'paused';
 type InterviewTrack = 'hr' | 'exam' | 'technical';
+type ProctoringEvent = {
+  event: string;
+  reason: string;
+  detail?: string;
+  at: string;
+};
 
 const QUESTION_SIMILARITY_THRESHOLD = 0.84;
 const VOICE_AUTO_SUBMIT_MIN_DELAY_MS = 2600;
@@ -54,11 +60,12 @@ const PROFANITY_TERMS = [
   'fucking',
   'bullshit',
 ];
-const PROFANITY_REGEX = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'gi');
+const PROFANITY_DETECT_REGEX = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'i');
+const PROFANITY_REDACT_REGEX = new RegExp(`\\b(${PROFANITY_TERMS.join('|')})\\b`, 'gi');
 
 const redactProfanity = (text: string): string => {
   if (!text) return text;
-  return text.replace(PROFANITY_REGEX, match => '*'.repeat(match.length));
+  return text.replace(PROFANITY_REDACT_REGEX, match => '*'.repeat(match.length));
 };
 
 const normalizeQuestionKey = (value: string): string => {
@@ -137,6 +144,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const [time, setTime] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
+  const [proctoringEvents, setProctoringEvents] = useState<ProctoringEvent[]>([]);
   
   // Enhanced guidance tracking
   const [currentQuestionAttempts, setCurrentQuestionAttempts] = useState(0);
@@ -163,6 +171,9 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   
   const transcriptRef = useRef("");
   const interviewDataRef = useRef<InterviewData[]>([]);
+  const proctoringEventsRef = useRef<ProctoringEvent[]>([]);
+  const lastMultiFaceEventRef = useRef<number>(0);
+  const lastTabSwitchEventRef = useRef<number>(0);
   
   // Keep ref in sync with state
   useEffect(() => {
@@ -171,6 +182,9 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
+  useEffect(() => {
+    proctoringEventsRef.current = proctoringEvents;
+  }, [proctoringEvents]);
 
   // Save proctoring mode when provided
   useEffect(() => {
@@ -225,6 +239,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const [resumeText, setResumeText] = useState("");
   const [candidateName, setCandidateName] = useState("");
   const [questionsData, setQuestionsData] = useState<QuestionsData | null>(null);
+  const [coreQuestionPool, setCoreQuestionPool] = useState<string[]>([]);
   
   // Voice feedback state
   const [volume, setVolume] = useState(0);
@@ -270,6 +285,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     anyKeyTriggersConfirmation: false, // Admin toggle - set to true if any key should trigger
     triggerKeys: ["Escape"],
     visibilityGraceSeconds: 8,
+    monitorVisibility: false,
   });
   
   const lastTranscriptFromNative = useRef("");
@@ -352,6 +368,67 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     return () => clearInterval(intervalId);
   }, [interviewMode, conversationState, isMuted]);
 
+  useEffect(() => {
+    if (!hasCameraPermission || !hasActiveVideoStream || conversationState === 'finished') {
+      return;
+    }
+    if (typeof window === 'undefined' || !(window as any).FaceDetector) {
+      return;
+    }
+
+    const detector = new (window as any).FaceDetector({
+      fastMode: true,
+      maxDetectedFaces: 5,
+    });
+
+    let cancelled = false;
+
+    const detectFaces = async () => {
+      if (cancelled || isPaused || conversationState === 'finished') return;
+      if (!videoRef.current || !canvasRef.current) return;
+      if (videoRef.current.readyState < 2) return;
+
+      try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const targetWidth = Math.max(160, Math.floor(video.videoWidth * 0.35));
+        const targetHeight = Math.max(120, Math.floor(video.videoHeight * (targetWidth / video.videoWidth)));
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        const faces = await detector.detect(canvas);
+        if (faces.length > 1) {
+          const now = Date.now();
+          if (now - lastMultiFaceEventRef.current > 15000) {
+            lastMultiFaceEventRef.current = now;
+            recordProctorEvent({
+              event: 'multiple_faces',
+              reason: 'more_than_one_face',
+              detail: `faces_detected=${faces.length}`,
+            });
+            toast({
+              title: 'Multiple faces detected',
+              description: 'Another person is detected. This will affect your score.',
+              variant: 'destructive',
+            });
+          }
+        }
+      } catch (error) {
+        // Face detection should never crash the interview
+        console.debug('Face detection skipped:', error);
+      }
+    };
+
+    const intervalId = window.setInterval(detectFaces, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [hasCameraPermission, hasActiveVideoStream, conversationState, isPaused, toast]);
+
   // Detect AssemblyAI failure and switch to fallback
   useEffect(() => {
     if ((assemblyStatus === 'error' || assemblyError) && !assemblyFailedRef.current && isNativeSpeechSupported) {
@@ -402,6 +479,33 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     return 'technical';
   };
 
+  const buildCoreQuestionPool = (questions?: string[], target = 5): string[] => {
+    const seen = new Set<string>();
+    const normalized = (questions || [])
+      .map(question => question.trim())
+      .filter(Boolean)
+      .filter(question => {
+        const key = question.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+    if (normalized.length <= target) return normalized;
+    const shuffled = [...normalized].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, target);
+  };
+
+  const isGreetingMessage = (text: string): boolean => {
+    const lower = (text || '').toLowerCase();
+    return (
+      lower.includes('welcome to your interview') ||
+      (lower.includes('welcome') && lower.includes('interview')) ||
+      lower.includes('let\'s begin with knowing you first') ||
+      (lower.includes('tell me about yourself') && lower.includes('welcome'))
+    );
+  };
+
   const isQuestionDuplicate = (candidate: string): boolean => {
     const key = normalizeQuestionKey(candidate);
     if (!key) return false;
@@ -427,7 +531,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       return proposed;
     }
 
-    const generatedPool = (questionsData?.questions || []).map(question => question.trim()).filter(Boolean);
+    const fallbackPool = coreQuestionPool.length ? coreQuestionPool : (questionsData?.questions || []);
+    const generatedPool = fallbackPool.map(question => question.trim()).filter(Boolean);
     for (let attempt = 0; attempt < generatedPool.length; attempt++) {
       const index = (fallbackQuestionCursorRef.current + attempt) % generatedPool.length;
       const fallback = generatedPool[index];
@@ -479,10 +584,127 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     router.push('/prepare');
   };
 
+  const buildProctorFeedback = (note: string) => ({
+    contentFeedback: note,
+    toneFeedback: '',
+    clarityFeedback: '',
+    visualFeedback: '',
+    physicalAppearanceScore: 0,
+    physicalAppearanceJustification: '',
+    bodyLanguageScore: 0,
+    bodyLanguageJustification: '',
+    confidenceScore: 0,
+    confidenceJustification: '',
+    ideasScore: 0,
+    ideasJustification: '',
+    organizationScore: 0,
+    organizationJustification: '',
+    accuracyScore: 0,
+    accuracyJustification: '',
+    voiceScore: 0,
+    voiceJustification: '',
+    grammarScore: 0,
+    grammarJustification: '',
+    stopWordsScore: 0,
+    stopWordsJustification: '',
+    overallScore: 0,
+  });
+
+  const buildProctorInterviewEntry = (event: ProctoringEvent): InterviewData => ({
+    question: 'Proctoring event',
+    answer: `${event.event}: ${event.reason}${event.detail ? ` (${event.detail})` : ''}`,
+    isRealQuestion: false,
+    responseType: 'typed',
+    attempts: 0,
+    hintsGiven: [],
+    isCorrect: false,
+    questionCategory: 'about-self',
+    isCurrentAffairs: false,
+    currentAffairsTopic: undefined,
+    currentAffairsCategory: undefined,
+    referenceQuestionIds: [],
+    feedback: buildProctorFeedback(`Proctoring event recorded: ${event.event}`),
+    isProctorEvent: true,
+  });
+
+  const logProctorEventToServer = (event: ProctoringEvent) => {
+    if (!sessionToken) return;
+    try {
+      const payload = JSON.stringify({
+        token: sessionToken,
+        event: event.event,
+        reason: event.reason,
+        detail: event.detail,
+        timestamp: event.at,
+      });
+      if (navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/interview/log-proctor-event', blob);
+      } else {
+        fetch('/api/interview/log-proctor-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (error) {
+      console.warn('Failed to send proctor event:', error);
+    }
+  };
+
+  const recordProctorEvent = (event: Omit<ProctoringEvent, 'at'>) => {
+    const stamped: ProctoringEvent = { ...event, at: new Date().toISOString() };
+    setProctoringEvents(prev => {
+      const next = [...prev, stamped];
+      proctoringEventsRef.current = next;
+      return next;
+    });
+    logProctorEventToServer(stamped);
+    const entry = buildProctorInterviewEntry(stamped);
+    setInterviewData(prev => {
+      const next = [...prev, entry];
+      interviewDataRef.current = next;
+      if (typeof window !== 'undefined' && sessionToken) {
+        try {
+          localStorage.setItem('interviewData', JSON.stringify(next));
+        } catch (e) {
+          console.warn('Failed to persist proctor entry:', e);
+        }
+      }
+      return next;
+    });
+    return stamped;
+  };
+
+  const buildProctoringSummary = (events: ProctoringEvent[]) => ({
+    totalEvents: events.length,
+    tabSwitches: events.filter(ev => ev.event === 'tab_switch').length,
+    multipleFaces: events.filter(ev => ev.event === 'multiple_faces').length,
+    profanityDetected: events.some(ev => ev.event === 'profanity_detected'),
+  });
+
+  const buildResultsPayload = (data: InterviewData[]) => ({
+    interviewData: data,
+    summary: getInterviewSummary(),
+    timestamp: new Date().toISOString(),
+    proctoringEvents: proctoringEventsRef.current,
+    proctoringSummary: buildProctoringSummary(proctoringEventsRef.current),
+  });
+
+  const handlePolicyViolation = async (event: string, reason: string, message: string) => {
+    const proctorEvent = recordProctorEvent({ event, reason, detail: message });
+    await endInterviewAndRedirectToEnded({ finalMessage: message, proctorEvent });
+  };
+
   // Immediate termination helper used for policy violations (fullscreen/tab focus)
-  const endInterviewAndRedirectToEnded = async () => {
+  const endInterviewAndRedirectToEnded = async (options?: { finalMessage?: string; proctorEvent?: ProctoringEvent }) => {
     try {
       setConversationState('finished');
+      if (options?.finalMessage) {
+        setConversationLog(prev => [...prev, { speaker: 'ai', text: options.finalMessage! }]);
+        setCurrentQuestion(options.finalMessage);
+      }
       stopCamera();
       stopMicrophone();
       endInterviewSession();
@@ -494,6 +716,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       if (sessionToken) {
         // Use ref to get the latest interviewData value (avoids closure issues)
         const latestInterviewData = interviewDataRef.current;
+        const proctoringSummary = buildProctoringSummary(proctoringEventsRef.current);
         
         console.log('💾 Saving interview data on termination:', {
           interviewDataCount: latestInterviewData?.length || 0,
@@ -505,7 +728,10 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              interviewData: latestInterviewData || []
+              interviewData: latestInterviewData || [],
+              proctorEvent: options?.proctorEvent || null,
+              proctoringEvents: proctoringEventsRef.current,
+              proctoringSummary
             })
           });
           const data = await response.json();
@@ -515,7 +741,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             // Redirect to thank-you for token-based sessions
             setTimeout(() => {
               router.push(data.redirectUrl);
-            }, 50);
+            }, options?.finalMessage ? 2000 : 50);
             return;
           }
         } catch (error) {
@@ -531,7 +757,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         // For token sessions, redirect to thank-you; otherwise interview-ended
         const redirectPath = sessionToken ? '/thank-you' : '/interview-ended';
         router.push(redirectPath);
-      }, 50);
+      }, options?.finalMessage ? 2000 : 50);
     }
   };
 
@@ -610,6 +836,14 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [conversationLog]);
+
+  useEffect(() => {
+    if (questionsData?.questions?.length) {
+      setCoreQuestionPool(prev =>
+        prev.length ? prev : buildCoreQuestionPool(questionsData.questions, 5)
+      );
+    }
+  }, [questionsData]);
 
   // Check for stale data on component mount
   useEffect(() => {
@@ -1107,29 +1341,41 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       }
     };
     
-    // Handle visibility change (tab switching) - save data immediately
-    // Only save data if not in proctored mode (proctored mode handled by proctor guard)
+    // Ref to always call the latest endInterviewAndRedirectToEnded without stale closure
+    const endInterviewRef = endInterviewAndRedirectToEnded;
+
+    // Cooldown to avoid double-firing blur + visibilitychange on same event
+    let proctorViolationFired = false;
+
+    const terminateOnViolation = (reason: string, proctorEventType: 'tab_switch' | 'window_switch') => {
+      if (proctorViolationFired) return;
+      if (conversationStateRef.current === 'finished') return;
+      proctorViolationFired = true;
+      const message = proctorEventType === 'tab_switch'
+        ? 'Interview ended: tab switching is not allowed during a proctored interview.'
+        : 'Interview ended: switching windows is not allowed during a proctored interview.';
+      endInterviewRef({
+        finalMessage: message,
+        proctorEvent: {
+          event: proctorEventType,
+          reason,
+          detail: `violation detected at ${new Date().toISOString()}`,
+          at: new Date().toISOString(),
+        },
+      });
+    };
+
+    // Terminate immediately on tab switch
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && sessionToken && !isProctored && conversationState !== 'finished') {
-        // Save interview data when tab becomes hidden (only for non-proctored sessions)
-        // Proctored sessions are handled by the proctor guard which shows a modal
-        const latestInterviewData = interviewDataRef.current;
-        const data = JSON.stringify({
-          interviewData: latestInterviewData || []
-        });
-        
-        // Use sendBeacon for reliable transmission
-        if (navigator.sendBeacon) {
-          const blob = new Blob([data], { type: 'application/json' });
-          navigator.sendBeacon(`/api/interview/abandon/${sessionToken}`, blob);
-        } else {
-          fetch(`/api/interview/abandon/${sessionToken}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: data,
-            keepalive: true
-          }).catch(() => {});
-        }
+      if (document.visibilityState === 'hidden' && conversationStateRef.current !== 'finished') {
+        terminateOnViolation('tab_switch_detected', 'tab_switch');
+      }
+    };
+
+    // Terminate on window blur (user switches to another app/window)
+    const handleWindowBlur = () => {
+      if (conversationStateRef.current !== 'finished') {
+        terminateOnViolation('window_blur_detected', 'window_switch');
       }
     };
 
@@ -1149,6 +1395,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('unload', handleUnload);
     window.addEventListener('popstate', handlePopState);
+    window.addEventListener('blur', handleWindowBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Cleanup event listeners
@@ -1156,6 +1403,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleUnload);
       window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [conversationState, sessionToken, isProctored]);
@@ -1195,26 +1443,30 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     };
   }, [currentProctoringMode, sessionToken]);
 
-  // Terminate interview immediately on tab switch/minimize/blur (for token-based interviews ONLY when NOT proctored)
-  // When proctored, the proctor guard handles this with a confirmation modal
+  // Terminate interview immediately on tab switch/minimize/blur (token-based interviews)
   useEffect(() => {
-    // Only enforce immediate termination for non-proctored token-based interviews
-    // Proctored interviews are handled by the proctor guard which shows a confirmation modal
-    const shouldEnforceTabSwitching = (currentProctoringMode !== 'proctored' && sessionToken) || 
-                                      (!isProctored && sessionToken);
+    const shouldEnforceTabSwitching = !!sessionToken;
     if (!shouldEnforceTabSwitching) {
       return;
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible' && conversationState !== 'finished') {
-        endInterviewAndRedirectToEnded();
+        const now = Date.now();
+        if (now - lastTabSwitchEventRef.current > 1000) {
+          lastTabSwitchEventRef.current = now;
+          handlePolicyViolation('tab_switch', 'visibility_hidden', 'Interview ended due to tab switching.');
+        }
       }
     };
 
     const handleWindowBlur = () => {
       if (conversationState !== 'finished') {
-        endInterviewAndRedirectToEnded();
+        const now = Date.now();
+        if (now - lastTabSwitchEventRef.current > 1000) {
+          lastTabSwitchEventRef.current = now;
+          handlePolicyViolation('tab_switch', 'window_blur', 'Interview ended due to tab switching.');
+        }
       }
     };
 
@@ -1225,7 +1477,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [currentProctoringMode, sessionToken, isProctored, conversationState]);
+  }, [sessionToken, conversationState]);
 
   // Emergency keyboard shortcut for ending interview (Ctrl+Shift+E)
   useEffect(() => {
@@ -1390,11 +1642,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     const latestInterviewData = interviewDataRef.current;
     
     // Prepare results data for token-based session
-    const resultsData = {
-      interviewData: latestInterviewData,
-      summary: getInterviewSummary(),
-      timestamp: new Date().toISOString()
-    };
+    const resultsData = buildResultsPayload(latestInterviewData || []);
     
     console.log('📤 Sending interview data to complete endpoint:', {
       interviewDataCount: latestInterviewData?.length || 0,
@@ -1412,7 +1660,9 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             resultsJson: resultsData,
-            interviewData: latestInterviewData // Send all Q&A data
+            interviewData: latestInterviewData, // Send all Q&A data
+            proctoringEvents: proctoringEventsRef.current,
+            proctoringSummary: buildProctoringSummary(proctoringEventsRef.current),
           })
         });
         
@@ -1700,6 +1950,12 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
   const handleSubmit = async () => {
     const currentAnswer = (transcriptRef.current || transcript).trim();
     const sanitizedAnswer = redactProfanity(currentAnswer);
+    const lowerQuestion = (currentQuestion || '').toLowerCase();
+    const isGeneralQuestion = 
+      lowerQuestion.includes('area would you like to focus') ||
+      lowerQuestion.includes('what area would you like to focus') ||
+      lowerQuestion.includes('how do you want to proceed') ||
+      lowerQuestion.includes('to make this session as helpful as possible');
     clearAutoSubmitTimer();
     console.log('=== SUBMIT DEBUG ===');
    console.log('Current answer length:', currentAnswer.length);
@@ -1711,6 +1967,20 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         return;
     }
 
+    if (PROFANITY_DETECT_REGEX.test(currentAnswer)) {
+      const violationMessage = 'Your interview has ended due to use of inappropriate language.';
+      const proctorEvent = recordProctorEvent({
+        event: 'profanity_detected',
+        reason: 'profanity_detected',
+        detail: 'Prohibited language detected in response.',
+      });
+      if (interviewMode !== 'voice') {
+        setConversationLog(prev => [...prev, { speaker: 'user', text: sanitizedAnswer }]);
+      }
+      await endInterviewAndRedirectToEnded({ finalMessage: violationMessage, proctorEvent });
+      return;
+    }
+
     // Validate answer quality before processing
     const validation = validateAnswerQuality(currentAnswer);
     console.log('Validation result:', validation);
@@ -1719,11 +1989,13 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       console.log('Answer validation failed:', validation.reason);
      console.log('Answer validation failed - length:', currentAnswer.length);
       
-      // Add validation message to conversation log without hints
-      setConversationLog(prev => [...prev, { 
-        speaker: 'ai', 
-        text: `${validation.reason} Moving to the next question.`
-      }]);
+      if (interviewMode !== 'voice') {
+        // Add validation message to conversation log without hints
+        setConversationLog(prev => [...prev, { 
+          speaker: 'ai', 
+          text: `${validation.reason} Moving to the next question.`
+        }]);
+      }
       
       // Clear transcript
       clearTranscript();
@@ -1744,7 +2016,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           conversationLog: conversationLog,
           transcript: sanitizedAnswer,
           resumeAnalysis: resumeAnalysis,
-          referenceQuestions: questionsData?.questions,
+          referenceQuestions: coreQuestionPool.length ? coreQuestionPool : questionsData?.questions,
           videoFrameDataUri: videoFrameDataUri,
           jobRole: jobRole,
           company: company,
@@ -1788,23 +2060,14 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     try {
       setConversationLog(prev => [...prev, { speaker: 'user', text: sanitizedAnswer }]);
       
-      // Determine if current question is real
-      const isGeneralQuestion = 
-        currentQuestion.toLowerCase().includes('area would you like to focus') ||
-        currentQuestion.toLowerCase().includes('what area would you like to focus') ||
-        currentQuestion.toLowerCase().includes('let\'s start') ||
-        currentQuestion.toLowerCase().includes('let\'s begin') ||
-        currentQuestion.toLowerCase().includes('how do you want to proceed') ||
-        currentQuestion.toLowerCase().includes('welcome to') ||
-        currentQuestion.toLowerCase().includes('hello') ||
-        currentQuestion.toLowerCase().includes('hi there') ||
-        currentQuestion.toLowerCase().includes('to make this session as helpful as possible');
-      
+      // Always read from ref — interviewData state may be stale in this closure
+      const latestHistory = interviewDataRef.current;
+
       // Count real questions in the conversation history
-      const realQuestionCount = interviewData.filter(d => d.isRealQuestion).length;
+      const realQuestionCount = latestHistory.filter(d => d.isRealQuestion).length;
       
       // Get recent scores for real questions only
-      const recentScores = interviewData
+      const recentScores = latestHistory
         .filter(d => d.isRealQuestion && d.feedback.overallScore > 0)
         .map(d => d.feedback.overallScore)
         .slice(-3); // Last 3 real question scores
@@ -1819,17 +2082,24 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       // Check if this is an email-based interview (accessed via email link)
       const isEmailInterview = typeof window !== 'undefined' && 
         (localStorage.getItem('isEmailInterviewSession') === 'true' || !!sessionToken);
+
+      const effectiveCandidateName = candidateName || (
+        sessionData?.first_name || sessionData?.last_name
+          ? `${sessionData?.first_name || ''} ${sessionData?.last_name || ''}`.trim()
+          : ''
+      );
       
       const interviewPromise = interviewAgent({
         jobRole,
         company,
+        candidateName: effectiveCandidateName || undefined,
         college,
         resumeText: resumeText || '',
         language: languageName,
         hasResumeData,
         isEmailInterview,
         conversationHistory: [
-          ...interviewData.map(d => ({
+          ...latestHistory.map(d => ({
             question: d.question, 
             answer: d.answer, 
             attempts: d.attempts, 
@@ -1858,7 +2128,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         currentQuestionAttempts: currentQuestionAttempts,
         currentQuestionHints: currentQuestionHints,
         minQuestionsRequired: minQuestionsRequired,
-        referenceQuestions: questionsData?.questions,
+        referenceQuestions: coreQuestionPool.length ? coreQuestionPool : questionsData?.questions,
         // Pass exam and subcategory information for filtering
         examId: examConfig?.examId ? parseInt(examConfig.examId.toString()) : undefined,
         subcategoryId: examConfig?.subcategoryId ? parseInt(examConfig.subcategoryId.toString()) : undefined
@@ -1874,6 +2144,25 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       
       const result = await Promise.race([interviewPromise, timeoutPromise]) as any;
       
+      // Pre-fetch TTS audio immediately — overlaps network call with remaining JS processing.
+      // By the time speak() is triggered via the useEffect, the blob is already ready.
+      let preFetchedAudioUrl: string | null = null;
+      if (interviewMode === 'voice' && !isSpeakerMuted && (result as any).nextQuestion && !(result as any).isInterviewOver) {
+        const nextQ: string = (result as any).nextQuestion;
+        fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: nextQ, language }),
+        }).then(r => r.ok ? r.blob() : null).then(blob => {
+          if (blob) {
+            preFetchedAudioUrl = URL.createObjectURL(blob);
+            // Store on a ref so speak() can use it instead of fetching again
+            (window as any).__ttsPreFetchedUrl = preFetchedAudioUrl;
+            (window as any).__ttsPreFetchedText = nextQ;
+          }
+        }).catch(() => { /* pre-fetch failure is silent — speak() will re-fetch */ });
+      }
+
       // Debug: Check if referenceQuestionIds are in the result
       console.log('Interview agent result received');
       console.log('  Has referenceQuestionIds?', 'referenceQuestionIds' in result);
@@ -2019,6 +2308,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           overallScore: newInterviewData[newInterviewData.length - 1].feedback?.overallScore
         }
       });
+      // Sync ref immediately (before re-render) so next handleSubmitAnswer sees fresh history
+      interviewDataRef.current = newInterviewData;
       setInterviewData(newInterviewData);
       
       // Save interview data to localStorage for reliable retrieval on page unload
@@ -2054,18 +2345,16 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         // Complete token-based session if applicable
         let redirectUrl = '/summary'; // Default redirect for non-token sessions
         if (sessionToken) {
-          const resultsData = {
-            interviewData: newInterviewData,
-            summary: getInterviewSummary(),
-            timestamp: new Date().toISOString()
-          };
+          const resultsData = buildResultsPayload(newInterviewData);
           try {
             const response = await fetch(`/api/interview/complete/${sessionToken}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 resultsJson: resultsData,
-                interviewData: newInterviewData // Include interview data for transcripts
+                interviewData: newInterviewData, // Include interview data for transcripts
+                proctoringEvents: proctoringEventsRef.current,
+                proctoringSummary: buildProctoringSummary(proctoringEventsRef.current),
               })
             });
             const data = await response.json();
@@ -2106,46 +2395,41 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         return; // Exit early to prevent further processing
       }
 
-      // Only add the next question to conversation log if interview is not ending
-      // Simply add the next question to conversation log without explanations
-      // Prevent duplicate greetings - check if the next question is already in conversationLog
-      setConversationLog(prev => {
-        const nextQuestion = (result as any).nextQuestion;
-        
-        // Check if this question already exists in the conversation log (prevent duplicate greetings)
-        const isExactDuplicate = prev.some(entry => 
-          entry.speaker === 'ai' && 
-          entry.text === nextQuestion
-        );
-        if (isExactDuplicate) {
-          console.log('Skipping exact duplicate question in conversation log:', nextQuestion.substring(0, 50));
-          return prev;
-        }
-        
-        // Also check if this is a greeting and we already have a greeting in the conversation
-        // This prevents duplicate greetings even if the wording is slightly different
-        const nextQuestionLower = nextQuestion.toLowerCase();
-        const isGreeting = nextQuestionLower.includes('welcome to') || 
-                          (nextQuestionLower.includes('hello') && nextQuestionLower.includes('tina')) ||
-                          (nextQuestionLower.includes('are you ready') && nextQuestionLower.includes('begin'));
-        
-        if (isGreeting) {
-          const hasExistingGreeting = prev.some(entry => {
-            if (entry.speaker !== 'ai') return false;
-            const entryText = entry.text.toLowerCase();
-            return entryText.includes('welcome to') || 
-                   (entryText.includes('hello') && entryText.includes('tina')) ||
-                   (entryText.includes('are you ready') && entryText.includes('begin'));
-          });
+      if (interviewMode !== 'voice') {
+        // Only add the next question to conversation log if interview is not ending
+        // Simply add the next question to conversation log without explanations
+        // Prevent duplicate greetings - check if the next question is already in conversationLog
+        setConversationLog(prev => {
+          const nextQuestion = (result as any).nextQuestion;
           
-          if (hasExistingGreeting) {
-            console.log('Skipping duplicate greeting in conversation log:', nextQuestion.substring(0, 50));
+          // Check if this question already exists in the conversation log (prevent duplicate greetings)
+          const isExactDuplicate = prev.some(entry => 
+            entry.speaker === 'ai' && 
+            entry.text === nextQuestion
+          );
+          if (isExactDuplicate) {
+            console.log('Skipping exact duplicate question in conversation log:', nextQuestion.substring(0, 50));
             return prev;
           }
-        }
-        
-        return [...prev, { speaker: 'ai', text: nextQuestion }];
-      });
+          
+          // Also check if this is a greeting and we already have a greeting in the conversation
+          // This prevents duplicate greetings even if the wording is slightly different
+          const isGreeting = isGreetingMessage(nextQuestion);
+          
+          if (isGreeting) {
+            const hasExistingGreeting = prev.some(entry => 
+              entry.speaker === 'ai' && isGreetingMessage(entry.text)
+            );
+            
+            if (hasExistingGreeting) {
+              console.log('Skipping duplicate greeting in conversation log:', nextQuestion.substring(0, 50));
+              return prev;
+            }
+          }
+          
+          return [...prev, { speaker: 'ai', text: nextQuestion }];
+        });
+      }
 
       if ((result as any).isInterviewOver) {
         // Check if minimum questions were answered before saving summary
@@ -2155,17 +2439,16 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           
           // Complete token-based session if applicable
           if (sessionToken) {
-            const resultsData = {
-              interviewData: newInterviewData,
-              summary: getInterviewSummary(),
-              timestamp: new Date().toISOString()
-            };
+            const resultsData = buildResultsPayload(newInterviewData);
             try {
               const response = await fetch(`/api/interview/complete/${sessionToken}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  resultsJson: resultsData
+                  resultsJson: resultsData,
+                  interviewData: newInterviewData,
+                  proctoringEvents: proctoringEventsRef.current,
+                  proctoringSummary: buildProctoringSummary(proctoringEventsRef.current),
                 })
               });
               const data = await response.json();
@@ -2402,6 +2685,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
         let storedResumeAnalysis = getResumeAnalysis();
         const videoIsEnabled = getVideoPreference();
         setQuestionsData(storedQuestionsData);
+        setCoreQuestionPool(buildCoreQuestionPool(storedQuestionsData?.questions, 5));
 
         // For token-based interviews, use resume analysis from sessionData if available
         if (sessionToken && sessionData?.resumeAnalysis) {
@@ -2457,7 +2741,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             }
             
             // Set default greeting and continue with interview
-            const defaultGreeting = `Hello Test User, I am Tina, welcome to the Aigenthix AI Powered Coach interview prep. Let\'s start with a NEET preparation question.`;
+            const defaultGreeting = `Hello Test User, welcome to your interview at NEET for the NEET position. Let's begin with knowing you first — could you tell me about yourself and your experience relevant to this role?`;
             setCurrentQuestion(defaultGreeting);
             setConversationState('listening');
             
@@ -2553,7 +2837,9 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           finalCandidateName = 'Candidate';
         }
         
-        const defaultGreeting = `Hello ${finalCandidateName}, I am Tina, welcome to the Aigenthix AI Powered Coach interview prep. You look ready and focused for our session today. Are you ready to begin?`;
+        const greetingCompany = (derivedCompany || company || '').trim();
+        const greetingRole = (derivedJobRole || jobRole || '').trim() || 'role';
+        const defaultGreeting = `Hello ${finalCandidateName}, welcome to your interview${greetingCompany ? ` at ${greetingCompany}` : ''} for the ${greetingRole} position. Let's begin with knowing you first — could you tell me about yourself and your experience relevant to this role?`;
 
         if (mode !== 'voice' || !videoIsEnabled) {
             console.log('Generating AI greeting (no voice or video)');
@@ -2562,6 +2848,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             try {
                 const result = await generateIceBreakerQuestion({
                     candidateName: finalCandidateName,
+                    company: greetingCompany || undefined,
+                    jobRole: greetingRole || undefined,
                     language: languageName || 'English',
                 });
                 const questionText = (result?.question || '').trim();
@@ -2898,6 +3186,8 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             console.log('Generating icebreaker question...');
             const result = await generateIceBreakerQuestion({
                 candidateName: finalCandidateName,
+                company: greetingCompany || undefined,
+                jobRole: greetingRole || undefined,
                 videoFrameDataUri: cameraAccessSuccessful ? videoFrameDataUri : undefined,
                 language,
             });
@@ -2965,6 +3255,42 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     
     if (!text) return;
 
+    const isVoiceMode = getInterviewMode() === 'voice';
+    const shouldDeferLog = isVoiceMode && !isSpeakerMuted;
+
+    const appendAiMessage = () => {
+      setConversationLog((prev: ConversationEntry[]) => {
+        // Check for exact duplicate
+        const isExactDuplicate = prev.some(entry => 
+            entry.speaker === 'ai' && entry.text === text
+        );
+        if (isExactDuplicate) {
+            console.log('Skipping exact duplicate in speak():', text.substring(0, 50));
+            return prev;
+        }
+        
+        // Also check for greeting duplicates (even if wording is slightly different)
+        const isGreeting = isGreetingMessage(text);
+        
+        if (isGreeting) {
+            const hasExistingGreeting = prev.some(entry => 
+              entry.speaker === 'ai' && isGreetingMessage(entry.text)
+            );
+            
+            if (hasExistingGreeting) {
+                console.log('Skipping duplicate greeting in speak():', text.substring(0, 50));
+                return prev;
+            }
+        }
+        
+        return [...prev, { speaker: 'ai', text }];
+      });
+    };
+
+    if (!shouldDeferLog) {
+      appendAiMessage();
+    }
+
     // Prevent multiple simultaneous TTS calls
     // BUT: Allow if this is the initial greeting (lastSpokenQuestion is null or empty)
     // This ensures the greeting can be spoken even if ref is already 'speaking' from state update
@@ -2994,42 +3320,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     // Stop any currently playing audio to prevent overlap
     stopAllTTS();
 
-    // Add to conversation log only if not already there
-    // Check entire conversation log, not just the last entry, to prevent duplicates
-    setConversationLog((prev: ConversationEntry[]) => {
-        // Check for exact duplicate
-        const isExactDuplicate = prev.some(entry => 
-            entry.speaker === 'ai' && entry.text === text
-        );
-        if (isExactDuplicate) {
-            console.log('Skipping exact duplicate in speak():', text.substring(0, 50));
-            return prev;
-        }
-        
-        // Also check for greeting duplicates (even if wording is slightly different)
-        const isGreeting = text.toLowerCase().includes('welcome to') || 
-                          (text.toLowerCase().includes('hello') && text.toLowerCase().includes('tina')) ||
-                          (text.toLowerCase().includes('are you ready') && text.toLowerCase().includes('begin'));
-        
-        if (isGreeting) {
-            const hasExistingGreeting = prev.some(entry => {
-                if (entry.speaker !== 'ai') return false;
-                const entryText = entry.text.toLowerCase();
-                return entryText.includes('welcome to') || 
-                       (entryText.includes('hello') && entryText.includes('tina')) ||
-                       (entryText.includes('are you ready') && entryText.includes('begin'));
-            });
-            
-            if (hasExistingGreeting) {
-                console.log('Skipping duplicate greeting in speak():', text.substring(0, 50));
-                return prev;
-            }
-        }
-        
-        return [...prev, { speaker: 'ai', text }];
-    });
-
-    const isVoiceMode = getInterviewMode() === 'voice';
     if (!isVoiceMode || isSpeakerMuted) {
         lastSpokenQuestion.current = text;
         const nextState = conversationStateRef.current === 'finished' ? 'finished' : (isVoiceMode ? 'listening' : 'idle');
@@ -3042,71 +3332,77 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
     // Pause AssemblyAI streaming while TTS plays
     console.log('Pausing AssemblyAI streaming for TTS');
     muteMicrophoneForTTS();
-    
+
     try {
       // Process text for better speech pronunciation
       const processedText = processTextForSpeech(text);
-      console.log('Making TTS API call for processed text:', processedText);
-      
-      // Retry logic for TTS API calls
-      let response: Response | null = null;
+
+      // Check if audio was pre-fetched while the agent was processing.
+      // Pre-fetch is kicked off immediately after agent result arrives, so by the time
+      // speak() is triggered (via useEffect on currentQuestion), the blob is already ready.
       let audioUrl: string | null = null;
-      const maxRetries = 3;
+      const preFetched = typeof window !== 'undefined' && (window as any).__ttsPreFetchedUrl;
+      const preFetchedText = typeof window !== 'undefined' && (window as any).__ttsPreFetchedText;
+      if (preFetched && preFetchedText === text) {
+        console.log('Using pre-fetched TTS audio — zero extra latency');
+        audioUrl = preFetched;
+        currentAudioUrlRef.current = audioUrl;
+        (window as any).__ttsPreFetchedUrl = null;
+        (window as any).__ttsPreFetchedText = null;
+      }
+
+      // Error info for fallback (declared outside retry so fallback block can read them)
       let lastError: Error | null = null;
       let lastErrorStatus: number | null = null;
       let lastErrorCode: string | null = null;
-      
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          response = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: processedText, language }),
-          });
-          
-          if (response.ok) {
-            const audioBlob = await response.blob();
-            audioUrl = URL.createObjectURL(audioBlob);
-            currentAudioUrlRef.current = audioUrl;
-            console.log(`TTS API call succeeded on attempt ${attempt + 1}`);
-            break;
-          } else {
-            const errorData = await response.json().catch(() => ({ error: 'Unknown error', retryable: false }));
-            lastErrorStatus = response.status;
-            lastErrorCode = typeof (errorData as any)?.code === 'string' ? (errorData as any).code : null;
-            lastError = new Error(`TTS request failed: ${errorData.error || response.statusText}`);
-            console.warn(`TTS API call failed on attempt ${attempt + 1}:`, lastError.message);
-            
-            // If it's a client error (4xx) and not retryable, don't retry
-            if (response.status >= 400 && response.status < 500 && !errorData.retryable) {
+
+      if (!audioUrl) {
+        console.log('Making TTS API call for processed text:', processedText);
+        const maxRetries = 3;
+        let response: Response | null = null;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            response = await fetch('/api/tts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: processedText, language }),
+            });
+
+            if (response.ok) {
+              const audioBlob = await response.blob();
+              audioUrl = URL.createObjectURL(audioBlob);
+              currentAudioUrlRef.current = audioUrl;
+              console.log(`TTS API call succeeded on attempt ${attempt + 1}`);
               break;
+            } else {
+              const errorData = await response.json().catch(() => ({ error: 'Unknown error', retryable: false }));
+              lastErrorStatus = response.status;
+              lastErrorCode = typeof (errorData as any)?.code === 'string' ? (errorData as any).code : null;
+              lastError = new Error(`TTS request failed: ${errorData.error || response.statusText}`);
+              console.warn(`TTS API call failed on attempt ${attempt + 1}:`, lastError.message);
+
+              if (response.status >= 400 && response.status < 500 && !errorData.retryable) break;
+              if (errorData.retryable === false) break;
+
+              if (attempt < maxRetries - 1) {
+                const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+                console.log(`Retrying TTS in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
             }
-            
-            // If explicitly marked as non-retryable, don't retry
-            if (errorData.retryable === false) {
-              break;
-            }
-            
-            // Wait before retrying (exponential backoff)
+          } catch (fetchError: any) {
+            lastError = fetchError;
+            console.warn(`TTS API call error on attempt ${attempt + 1}:`, fetchError.message);
             if (attempt < maxRetries - 1) {
               const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
               console.log(`Retrying TTS in ${delay}ms...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }
           }
-        } catch (fetchError: any) {
-          lastError = fetchError;
-          console.warn(`TTS API call error on attempt ${attempt + 1}:`, fetchError.message);
-          
-          // Wait before retrying (exponential backoff)
-          if (attempt < maxRetries - 1) {
-            const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
-            console.log(`Retrying TTS in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
         }
       }
-      
+
       // If all retries failed, optionally try browser fallback
       if (!audioUrl) {
         const shouldFallback =
@@ -3117,56 +3413,32 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
           console.warn('All TTS API retries failed, attempting browser fallback');
           try {
             if ('speechSynthesis' in window) {
-            // Cancel any existing speech first
-            if (speechSynthesis.speaking) {
-              speechSynthesis.cancel();
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            const utterance = new SpeechSynthesisUtterance(processedText);
-            utterance.lang = language || 'en-US';
-            utterance.rate = 1;
-            utterance.pitch = 1;
-            utterance.volume = 1;
-            
-            // Select a female voice for consistent experience
-            const voices = speechSynthesis.getVoices();
-            const femaleVoice = voices.find(v => 
-              v.name.toLowerCase().includes('female') ||
-              v.name.toLowerCase().includes('samantha') ||
-              v.name.toLowerCase().includes('victoria') ||
-              v.name.toLowerCase().includes('karen') ||
-              v.name.toLowerCase().includes('moira') ||
-              v.name.toLowerCase().includes('tessa') ||
-              (v.name.includes('Google') && v.name.includes('Female'))
-            ) || voices.find(v => v.lang.startsWith('en'));
-            
-            if (femaleVoice) {
-              utterance.voice = femaleVoice;
-            }
-            
-            // Play using Web Speech API
-            speechSynthesis.speak(utterance);
-            
-            // Wait for speech to complete
-            await new Promise<void>((resolve, reject) => {
-              utterance.onend = () => {
-                console.log('Browser TTS completed');
-                resolve();
-              };
-              utterance.onerror = (error) => {
-                console.error('Browser TTS error:', error);
-                reject(error);
-              };
-              
-              // Timeout after 30 seconds
-              setTimeout(() => {
+              if (speechSynthesis.speaking) {
                 speechSynthesis.cancel();
-                reject(new Error('Browser TTS timeout'));
-              }, 30000);
-            });
-            
-              // Successfully used browser fallback
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              const utterance = new SpeechSynthesisUtterance(processedText);
+              utterance.lang = language || 'en-US';
+              utterance.rate = 1;
+              utterance.pitch = 1;
+              utterance.volume = 1;
+              const voices = speechSynthesis.getVoices();
+              const femaleVoice = voices.find(v =>
+                v.name.toLowerCase().includes('female') ||
+                v.name.toLowerCase().includes('samantha') ||
+                v.name.toLowerCase().includes('victoria') ||
+                v.name.toLowerCase().includes('karen') ||
+                v.name.toLowerCase().includes('moira') ||
+                v.name.toLowerCase().includes('tessa') ||
+                (v.name.includes('Google') && v.name.includes('Female'))
+              ) || voices.find(v => v.lang.startsWith('en'));
+              if (femaleVoice) utterance.voice = femaleVoice;
+              speechSynthesis.speak(utterance);
+              await new Promise<void>((resolve, reject) => {
+                utterance.onend = () => { console.log('Browser TTS completed'); resolve(); };
+                utterance.onerror = (error) => { console.error('Browser TTS error:', error); reject(error); };
+                setTimeout(() => { speechSynthesis.cancel(); reject(new Error('Browser TTS timeout')); }, 30000);
+              });
               isTTSPlaying.current = false;
               unmuteMicrophoneAfterTTS();
               if (conversationStateRef.current !== 'finished') {
@@ -3182,8 +3454,6 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
             console.error('Browser TTS fallback also failed:', fallbackError);
           }
         }
-
-        // If API failed (and fallback disabled or failed), throw error
         throw lastError || new Error('TTS failed after all retries');
       }
       
@@ -3241,6 +3511,12 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
       
       audio.onended = handleAudioEnd;
       audio.onerror = handleAudioError;
+      
+      // Append message to conversation log RIGHT BEFORE audio starts playing
+      // This ensures UI text and audio are perfectly synchronized (no delay between them)
+      if (shouldDeferLog) {
+        appendAiMessage();
+      }
       
       // Play the audio
       await audio.play();
@@ -3716,7 +3992,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                          <div className="rounded-lg px-4 py-3 bg-white/60">
                             <div className="flex items-center gap-2">
                                 <Loader className="w-4 h-4 animate-spin"/>
-                                <span className="text-sm text-muted-foreground">Generating response...</span>
+                                <span className="text-sm text-muted-foreground">Analysing...</span>
                             </div>
                         </div>
                     </div>
@@ -3853,7 +4129,7 @@ export function InterviewSession({ proctoringMode, sessionToken, sessionData }: 
                         {conversationState === 'thinking' ? (
                             <>
                                 <Loader className="w-6 h-6 animate-spin text-current"/>
-                                <span className="text-xs font-semibold">Processing...</span>
+                                <span className="text-xs font-semibold">Analysing...</span>
                             </>
                         ) : (
                             <>

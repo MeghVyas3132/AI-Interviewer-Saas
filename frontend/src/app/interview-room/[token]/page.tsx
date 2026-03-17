@@ -1,10 +1,13 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { InterviewSession } from '@/components/ai-interview';
 import ProctoringRulesModal from '@/components/ProctoringRulesModal';
 import Cookies from 'js-cookie';
+
+// Minimum gap between proctoring violation events to avoid flooding (ms)
+const PROCTOR_EVENT_COOLDOWN_MS = 1500;
 
 export default function InterviewRoomPage() {
   const params = useParams();
@@ -14,8 +17,12 @@ export default function InterviewRoomPage() {
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [showProctoringModal, setShowProctoringModal] = useState(true);
   const [interviewStarted, setInterviewStarted] = useState(false);
-  const [tabSwitchCount, setTabSwitchCount] = useState(0);
-  const [windowBlurCount, setWindowBlurCount] = useState(0);
+  const [terminated, setTerminated] = useState(false);
+  const [terminationReason, setTerminationReason] = useState<string | null>(null);
+
+  // Terminate callback ref — set by InterviewSession when it mounts
+  const terminateInterviewRef = useRef<((reason: string) => void) | null>(null);
+  const lastViolationTimeRef = useRef<number>(0);
 
   useEffect(() => {
     // Verify authentication
@@ -40,20 +47,36 @@ export default function InterviewRoomPage() {
     }
   }, [router]);
 
-  // Proctoring: Track visibility changes (tab switches)
+  // Terminate the interview with a recorded reason
+  const handleViolation = useCallback((reason: string, displayMessage: string) => {
+    const now = Date.now();
+    if (now - lastViolationTimeRef.current < PROCTOR_EVENT_COOLDOWN_MS) return;
+    lastViolationTimeRef.current = now;
+
+    if (terminated) return;
+
+    console.warn('Proctoring violation:', reason);
+    setTerminated(true);
+    setTerminationReason(displayMessage);
+
+    // Notify the InterviewSession component to end the interview
+    if (terminateInterviewRef.current) {
+      terminateInterviewRef.current(reason);
+    }
+  }, [terminated]);
+
+  // Proctoring: Terminate on tab switch or window blur
   useEffect(() => {
-    if (!interviewStarted) return;
+    if (!interviewStarted || terminated) return;
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        setTabSwitchCount(prev => prev + 1);
-        console.warn('Proctoring: tab switch detected.');
+        handleViolation('tab_switch', 'Interview ended: tab switching is not allowed during a proctored interview.');
       }
     };
 
     const handleWindowBlur = () => {
-      setWindowBlurCount(prev => prev + 1);
-      console.warn('Proctoring: window blur detected.');
+      handleViolation('window_blur', 'Interview ended: switching windows is not allowed during a proctored interview.');
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -63,7 +86,7 @@ export default function InterviewRoomPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [interviewStarted]);
+  }, [interviewStarted, terminated, handleViolation]);
 
   const handleAcceptProctoring = useCallback(() => {
     setShowProctoringModal(false);
@@ -73,6 +96,11 @@ export default function InterviewRoomPage() {
   const handleDeclineProctoring = useCallback(() => {
     router.push('/candidate-portal');
   }, [router]);
+
+  // Called by InterviewSession to register its termination handler
+  const registerTerminateHandler = useCallback((fn: (reason: string) => void) => {
+    terminateInterviewRef.current = fn;
+  }, []);
 
   if (loading || !candidateId) {
     return (
@@ -91,16 +119,14 @@ export default function InterviewRoomPage() {
         onDecline={handleDeclineProctoring}
       />
 
-      {/* Proctoring Warning Banner */}
-      {interviewStarted && (tabSwitchCount > 0 || windowBlurCount > 0) && (
-        <div className="fixed top-0 left-0 right-0 bg-red-600 text-white py-2 px-4 text-center text-sm font-medium z-40">
-          Warning: {tabSwitchCount > 0 && `${tabSwitchCount} tab switch(es) detected`}
-          {tabSwitchCount > 0 && windowBlurCount > 0 && ', '}
-          {windowBlurCount > 0 && `${windowBlurCount} window focus loss(es) detected`}
+      {/* Termination Banner */}
+      {terminated && terminationReason && (
+        <div className="fixed top-0 left-0 right-0 bg-red-700 text-white py-3 px-4 text-center text-sm font-semibold z-50 shadow-lg">
+          🚫 {terminationReason}
         </div>
       )}
 
-      <div className={`bg-white shadow-sm p-4 flex justify-between items-center z-10 border-b ${(tabSwitchCount > 0 || windowBlurCount > 0) ? 'mt-10' : ''}`}>
+      <div className={`bg-white shadow-sm p-4 flex justify-between items-center z-10 border-b ${terminated ? 'mt-12' : ''}`}>
         <div className="flex items-center">
           <img src="/images/logo.png" alt="Logo" className="h-8 mr-4" />
           <h1 className="text-xl font-semibold text-gray-800">AI Interview Session</h1>
@@ -118,6 +144,8 @@ export default function InterviewRoomPage() {
             sessionId={sessionToken}
             candidateId={candidateId}
             mode="voice"
+            onRegisterTerminate={registerTerminateHandler}
+            onViolation={handleViolation}
           />
         )}
       </div>

@@ -58,6 +58,7 @@ export type InterviewData = {
   attempts?: number; // Number of attempts for this question
   hintsGiven?: string[]; // Hints provided for this question
   isCorrect?: boolean; // Whether the answer was correct
+  isProctorEvent?: boolean; // Whether this entry is a proctoring event
   questionCategory?: 'general-knowledge' | 'academics' | 'work-experience' | 'about-self'; // Question category
   isCurrentAffairs?: boolean; // Whether this was a current affairs question
   currentAffairsTopic?: string; // Topic of the current affairs question (if applicable)

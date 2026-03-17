@@ -77,168 +77,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const enforceWindow = process.env.INTERVIEW_ENFORCE_WINDOW === 'true';
-    const currentTime = new Date().getTime();
-
-    if (enforceWindow) {
-      // IMPORTANT: If session has scheduled_end_time, check if we're within the window
-      // and reset status from 'expired' if we are (handles cases where status was incorrectly set)
-      if (session.scheduled_end_time) {
-        const scheduledEndTime = new Date(session.scheduled_end_time).getTime();
-        const scheduledStartTime = session.scheduled_time ? new Date(session.scheduled_time).getTime() : null;
-        
-        // If we're within the scheduled window but status is 'expired', reset it
-        const isWithinWindow = (!scheduledStartTime || currentTime >= scheduledStartTime) && currentTime <= scheduledEndTime;
-        
-        if (isWithinWindow && session.status === 'expired') {
-          const { updateInterviewSession } = await import('@/lib/postgres-data-store');
-          await updateInterviewSession(session.id, { status: 'pending' });
-          // Refresh session data after update
-          const updatedSession = await getInterviewSessionByToken(token);
-          if (updatedSession) {
-            Object.assign(session, updatedSession);
-            console.log('Reset expired session to pending - within scheduled window:', {
-              token,
-              sessionId: session.id,
-              scheduledStartTime: scheduledStartTime ? new Date(scheduledStartTime).toISOString() : null,
-              scheduledEndTime: new Date(scheduledEndTime).toISOString(),
-              currentTime: new Date().toISOString()
-            });
-          }
-        }
-      }
-      
-      if (session.scheduled_time) {
-        const scheduledStartTime = new Date(session.scheduled_time).getTime();
-        
-        // Check if interview window hasn't started yet
-        if (currentTime < scheduledStartTime) {
-          const timeUntilStart = scheduledStartTime - currentTime;
-          const hoursUntilStart = Math.floor(timeUntilStart / (1000 * 60 * 60));
-          const minutesUntilStart = Math.floor((timeUntilStart % (1000 * 60 * 60)) / (1000 * 60));
-          
-          let timeMessage = '';
-          if (hoursUntilStart > 0) {
-            timeMessage = `in ${hoursUntilStart} hour${hoursUntilStart > 1 ? 's' : ''}`;
-            if (minutesUntilStart > 0) {
-              timeMessage += ` and ${minutesUntilStart} minute${minutesUntilStart > 1 ? 's' : ''}`;
-            }
-          } else if (minutesUntilStart > 0) {
-            timeMessage = `in ${minutesUntilStart} minute${minutesUntilStart > 1 ? 's' : ''}`;
-          } else {
-            timeMessage = 'soon';
-          }
-          
-          return res.status(400).json({ 
-            success: false, 
-            error: `This interview is not yet available. It will be available ${timeMessage}.`,
-            scheduledTime: session.scheduled_time,
-            scheduledEndTime: session.scheduled_end_time || null
-          });
-        }
-      }
-      
-      // Determine the actual expiry time: use scheduled_end_time if set, otherwise expires_at
-      // IMPORTANT: If scheduled_end_time exists, it takes precedence over expires_at
-      // This ensures sessions with scheduled windows work correctly even if expires_at is outdated
-      let actualExpiryTime: number;
-      let expirySource: 'scheduled_end_time' | 'expires_at';
-      
-      if (session.scheduled_end_time) {
-        // Use scheduled_end_time as the definitive expiry when it exists
-        const scheduledEndTime = new Date(session.scheduled_end_time);
-        if (isNaN(scheduledEndTime.getTime())) {
-          console.error('Invalid scheduled_end_time:', session.scheduled_end_time);
-          // Fall back to expires_at if scheduled_end_time is invalid
-          actualExpiryTime = new Date(session.expires_at).getTime();
-          expirySource = 'expires_at';
-        } else {
-          actualExpiryTime = scheduledEndTime.getTime();
-          expirySource = 'scheduled_end_time';
-        }
-      } else {
-        // Fall back to expires_at only if no scheduled_end_time
-        actualExpiryTime = new Date(session.expires_at).getTime();
-        expirySource = 'expires_at';
-      }
-
-      // Check if session has expired
-      // Allow a small buffer (5 minutes) to account for timezone differences and clock skew
-      const expiryBuffer = 5 * 60 * 1000; // 5 minutes in milliseconds
-      
-      // Check if we're past the actual expiry time (with buffer)
-      const isPastExpiry = actualExpiryTime + expiryBuffer < currentTime;
-      
-      if (isPastExpiry) {
-        // Only auto-update status to expired if:
-        // 1. Status is not already 'expired'
-        // 2. We're actually past the expiry (not just within buffer)
-        // 3. We're NOT within a scheduled window (scheduled_end_time takes precedence)
-        const shouldAutoExpire = session.status !== 'expired' && 
-                                 actualExpiryTime < currentTime &&
-                                 expirySource === 'expires_at'; // Only auto-expire if using expires_at, not scheduled_end_time
-        
-        if (shouldAutoExpire) {
-          const { updateInterviewSession } = await import('@/lib/postgres-data-store');
-          await updateInterviewSession(session.id, { status: 'expired' });
-          console.log('Auto-updated session status to expired:', {
-            token,
-            sessionId: session.id,
-            expires_at: session.expires_at,
-            currentTime: new Date().toISOString()
-          });
-        }
-        
-        console.log('Session expired:', {
+    if (session.status === 'expired') {
+      const { updateInterviewSession } = await import('@/lib/postgres-data-store');
+      await updateInterviewSession(session.id, { status: 'pending' });
+      const updatedSession = await getInterviewSessionByToken(token);
+      if (updatedSession) {
+        Object.assign(session, updatedSession);
+        console.log('Reset expired session to pending (expiry disabled):', {
           token,
-          expires_at: session.expires_at,
-          scheduled_end_time: session.scheduled_end_time,
-          scheduled_time: session.scheduled_time,
-          actualExpiryTime: new Date(actualExpiryTime).toISOString(),
-          expirySource,
-          currentTime: new Date().toISOString(),
-          timeDifference: (currentTime - actualExpiryTime) / 1000 / 60, // minutes
-          status: session.status,
-          isPastExpiry,
-          shouldAutoExpire
-        });
-        
-        const errorMessage = expirySource === 'scheduled_end_time'
-          ? 'The interview window has ended. Please contact the administrator to schedule a new interview.'
-          : 'Interview session has expired';
-        
-        return res.status(400).json({ 
-          success: false, 
-          error: errorMessage,
-          scheduledTime: session.scheduled_time,
-          scheduledEndTime: session.scheduled_end_time
+          sessionId: session.id
         });
       }
-      
-      // Log session validation for debugging
-      console.log('Session validated successfully:', {
-        token,
-        status: session.status,
-        expires_at: session.expires_at,
-        scheduled_end_time: session.scheduled_end_time,
-        scheduled_time: session.scheduled_time,
-        actualExpiryTime: new Date(actualExpiryTime).toISOString(),
-        expirySource,
-        timeUntilExpiry: (actualExpiryTime - currentTime) / 1000 / 60, // minutes until expiry
-        currentTime: new Date().toISOString(),
-        is_active: session.is_active,
-        started_at: session.started_at,
-        completed_at: session.completed_at
-      });
-    } else {
-      console.log('Session validated successfully (window checks disabled):', {
-        token,
-        status: session.status,
-        is_active: session.is_active,
-        started_at: session.started_at,
-        completed_at: session.completed_at
-      });
     }
+
+    console.log('Session validated successfully (expiry disabled):', {
+      token,
+      status: session.status,
+      is_active: session.is_active,
+      started_at: session.started_at,
+      completed_at: session.completed_at
+    });
 
     // Get candidate's resume analysis if available
     let resumeAnalysis = null;

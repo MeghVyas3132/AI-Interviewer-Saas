@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { Buffer } from 'buffer';
 
 type TtsErrorSummary = {
   status: number;
@@ -93,7 +92,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
+      if (response.ok && response.body) {
+        const contentType = response.headers.get('content-type') || 'audio/mpeg';
+        const contentLength = response.headers.get('content-length');
+
+        // Stream the audio directly to the client — no buffering, audio starts immediately
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
+        }
+        res.status(200);
+
+        // Pipe the readable stream chunk by chunk
+        const reader = response.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(Buffer.from(value));
+          }
+          res.end();
+          return;
+        } catch (streamErr) {
+          // If streaming fails mid-way, abort gracefully
+          console.warn('[TTS] Streaming interrupted:', streamErr);
+          res.end();
+          return;
+        }
+      }
+
+      if (response.ok && !response.body) {
+        // Fallback: no streaming support, buffer it
         const arrayBuffer = await response.arrayBuffer();
         const contentType = response.headers.get('content-type') || 'audio/mpeg';
         res.setHeader('Content-Type', contentType);

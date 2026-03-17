@@ -11,11 +11,11 @@ export default function InvalidSessionPage() {
         </div>
         
         <h1 className="text-3xl font-bold mb-4 text-red-600">
-          Invalid or Expired Session
+          Invalid Session
         </h1>
         
         <p className="text-gray-700 mb-6 max-w-lg mx-auto text-lg leading-relaxed">
-          The interview link you're trying to access is invalid or has expired.
+          The interview link you're trying to access is invalid.
         </p>
         
         <p className="text-gray-600 mb-8 text-sm">
@@ -25,4 +25,3 @@ export default function InvalidSessionPage() {
     </div>
   );
 }
-

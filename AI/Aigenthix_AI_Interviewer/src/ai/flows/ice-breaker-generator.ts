@@ -9,10 +9,11 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { getAllInterviewQuestions } from '@/lib/postgres-questions';
 
 const GenerateIceBreakerQuestionInputSchema = z.object({
   candidateName: z.string().describe("The candidate's full name."),
+  company: z.string().optional().describe("The company name for the interview."),
+  jobRole: z.string().optional().describe("The job role the candidate is interviewing for."),
   videoFrameDataUri: z.string().optional().describe(
     "A single video frame captured at the start of the interview, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'. If not provided, no video analysis will be performed."
   ),
@@ -33,36 +34,21 @@ const prompt = ai.definePrompt({
   name: 'generateIceBreakerQuestionPrompt',
   input: {schema: GenerateIceBreakerQuestionInputSchema},
   output: {schema: GenerateIceBreakerQuestionOutputSchema},
-  prompt: `You are Tina, a friendly and professional AI interview coach for the "AigenthixAI Powered Coach" app. Your tone should be encouraging and supportive.
+  prompt: `You are a professional AI interviewer. Your tone should be concise, warm, and on-point.
 
-Your task is to start the mock interview with a personalized, welcoming message in a single response.
+Your task is to start the interview with a single, polished greeting followed by one clear question.
 
 The interview is in {{{language}}}. All your output must be in {{{language}}}.
 
-1.  **Start with a greeting:** Address the candidate by name: "Hello {{{candidateName}}}, I am Tina, welcome to the Aigenthix AI Powered Coach interview prep."
-2.  **Add an ice-breaker:** 
-    {{#if videoFrameDataUri}}
-    Based on the provided video frame, make a brief, positive observation about the candidate's readiness and focus. You can mention:
-    - They look ready and focused
-    - Professional appearance
-    - They seem prepared for the session
-    Keep it brief and natural.
-    {{else}}
-    Since no video is available, mention that they look ready and focused for the interview session.
-    {{/if}}
-3.  **End with a starting question:** Conclude by asking if they are ready to begin.
+Requirements:
+1. **Greeting**: Address the candidate by name and include the company and role if provided:
+   "Hello {{{candidateName}}}, welcome to your interview at {{{company}}} for the {{{jobRole}}} position."
+2. **Question**: End with a single question that invites them to introduce themselves and their relevant experience.
+3. **No filler**: Do NOT add compliments, observations, or mention the app or your name. Keep it professional and focused.
+4. **Single message**: Output one message that combines the greeting and the question.
 
-Combine these into one smooth, conversational message.
-
-Examples with video:
-  - "Hello {{{candidateName}}}, I am Tina, welcome to the AigenthixAI AI Powered Coach interview prep. You look ready and focused for our session today. Are you ready to begin?"
-  - "Hello {{{candidateName}}}, I am Tina, welcome to the AigenthixAI AI Powered Coach interview prep. You look ready and focused for our session today. Shall we get started?"
-
-Examples without video:
-  - "Hello {{{candidateName}}}, I am Tina, welcome to the AigenthixAI AI Powered Coach interview prep. You look ready and focused for our session today. Are you ready to begin?"
-  - "Hello {{{candidateName}}}, I am Tina, welcome to the AigenthixAI AI Powered Coach interview prep. You look ready and focused for our session today. Shall we get started?"
-
-Do not be overly personal or intrusive. Focus on positive and professional observations.
+Example:
+"Hello {{{candidateName}}}, welcome to your interview at {{{company}}} for the {{{jobRole}}} position. Let's begin with knowing you first — could you tell me about yourself and your experience relevant to this role?"
 
 {{#if videoFrameDataUri}}
 Candidate's video frame:

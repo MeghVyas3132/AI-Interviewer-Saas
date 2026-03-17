@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const { token } = req.query;
-    const { interviewData } = req.body; // Get partial interview data if available
+    const { interviewData, proctorEvent, proctoringEvents, proctoringSummary } = req.body; // Get partial interview data if available
 
     if (!token || typeof token !== 'string') {
       return res.status(400).json({ 
@@ -40,6 +40,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const abandonTime = new Date().toISOString();
+    const resolvedProctoringEvents = Array.isArray(proctoringEvents)
+      ? proctoringEvents
+      : (session.results_json?.proctoringEvents || []);
+    const resolvedProctoringSummary = proctoringSummary || session.results_json?.proctoringSummary || {
+      totalEvents: Array.isArray(resolvedProctoringEvents) ? resolvedProctoringEvents.length : 0,
+      tabSwitches: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.filter((ev: any) => ev?.event === 'tab_switch').length
+        : 0,
+      multipleFaces: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.filter((ev: any) => ev?.event === 'multiple_faces').length
+        : 0,
+      profanityDetected: Array.isArray(resolvedProctoringEvents)
+        ? resolvedProctoringEvents.some((ev: any) => ev?.event === 'profanity_detected')
+        : false,
+    };
 
     // Ensure we capture all interview data including feedback and scoring
     const fullInterviewData = interviewData || session.results_json?.interviewData || [];
@@ -63,11 +78,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Update PostgreSQL session to abandoned with all captured data
     await updateInterviewSession(session.id, {
       status: 'abandoned',
-      results_json: {
+        results_json: {
         ...(session.results_json || {}),
         abandonedAt: abandonTime,
         interviewData: fullInterviewData, // Save all Q&A data
         isPartial: true,
+        proctorEvent: proctorEvent || null,
+        proctoringEvents: resolvedProctoringEvents,
+        proctoringSummary: resolvedProctoringSummary,
         // Ensure we have all question-answer pairs with their feedback
         questionsAndAnswers: fullInterviewData.map((qa: any) => ({
           question: qa.question || '',
@@ -130,6 +148,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 abandonedAt: abandonTime,
                 isPartial: true,
                 interviewData: interviewDataArray, // Ensure interview data is in resultsJson too
+                proctorEvent: proctorEvent || null,
+                proctoringEvents: resolvedProctoringEvents,
+                proctoringSummary: resolvedProctoringSummary,
               },
               status: 'abandoned',
               startedAt: session.started_at ? new Date(session.started_at) : new Date(),
@@ -183,9 +204,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 };
               }
 
+              const isProctorEvent = qa?.isProctorEvent === true;
               return {
                 id: `qa-${session.id}-${idx}`,
-                type: 'qa',
+                type: isProctorEvent ? 'proctor' : 'qa',
                 at: qa.timestamp ? new Date(qa.timestamp) : (qa.at ? new Date(qa.at) : new Date(abandonTime)),
                 question: qa.question || '',
                 answer: qa.answer || '',
@@ -410,4 +432,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
-

@@ -78,7 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           questions ? JSON.stringify(questions) : null,
           scheduled_time || null,
           scheduled_end_time || null,
-          expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expires_at || new Date(new Date().setFullYear(new Date().getFullYear() + 100)).toISOString(),
           token
         ]
       );
@@ -155,7 +155,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'pending',
         scheduled_time || null,
         scheduled_end_time || null,
-        expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at || new Date(new Date().setFullYear(new Date().getFullYear() + 100)).toISOString(),
         questions ? JSON.stringify(questions) : null,
         'voice' // Default to voice mode
       ]

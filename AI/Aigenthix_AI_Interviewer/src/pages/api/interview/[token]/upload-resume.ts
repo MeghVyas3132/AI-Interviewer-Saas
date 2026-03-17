@@ -131,27 +131,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const enforceWindow = process.env.INTERVIEW_ENFORCE_WINDOW === 'true';
-
-    // Check if session has expired
-    // Use scheduled_end_time if available, otherwise use expires_at
-    const currentTime = new Date().getTime();
-    let actualExpiryTime: number;
-    
-    if (session.scheduled_end_time) {
-      actualExpiryTime = new Date(session.scheduled_end_time).getTime();
-    } else {
-      actualExpiryTime = new Date(session.expires_at).getTime();
-    }
-    
-    if (enforceWindow && currentTime > actualExpiryTime) {
-      return res.status(400).json({ 
-        success: false, 
-        error: session.scheduled_end_time
-          ? 'The interview window has ended. Please contact the administrator to schedule a new interview.'
-          : 'Interview session has expired'
-      });
-    }
+    // Expiry checks intentionally disabled: sessions remain valid until completed.
 
     cacheKey = `resume_analysis_${token}`;
 

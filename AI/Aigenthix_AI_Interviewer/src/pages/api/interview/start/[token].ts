@@ -44,87 +44,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    const enforceWindow = process.env.INTERVIEW_ENFORCE_WINDOW === 'true';
-    // Check scheduled time window if scheduled_time is set
-    const currentTime = new Date().getTime();
-    
-    if (enforceWindow && session.scheduled_time) {
-      const scheduledStartTime = new Date(session.scheduled_time).getTime();
-      
-      // Check if interview window hasn't started yet
-      if (currentTime < scheduledStartTime) {
-        const timeUntilStart = scheduledStartTime - currentTime;
-        const hoursUntilStart = Math.floor(timeUntilStart / (1000 * 60 * 60));
-        const minutesUntilStart = Math.floor((timeUntilStart % (1000 * 60 * 60)) / (1000 * 60));
-        
-        let timeMessage = '';
-        if (hoursUntilStart > 0) {
-          timeMessage = `in ${hoursUntilStart} hour${hoursUntilStart > 1 ? 's' : ''}`;
-          if (minutesUntilStart > 0) {
-            timeMessage += ` and ${minutesUntilStart} minute${minutesUntilStart > 1 ? 's' : ''}`;
-          }
-        } else if (minutesUntilStart > 0) {
-          timeMessage = `in ${minutesUntilStart} minute${minutesUntilStart > 1 ? 's' : ''}`;
-        } else {
-          timeMessage = 'soon';
-        }
-        
-        console.warn('[start_attempt_failed_reason]', {
-          event: 'start_attempt_failed_reason',
-          token,
-          sessionId: session.id,
-          reason: 'not_yet_available',
-          scheduledTime: session.scheduled_time,
-        });
-        
-        return res.status(400).json({ 
-          success: false, 
-          error: `This interview is not yet available. It will be available ${timeMessage}.`,
-          scheduledTime: session.scheduled_time,
-          scheduledEndTime: session.scheduled_end_time || null
-        });
-      }
-    }
-    
-    if (enforceWindow) {
-      // Determine the actual expiry time: use scheduled_end_time if set, otherwise expires_at
-      // Since we set expires_at to scheduled_end_time when it exists, they should match,
-      // but we use scheduled_end_time if it exists to be explicit
-      let actualExpiryTime: number;
-      let expirySource: 'scheduled_end_time' | 'expires_at';
-      
-      if (session.scheduled_end_time) {
-        actualExpiryTime = new Date(session.scheduled_end_time).getTime();
-        expirySource = 'scheduled_end_time';
-      } else {
-        actualExpiryTime = new Date(session.expires_at).getTime();
-        expirySource = 'expires_at';
-      }
-
-      // Check if session has expired
-      if (currentTime > actualExpiryTime) {
-        const errorMessage = expirySource === 'scheduled_end_time'
-          ? 'The interview window has ended. Please contact the administrator to schedule a new interview.'
-          : 'Interview session has expired';
-        
-        console.warn('[start_attempt_failed_reason]', {
-          event: 'start_attempt_failed_reason',
-          token,
-          sessionId: session.id,
-          reason: expirySource === 'scheduled_end_time' ? 'window_ended' : 'expired',
-          actualExpiryTime: new Date(actualExpiryTime).toISOString(),
-          expirySource,
-          scheduledEndTime: session.scheduled_end_time,
-          expiresAt: session.expires_at,
-        });
-        
-        return res.status(400).json({ 
-          success: false, 
-          error: errorMessage,
-          scheduledTime: session.scheduled_time,
-          scheduledEndTime: session.scheduled_end_time
-        });
-      }
+    if (session.status === 'expired') {
+      await updateInterviewSession(session.id, { status: 'pending' });
     }
 
     if (session.status === 'completed') {

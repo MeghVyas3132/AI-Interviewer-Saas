@@ -130,16 +130,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               }
             }
             
-            // Set expires_at: use scheduled_end_time if provided, otherwise 7 days from now
-            let expiresAt: Date;
-            if (scheduledEndTime) {
-              // Use scheduled end time as the expiry
-              expiresAt = new Date(scheduledEndTime);
-            } else {
-              // Default: 7 days from now
-              expiresAt = new Date();
-              expiresAt.setDate(expiresAt.getDate() + 7);
-            }
+            // Interviews never expire by time — only end when the candidate completes/abandons
+            const expiresAt = new Date();
+            expiresAt.setFullYear(expiresAt.getFullYear() + 100); // 100 years from now = effectively never
 
             // Create interview session
             const newSession = await createInterviewSession({

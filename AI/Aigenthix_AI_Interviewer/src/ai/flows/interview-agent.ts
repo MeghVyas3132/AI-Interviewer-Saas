@@ -32,6 +32,7 @@ type InterviewHistory = z.infer<typeof InterviewHistorySchema>;
 const InterviewAgentInputSchema = z.object({
   jobRole: z.string().describe('The job role the user is interviewing for.'),
   company: z.string().describe('The company the user is interviewing for.'),
+  candidateName: z.string().optional().describe('The candidate name for personalized greetings.'),
   college: z.string().optional().describe('The target college for which the user is preparing (for CAT aspirants).'),
   resumeText: z.string().describe("The user's resume text."),
   language: z.string().describe('The language for the interview and feedback.'),
@@ -148,8 +149,37 @@ import { genkit } from 'genkit';
 
 const NEXT_QUESTION_SIMILARITY_THRESHOLD = 0.84;
 
+const extractQuestionStem = (value: string): string => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return '';
+  if (cleaned.includes('?')) {
+    const parts = cleaned.split('?');
+    const lastSegment = parts.length >= 2 ? parts[parts.length - 2] : cleaned;
+    return lastSegment.trim();
+  }
+  const leadingPatterns = [
+    /^thanks[,!\s-]+/i,
+    /^thank you[,!\s-]+/i,
+    /^got it[,!\s-]+/i,
+    /^understood[,!\s-]+/i,
+    /^great[,!\s-]+/i,
+    /^appreciate (that|it)[,!\s-]+/i,
+    /^let['’]s continue[,!\s-]+/i,
+    /^moving on[,!\s-]+/i,
+    /^next question[,!\s-]+/i,
+  ];
+  let result = cleaned;
+  for (const pattern of leadingPatterns) {
+    if (pattern.test(result)) {
+      result = result.replace(pattern, '').trim();
+    }
+  }
+  return result || cleaned;
+};
+
 const normalizeQuestionForMatch = (value: string): string => {
-  return (value || '')
+  const stem = extractQuestionStem(value || '');
+  return (stem || '')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -241,6 +271,45 @@ const getFallbackQuestionPool = (): string[] => {
   ];
 };
 
+const violatesQuestionGuardrails = (
+  question: string,
+  options?: { allowSoftSkills?: boolean }
+): boolean => {
+  const cleaned = (question || '').trim();
+  if (!cleaned) return false;
+  const allowSoftSkills = options?.allowSoftSkills ?? false;
+  return (
+    (!allowSoftSkills && containsSoftSkill(cleaned)) ||
+    containsCredential(cleaned) ||
+    containsLocation(cleaned) ||
+    containsSensitiveInfo(cleaned)
+  );
+};
+
+const sanitizeJobInterviewQuestion = (
+  question: string,
+  plan: NextQuestionPlan,
+  input: InterviewAgentInput
+): string => {
+  const cleaned = stripLeadingAcknowledgement(question || '').trim();
+  if (!cleaned) return question;
+  if (hasBannedFollowupPhrasing(cleaned)) {
+    return buildFallbackQuestionFromPlan(plan, input);
+  }
+  const allowCompanyMention = plan.kind === 'intro' || plan.kind === 'closing';
+  if (input.company && !allowCompanyMention) {
+    const companyPattern = new RegExp(`\\b${escapeRegex(input.company)}\\b`, 'ig');
+    if (companyPattern.test(cleaned)) {
+      return buildFallbackQuestionFromPlan(plan, input);
+    }
+  }
+  const allowSoftSkills = plan.kind === 'core';
+  if (violatesQuestionGuardrails(cleaned, { allowSoftSkills })) {
+    return buildFallbackQuestionFromPlan(plan, input);
+  }
+  return cleaned;
+};
+
 const enforceUniqueNextQuestion = (
   proposedQuestion: string,
   input: InterviewAgentInput,
@@ -289,7 +358,8 @@ const enforceUniqueNextQuestion = (
 const FOLLOWUP_BUDGET_MAX = 2;
 const MAIN_QUESTION_TARGET = 10;
 const RESUME_QUESTION_TARGET = 3;
-const RESUME_SEQUENCE_ORDER: ResumeAnchorType[] = ['experience', 'project', 'skill'];
+const JOB_MAIN_QUESTION_TARGET = 9; // 1 intro + 3 resume + 5 HR = 9 main, then closing = 10 total
+const RESUME_SEQUENCE_ORDER: ResumeAnchorType[] = ['experience', 'project', 'experience'];
 
 type ResumeAnchorType = 'experience' | 'project' | 'skill' | 'claim';
 type QuestionKind = 'intro' | 'resume' | 'core' | 'followup' | 'closing' | 'candidate' | 'wrapup' | 'other';
@@ -338,6 +408,32 @@ const SOFT_SKILL_PATTERNS: RegExp[] = [
   /\bwork ethic\b/i,
 ];
 
+const CREDENTIAL_PATTERNS: RegExp[] = [
+  /\bb\.?tech\b/i,
+  /\bm\.?tech\b/i,
+  /\bmba\b/i,
+  /\bph\.?d\b/i,
+  /\bbachelor'?s\b/i,
+  /\bmaster'?s\b/i,
+  /\bdegree\b/i,
+  /\bgraduate\b/i,
+  /\bgraduation\b/i,
+  /\beducation\b/i,
+  /\bcollege\b/i,
+  /\buniversity\b/i,
+  /\bcertification\b/i,
+  /\bcertifications\b/i,
+  /\bcertified\b/i,
+  /\bcredential\b/i,
+  /\bgpa\b/i,
+  /\bgrade point\b/i,
+];
+
+const SENSITIVE_INFO_PATTERNS: RegExp[] = [
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  /\+?\d[\d\s\-]{7,}\d/,
+];
+
 const LOCATION_PATTERNS: RegExp[] = [
   /\bremote\b/i,
   /\bhybrid\b/i,
@@ -365,6 +461,8 @@ const LOCATION_PATTERNS: RegExp[] = [
   /\bnoida\b/i,
   /\bgurgaon\b/i,
   /\bgurugram\b/i,
+  /\bahmedabad\b/i,
+  /\bgujarat\b/i,
   /\bnew york\b/i,
   /\bsan francisco\b/i,
   /\blondon\b/i,
@@ -376,16 +474,77 @@ const isSoftSkill = (value: string): boolean => {
   return SOFT_SKILL_PATTERNS.some(pattern => pattern.test(cleaned));
 };
 
+const containsSoftSkill = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return false;
+  return SOFT_SKILL_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
+const containsCredential = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return false;
+  return CREDENTIAL_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
+const containsSensitiveInfo = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return false;
+  return SENSITIVE_INFO_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
 const isLocationLike = (value: string): boolean => {
   const cleaned = (value || '').trim();
   if (!cleaned) return true;
   return LOCATION_PATTERNS.some(pattern => pattern.test(cleaned));
 };
 
+const containsLocation = (value: string): boolean => {
+  const cleaned = (value || '').trim();
+  if (!cleaned) return false;
+  return LOCATION_PATTERNS.some(pattern => pattern.test(cleaned));
+};
+
+const escapeRegex = (text: string): string => {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const stripLocationSuffix = (value: string): string => {
+  if (!value) return value;
+  const parts = value.split(',');
+  if (parts.length < 2) return value;
+  const tail = parts.slice(1).join(',').trim();
+  if (tail && isLocationLike(tail)) {
+    return parts[0].trim();
+  }
+  return value;
+};
+
+const stripCompanyAndLocation = (value: string, company?: string): string => {
+  let cleaned = sanitizeAnchorLabel(value || '');
+  if (!cleaned) return '';
+  if (company) {
+    const pattern = new RegExp(`\\b${escapeRegex(company)}\\b`, 'ig');
+    cleaned = cleaned.replace(pattern, ' ').trim();
+  }
+  cleaned = cleaned.replace(/\s+(at|@)\s+[^,]+/i, '').trim();
+  cleaned = stripLocationSuffix(cleaned);
+  LOCATION_PATTERNS.forEach(pattern => {
+    cleaned = cleaned.replace(pattern, '').trim();
+  });
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  return cleaned;
+};
+
+const sanitizeResumeAnchorTitle = (value: string, company?: string): string => {
+  const cleaned = stripCompanyAndLocation(value || '', company);
+  if (!cleaned) return '';
+  return cleaned;
+};
+
 const isDisallowedResumeAnchor = (value: string): boolean => {
   const cleaned = (value || '').trim();
   if (!cleaned) return true;
-  return isSoftSkill(cleaned) || isLocationLike(cleaned);
+  return isSoftSkill(cleaned) || isLocationLike(cleaned) || containsCredential(cleaned);
 };
 
 const hashString = (value: string): number => {
@@ -412,28 +571,33 @@ const pickRandomVariant = (variants: string[], seed?: number): string => {
 
 const buildResumeQuestion = (anchor?: ResumeAnchor): string => {
   if (!anchor?.title) {
-    return 'Tell me about a recent technical project you built and the key decisions you made.';
+    return 'From your resume, tell me about a recent technical project you built and the key decisions you made.';
   }
 
-  const title = anchor.title;
+  const rawTitle = sanitizeResumeAnchorTitle(anchor.title, anchor.company);
+  const title = rawTitle || anchor.title;
   const seed = hashString(`${anchor.type}:${title}`);
 
+  const experienceSubject = title || 'your most recent role';
+  const projectSubject = title || 'one recent project you built';
+  const skillSubject = title || 'one core skill you use in production';
+
   const experienceVariants = [
-    `You mentioned ${title}. What systems did you own there, and what technical decisions did you make?`,
-    `In ${title}, walk me through one system you delivered end-to-end, including constraints and trade-offs.`,
-    `For ${title}, what was the toughest technical problem you solved and how did you approach it?`,
+    `From your resume, in your role as ${experienceSubject}, what systems did you own and what technical decisions did you make?`,
+    `From your resume, walk me through one system you delivered end-to-end in ${experienceSubject}, including constraints and trade-offs.`,
+    `From your resume, what was the toughest technical problem you solved in ${experienceSubject}, and how did you approach it?`,
   ];
 
   const projectVariants = [
-    `In ${title}, what was your role, and what architectural decisions did you make?`,
-    `For ${title}, describe the system design and why you chose that approach.`,
-    `In ${title}, what performance or reliability goals did you target, and how did you measure success?`,
+    `From your resume, on ${projectSubject}, what was your role and what architectural decisions did you make?`,
+    `From your resume, describe the system design for ${projectSubject} and why you chose that approach.`,
+    `From your resume, what performance or reliability goals did you target in ${projectSubject}, and how did you measure success?`,
   ];
 
   const skillVariants = [
-    `You listed ${title}. Describe a production use-case where you applied it and the outcome.`,
-    `How have you used ${title} in a real system? Walk me through the setup and trade-offs.`,
-    `Tell me about a project where ${title} was central—what did you build and how did it impact results?`,
+    `From your resume, you list ${skillSubject}. Describe a production use-case where you applied it and the outcome.`,
+    `From your resume, how have you used ${skillSubject} in a real system? Walk me through the setup and trade-offs.`,
+    `From your resume, tell me about a project where ${skillSubject} was central—what did you build and how did it impact results?`,
   ];
 
   if (anchor.type === 'experience') {
@@ -446,9 +610,9 @@ const buildResumeQuestion = (anchor?: ResumeAnchor): string => {
     return pickVariant(skillVariants, seed);
   }
   if (anchor.type === 'claim') {
-    return `You mentioned ${title}. What was the technical context and your contribution?`;
+    return `From your resume, you mentioned ${title}. What was the technical context and your contribution?`;
   }
-  return `You mentioned ${title}. How have you applied it in a real project?`;
+  return `From your resume, you mentioned ${title}. How have you applied it in a real project?`;
 };
 
 const buildFollowupQuestion = (intent: FollowupIntent | null, seed: number): string => {
@@ -654,7 +818,8 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
   };
 
   profile.experiences.slice(0, 4).forEach(exp => {
-    const title = sanitizeAnchorLabel(exp.role && exp.company ? `${exp.role} at ${exp.company}` : exp.line);
+    const baseTitle = exp.role ? exp.role : exp.line;
+    const title = sanitizeResumeAnchorTitle(baseTitle, exp.company);
     if (!title || isDisallowedResumeAnchor(title)) {
       return;
     }
@@ -669,7 +834,8 @@ const buildResumeAnchors = (profile: ResumeProfile, resumeText: string): ResumeA
   });
 
   profile.projects.slice(0, 4).forEach(project => {
-    const title = sanitizeAnchorLabel(project.name ? project.name : project.line);
+    const baseTitle = sanitizeAnchorLabel(project.name ? project.name : project.line);
+    const title = stripCompanyAndLocation(baseTitle);
     if (!title || isDisallowedResumeAnchor(title)) {
       return;
     }
@@ -743,19 +909,35 @@ const buildResumeSummary = (resumeText: string): string => {
   if (anchors.length === 0) return '';
   return anchors
     .map(anchor => {
-      const label = sanitizeAnchorLabel(anchor.title);
+      const label = sanitizeResumeAnchorTitle(anchor.title, anchor.company);
       if (!label) return '';
-      if (anchor.type === 'experience' && anchor.company) {
-        return `${label} @ ${anchor.company}`.trim();
-      }
       return label;
     })
     .filter(Boolean)
     .join(' | ');
 };
 
-const isIntroQuestion = (question: string): boolean =>
-  /tell me about yourself|walk me through your background|introduce yourself|are you ready to begin|ready to begin|shall we get started|ready to start|welcome to/i.test(question || '');
+const isIntroQuestion = (question: string): boolean => {
+  const q = (question || '').toLowerCase();
+  return (
+    /tell me about yourself/.test(q) ||
+    /walk me through your background/.test(q) ||
+    /introduce yourself/.test(q) ||
+    /could you tell me about yourself/.test(q) ||
+    /tell us about yourself/.test(q) ||
+    /knowing you first/.test(q) ||
+    /let's begin with knowing you/.test(q) ||
+    /let us begin with knowing you/.test(q) ||
+    /start by knowing you/.test(q) ||
+    /are you ready to begin/.test(q) ||
+    /ready to begin/.test(q) ||
+    /shall we get started/.test(q) ||
+    /ready to start/.test(q) ||
+    /welcome to/.test(q) ||
+    // Any greeting that asks about experience/background for this role
+    (/^(hello|hi|welcome)\b/.test(q) && /experience relevant|about yourself|your background/.test(q))
+  );
+};
 
 const isClosingQuestion = (question: string): boolean =>
   /why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|why are you a good fit|why do you think you'?re a strong fit|fit for this role|strong fit/i.test(
@@ -793,7 +975,13 @@ const isFollowupQuestion = (question: string, previousQuestion?: string): boolea
 const isLikelyInterviewQuestion = (text: string): boolean => {
   const cleaned = (text || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return false;
+  // Always count intro/closing/wrapup questions regardless of structure
+  // Intro questions often start with "Hello, welcome..." which wouldn't otherwise match
   if (isIntroQuestion(cleaned) || isClosingQuestion(cleaned) || isCandidateQuestion(cleaned) || isWrapupQuestion(cleaned)) {
+    return true;
+  }
+  // Also catch any greeting/welcome that embeds a question (e.g. "Hello, welcome... tell me about yourself")
+  if (/^(hello|hi|welcome|good morning|good afternoon|good evening)\b/i.test(cleaned) && isIntroQuestion(cleaned)) {
     return true;
   }
   if (cleaned.includes('?')) return true;
@@ -835,25 +1023,6 @@ const classifyQuestion = (
   return 'core';
 };
 
-const detectAnswerQuality = (answer: string): { low: FollowupIntent | null } => {
-  const text = (answer || '').trim();
-  if (!text) return { low: 'specificity' };
-
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
-  const hasNumbers = /\d/.test(text);
-  const hasExamples = /(for example|for instance|e\.g\.|such as|like)/i.test(text);
-  const hasOwnership = /\b(i|my|me|mine|i\'ve|i\'d)\b/i.test(text);
-  const hasWe = /\b(we|our|us)\b/i.test(text);
-  const hasDepth = /(trade-?off|architecture|design|system|pipeline|scalab|latency|performance|database|api|algorithm|debug|testing|framework|infrastructure|kubernetes|docker|aws|gcp|azure|ci\/cd|deploy|monitor|observability|metrics)/i.test(text);
-  const hasImpact = /(improved|reduced|increased|impact|resulted|delivered|saved|percent|%|revenue|cost|time|latency|users|availability|uptime)/i.test(text) || hasNumbers;
-
-  if (wordCount < 18 && !hasExamples && !hasNumbers) return { low: 'specificity' };
-  if (wordCount >= 12 && !hasOwnership && hasWe) return { low: 'ownership' };
-  if (wordCount >= 14 && !hasDepth) return { low: 'depth' };
-  if (wordCount >= 18 && !hasImpact) return { low: 'impact' };
-  return { low: null };
-};
-
 const isDeferralAnswer = (answer: string): boolean => {
   const text = (answer || '').toLowerCase().trim();
   if (!text) return true;
@@ -862,9 +1031,13 @@ const isDeferralAnswer = (answer: string): boolean => {
     /^no thanks\.?$/.test(text) ||
     /^skip\.?$/.test(text) ||
     /^pass\.?$/.test(text) ||
-    /^not sure\.?$/.test(text) ||
-    /^don\'t know\.?$/.test(text) ||
-    /^i don\'t know\.?$/.test(text) ||
+    /\bnot sure\b/.test(text) ||
+    /\bdont know\b/.test(text) ||
+    /\bdon\'t know\b/.test(text) ||
+    /\bi dont know\b/.test(text) ||
+    /\bi don\'t know\b/.test(text) ||
+    /^idk\.?$/.test(text) ||
+    /^no idea\.?$/.test(text) ||
     /please proceed/.test(text) ||
     /next question/.test(text) ||
     /harder question/.test(text) ||
@@ -876,6 +1049,28 @@ const isDeferralAnswer = (answer: string): boolean => {
     /refuse to answer/.test(text) ||
     /won\'t answer/.test(text)
   );
+};
+
+const detectAnswerQuality = (answer: string): { low: FollowupIntent | null } => {
+  const text = (answer || '').trim();
+  if (!text) return { low: 'specificity' };
+  if (isDeferralAnswer(text)) return { low: null };
+
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const hasNumbers = /\d/.test(text);
+  const hasExamples = /(for example|for instance|e\.g\.|such as|like)/i.test(text);
+  const hasOwnership = /\b(i|my|me|mine|i\'ve|i\'d)\b/i.test(text);
+  const hasWe = /\b(we|our|us)\b/i.test(text);
+  const hasDepth = /(trade-?off|architecture|design|system|pipeline|scalab|latency|performance|database|api|algorithm|debug|testing|framework|infrastructure|kubernetes|docker|aws|gcp|azure|ci\/cd|deploy|monitor|observability|metrics)/i.test(text);
+  const hasImpact = /(improved|reduced|increased|impact|resulted|delivered|saved|percent|%|revenue|cost|time|latency|users|availability|uptime)/i.test(text) || hasNumbers;
+
+  const vagueTerms = /\b(stuff|things|some|various|etc|etc\.|kind of|sort of|maybe)\b/i.test(text);
+  const lacksSpecifics = !hasExamples && !hasNumbers && !hasDepth;
+
+  if (wordCount < 8 && lacksSpecifics) return { low: 'specificity' };
+  if (vagueTerms && lacksSpecifics) return { low: 'specificity' };
+  if (wordCount < 12 && !hasOwnership && hasWe && lacksSpecifics) return { low: 'ownership' };
+  return { low: null };
 };
 
 
@@ -907,7 +1102,13 @@ const hasBannedFollowupPhrasing = (text: string): boolean => {
   return (
     cleaned.includes('provide more') ||
     cleaned.includes('provide specific') ||
-    cleaned.includes('please share your background')
+    cleaned.includes('please share your background') ||
+    cleaned.includes('need more detail') ||
+    cleaned.includes('need more details') ||
+    cleaned.includes('more details') ||
+    cleaned.includes('not enough detail') ||
+    cleaned.includes('be more specific') ||
+    cleaned.includes('can you be more specific')
   );
 };
 
@@ -1019,8 +1220,20 @@ const sanitizeContentFeedback = (
   input: InterviewAgentInput,
   kind: QuestionKind
 ): string => {
-  const cleaned = (feedback || '').replace(/\s+/g, ' ').trim();
+  let cleaned = (feedback || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return '';
+
+  if (input.company) {
+    const companyPattern = new RegExp(`\\b${escapeRegex(input.company)}\\b`, 'ig');
+    cleaned = cleaned.replace(companyPattern, '').trim();
+  }
+  LOCATION_PATTERNS.forEach(pattern => {
+    cleaned = cleaned.replace(pattern, '').trim();
+  });
+  if (containsSensitiveInfo(cleaned)) {
+    cleaned = cleaned.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/ig, '[redacted]');
+    cleaned = cleaned.replace(/\+?\d[\d\s\-]{7,}\d/g, '[redacted]');
+  }
 
   const ackPatterns = [
     /thanks[,!]? i (?:captured|recorded) your response/i,
@@ -1030,6 +1243,12 @@ const sanitizeContentFeedback = (
     /^let['’]s continue\b/i,
     /^moving on\b/i,
     /^next question\b/i,
+    /^provide more\b/i,
+    /^provide specific\b/i,
+    /^need more\b/i,
+    /^more details\b/i,
+    /^lack of\b/i,
+    /^insufficient\b/i,
   ];
   if (ackPatterns.some(pattern => pattern.test(cleaned))) {
     return buildNeutralFeedback(input, kind);
@@ -1060,7 +1279,13 @@ const buildFallbackQuestionFromPlan = (
   }
 
   if (plan.kind === 'intro') {
-    return 'Hello, welcome to the interview. Could you briefly introduce yourself and your experience relevant to this role?';
+    const name = (input?.candidateName || '').trim();
+    const company = (input?.company || '').trim();
+    const role = (input?.jobRole || '').trim() || 'role';
+    const namePrefix = name ? `Hello ${name}` : 'Hello';
+    const companyPart = company ? ` at ${company}` : '';
+    const rolePart = role ? ` for the ${role} position` : '';
+    return `${namePrefix}, welcome to your interview${companyPart}${rolePart}. Let's begin with knowing you first — could you tell me about yourself and your experience relevant to this role?`;
   }
 
   if (plan.kind === 'resume' && plan.resumeAnchor?.title) {
@@ -1153,6 +1378,7 @@ const buildEvaluationPrompt = (
   const answer = (input.currentTranscript || '').trim();
   const role = (input.jobRole || '').trim() || 'General';
   const company = (input.company || '').trim();
+  const candidateName = (input.candidateName || '').trim();
   const resumeSummary = buildResumeSummary(input.resumeText || '');
   const referenceQuestions = (input.referenceQuestions || []).slice(0, 12);
   const eventType = input.eventType || 'answer';
@@ -1163,7 +1389,10 @@ const buildEvaluationPrompt = (
     'Use concise, constructive feedback (1-2 sentences max per field).',
     'Do NOT include generic acknowledgements or canned phrases.',
     'Avoid phrases like "provide more", "provide specific", or "please share your background".',
-    'Keep questions technical and concrete; avoid soft-skill-only or location-based questions.',
+    'Keep questions technical and concrete; avoid credential or location-based questions.',
+    'Focus on experience, projects, and skills; do not ask about education, location, or personal identifiers.',
+    'Do not mention company names, client names, locations, or personal identifiers from the resume or company field, except in the intro greeting or closing fit question where company name may be included.',
+    'Core questions must be selected verbatim from the provided core_question_pool.',
     'Do not repeat previous questions; if it is similar, choose a different angle.',
     'When asking a closing fit-for-role question, vary the wording each time (do not repeat the same phrasing).',
     'Do NOT quote or repeat resume text verbatim.',
@@ -1172,6 +1401,14 @@ const buildEvaluationPrompt = (
     'Ensure nextQuestion is a single message with any short transition included.',
     'nextQuestion must be a clear question ending with a question mark.',
   ].join(' ');
+
+  const sanitizedResumeAnchor = plan.resumeAnchor
+    ? {
+        title: sanitizeResumeAnchorTitle(plan.resumeAnchor.title, plan.resumeAnchor.company),
+        type: plan.resumeAnchor.type,
+        evidence: '',
+      }
+    : null;
 
   const planPayload = {
     next_kind: plan.kind,
@@ -1182,13 +1419,7 @@ const buildEvaluationPrompt = (
     core_target: plan.coreTarget,
     followup_budget_remaining: plan.followupBudgetRemaining,
     followup_intent: plan.followupIntent || null,
-    resume_anchor: plan.resumeAnchor
-      ? {
-          title: plan.resumeAnchor.title,
-          type: plan.resumeAnchor.type,
-          evidence: plan.resumeAnchor.evidenceLine,
-        }
-      : null,
+    resume_anchor: sanitizedResumeAnchor,
     core_question_pool: plan.corePool.slice(0, 10),
     reason: plan.reason,
   };
@@ -1197,6 +1428,7 @@ const buildEvaluationPrompt = (
     `Event: ${eventType}`,
     `Role: ${role}`,
     company ? `Company: ${company}` : 'Company: (not provided)',
+    candidateName ? `Candidate: ${candidateName}` : 'Candidate: (not provided)',
     (input.currentQuestion || lastQuestion)
       ? `Question: ${input.currentQuestion || lastQuestion}`
       : 'Question: (not provided)',
@@ -1208,18 +1440,19 @@ const buildEvaluationPrompt = (
     `NextQuestionPlan: ${JSON.stringify(planPayload)}`,
     '',
     'Event handling rules:',
-    '- If Event=start: contentFeedback = short welcome (1-2 sentences), nextQuestion = first interview question.',
+    '- If Event=start: contentFeedback may be empty or a brief welcome. nextQuestion must be the intro greeting + question.',
     '- If Event=silence_prompt: contentFeedback = brief nudge to continue, nextQuestion empty, shouldRetryQuestion=true.',
     '- If Event=low_confidence: contentFeedback = ask to repeat clearly, nextQuestion empty, shouldRetryQuestion=true.',
     '- If Event=answer: analyze answer quality and generate nextQuestion.',
     '',
     'Next question rules:',
     '- Obey NextQuestionPlan.next_kind. If it is wrapup, set isInterviewOver=true and nextQuestion as a short closing statement (not a question).',
-    '- If next_kind=core and core_question_pool is non-empty, choose ONE question verbatim from the pool (prefer the first unused).',
-    '- If next_kind=resume, ask about resume_anchor.title without quoting the resume evidence line; focus on technical ownership, design decisions, and measurable impact.',
+    '- If next_kind=core and core_question_pool is non-empty, choose ONE question verbatim from the pool (prefer the first unused). Do not rewrite it.',
+    '- If next_kind=resume, ask about resume_anchor.title without naming any company/location; focus on technical ownership, design decisions, and measurable impact.',
     '- If next_kind=followup, ask one probing technical follow-up aligned to followup_intent (specificity, ownership, depth, or impact). Avoid "provide more" phrasing.',
-    '- If next_kind=intro, greet briefly and ask a concise first question (warm, professional, and question ends with ?).',
+    '- If next_kind=intro, greet briefly, include candidate name, company, and role if provided, then ask "tell me about yourself and your experience relevant to [role]". End with a question.',
     '- If next_kind=closing, ask a fit-for-role question (why a strong fit / why choose you / strongest evidence) with varied wording. Keep it a question and set isInterviewOver=false.',
+    '- If the candidate says they do not know or want to skip, acknowledge briefly and move on to the next question.',
     '- Never output multiple questions; keep nextQuestion to one question only.',
     '',
     'Return JSON with keys:',
@@ -1398,6 +1631,9 @@ const mergeEvaluation = (
       const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
       updated.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
     }
+    if (!isExamInterview(input) && plan.kind !== 'core') {
+      updated.nextQuestion = sanitizeJobInterviewQuestion(updated.nextQuestion, plan, input);
+    }
     updated.nextQuestion = enforceUniqueNextQuestion(
       updated.nextQuestion,
       input,
@@ -1413,6 +1649,10 @@ const mergeEvaluation = (
   if (input.resumeText) {
     updated.contentFeedback = scrubResumeLeakage(updated.contentFeedback || '', input.resumeText);
     updated.nextQuestion = scrubResumeLeakage(updated.nextQuestion || '', input.resumeText);
+  }
+
+  if (isDeferralAnswer(input.currentTranscript || '')) {
+    updated.shouldRetryQuestion = false;
   }
 
   updated.nextQuestionKind = plan.kind;
@@ -1488,6 +1728,23 @@ const parseReferenceQuestions = (referenceQuestions?: string | string[]): string
     .filter(Boolean);
 };
 
+const shuffleQuestions = (questions: string[]): string[] => {
+  const shuffled = [...questions];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+const filterQuestionPool = (
+  questions: string[],
+  options?: { allowSoftSkills?: boolean }
+): string[] => {
+  if (!questions.length) return [];
+  return questions.filter(question => !violatesQuestionGuardrails(question, options));
+};
+
 const selectCoreQuestion = (
   referenceQuestions: string[],
   historyQuestions: string[],
@@ -1545,7 +1802,13 @@ const selectUnusedAnchor = (anchors: ResumeAnchor[], historyQuestions: string[])
 
   for (const anchor of ordered) {
     const key = normalizeForCompare(anchor.title);
+    // Pre-generate the question this anchor would produce — check if it's already in history
+    const generatedQuestion = normalizeForCompare(buildResumeQuestion(anchor));
+
     const used = normalizedHistory.some(question => {
+      // Check generated question similarity first (most reliable)
+      if (generatedQuestion && question.includes(generatedQuestion.substring(0, Math.min(60, generatedQuestion.length)))) return true;
+      // Fallback: check anchor metadata fields
       if (key && question.includes(key)) return true;
       if (anchor.company && question.includes(normalizeForCompare(anchor.company))) return true;
       if (anchor.role && question.includes(normalizeForCompare(anchor.role))) return true;
@@ -1605,12 +1868,18 @@ const orchestrateJobInterviewNextQuestion = (
   const resumeHasData = flowInput.hasResumeData ?? (resumeText.trim().length > 50);
   const resumeProfile = resumeHasData ? extractResumeProfile(resumeText) : null;
   const resumeAnchors = resumeProfile ? selectResumeAnchors(buildResumeAnchors(resumeProfile, resumeText)) : [];
-  const allowedResumeAnchors = resumeAnchors.filter(anchor => RESUME_SEQUENCE_ORDER.includes(anchor.type));
+  const allowedResumeAnchors = resumeAnchors.filter(anchor => anchor.type === 'experience' || anchor.type === 'project');
   const resumeEnabled = flags.resumeProbe && resumeHasData && allowedResumeAnchors.length > 0;
 
   const classifications: QuestionKind[] = [];
   historyQuestions.forEach((question, idx) => {
-    classifications.push(classifyQuestion(question, resumeAnchors, historyQuestions[idx - 1]));
+    // The first question in history is the intro greeting — but ONLY if it actually looks like one.
+    // If history is stale/empty and a core question appears at idx=0, don't mislabel it as intro.
+    if (idx === 0 && isIntroQuestion(question)) {
+      classifications.push('intro');
+    } else {
+      classifications.push(classifyQuestion(question, resumeAnchors, historyQuestions[idx - 1]));
+    }
   });
 
   const lastKind = classifications.length > 0 ? classifications[classifications.length - 1] : 'other';
@@ -1625,24 +1894,66 @@ const orchestrateJobInterviewNextQuestion = (
   const lastIsClosing = isClosingQuestion(lastQuestion) || isCandidateQuestion(lastQuestion);
 
   const introAskedCount = classifications.filter(kind => kind === 'intro').length;
-  const resumeAsked = classifications.filter(kind => kind === 'resume').length;
-  const followupAsked = classifications.filter(kind => kind === 'followup').length;
+  // Primary resume count from classifications
+  const resumeAskedByClass = classifications.filter(kind => kind === 'resume').length;
+  // Secondary resume count: count anchors whose generated question already appeared in history (more reliable)
+  const normalizedHistory = historyQuestions.map(q => normalizeForCompare(q));
+  const resumeAskedByAnchor = allowedResumeAnchors.filter(anchor => {
+    const generated = normalizeForCompare(buildResumeQuestion(anchor));
+    const prefix = generated.substring(0, Math.min(60, generated.length));
+    const key = normalizeForCompare(anchor.title);
+    return normalizedHistory.some(q =>
+      (prefix && q.includes(prefix)) ||
+      (key && q.includes(key)) ||
+      (anchor.company && q.includes(normalizeForCompare(anchor.company)))
+    );
+  }).length;
+  // Use whichever count is higher — prevents getting stuck if classification misses one
+  const resumeAsked = Math.max(resumeAskedByClass, resumeAskedByAnchor);
   const coreAsked = classifications.filter(kind => kind === 'core').length;
   const closingAsked = classifications.filter(kind => kind === 'closing').length;
 
   const mainQuestionsAsked = introAskedCount + resumeAsked + coreAsked;
   const resumeTarget = resumeEnabled ? Math.min(RESUME_QUESTION_TARGET, allowedResumeAnchors.length || 0) : 0;
-  const coreTarget = Math.max(0, MAIN_QUESTION_TARGET - 1 - resumeTarget);
-  const mainRemaining = Math.max(0, MAIN_QUESTION_TARGET - mainQuestionsAsked);
-  const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupAsked);
+  const mainTarget = JOB_MAIN_QUESTION_TARGET;
+  const coreTarget = Math.max(0, mainTarget - 1 - resumeTarget);
+  const mainRemaining = Math.max(0, mainTarget - mainQuestionsAsked);
 
-  const askedResumeTypes = getAskedResumeTypes(historyQuestions, allowedResumeAnchors);
-  const availableResumeTypes = new Set(allowedResumeAnchors.map(anchor => anchor.type));
-  const nextResumeType = RESUME_SEQUENCE_ORDER.find(
-    type => availableResumeTypes.has(type) && !askedResumeTypes.has(type)
-  );
-  const resumeSequencePending = resumeEnabled && !!nextResumeType;
+  // Per-question follow-up budget: count consecutive followups after the last main question
+  const followupsForCurrentQuestion = (() => {
+    let count = 0;
+    for (let i = classifications.length - 1; i >= 0; i -= 1) {
+      if (classifications[i] === 'followup') {
+        count += 1;
+      } else {
+        break; // stop at the first non-followup (the main question)
+      }
+    }
+    return count;
+  })();
+  const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupsForCurrentQuestion);
 
+  const resumeSequencePending = resumeEnabled && resumeAsked < resumeTarget;
+
+  // --- STRICT ORDERING: intro → resume → core → closing → wrapup ---
+
+  // 1. Always ask intro first
+  if (introAskedCount < 1) {
+    return {
+      kind: 'intro',
+      isInterviewOver: false,
+      questionCategory: getQuestionCategory('intro', lastKind),
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: mainTarget,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'intro_required',
+    };
+  }
+
+  // 2. Check if all main questions are done → closing/wrapup
   if (mainRemaining <= 0) {
     if (closingAsked < 1) {
       return {
@@ -1651,7 +1962,7 @@ const orchestrateJobInterviewNextQuestion = (
         questionCategory: getQuestionCategory('closing', lastKind),
         corePool: [],
         mainQuestionsAsked,
-        mainQuestionsTarget: MAIN_QUESTION_TARGET,
+        mainQuestionsTarget: mainTarget,
         resumeTarget,
         coreTarget,
         followupBudgetRemaining,
@@ -1664,7 +1975,7 @@ const orchestrateJobInterviewNextQuestion = (
       questionCategory: getQuestionCategory('wrapup', lastKind),
       corePool: [],
       mainQuestionsAsked,
-      mainQuestionsTarget: MAIN_QUESTION_TARGET,
+      mainQuestionsTarget: mainTarget,
       resumeTarget,
       coreTarget,
       followupBudgetRemaining,
@@ -1672,52 +1983,39 @@ const orchestrateJobInterviewNextQuestion = (
     };
   }
 
+  // 3. Per-question follow-up: only when last answer was low quality and budget remains
+  //    Follow-ups do NOT count toward the 10-question total.
+  //    Only allow follow-ups on resume or core questions, not during phase transitions.
   const qualityCheck = detectAnswerQuality(flowInput.currentTranscript || '');
   const shouldFollowup =
     flags.followup &&
     followupBudgetRemaining > 0 &&
-    lastMainKind === 'core' &&
+    (lastMainKind === 'core' || lastMainKind === 'resume') &&
     !lastIsClosing &&
     qualityCheck.low !== null &&
-    !isDeferralAnswer(flowInput.currentTranscript || '') &&
-    !resumeSequencePending;
+    !isDeferralAnswer(flowInput.currentTranscript || '');
 
   if (shouldFollowup) {
     return {
-      kind: 'followup',
-      isInterviewOver: false,
-      questionCategory: getQuestionCategory('followup', lastMainKind),
-      followupIntent: qualityCheck.low!,
-      corePool: [],
-      mainQuestionsAsked,
-      mainQuestionsTarget: MAIN_QUESTION_TARGET,
-      resumeTarget,
-      coreTarget,
-      followupBudgetRemaining,
-      reason: 'low_quality_followup',
-    };
+        kind: 'followup',
+        isInterviewOver: false,
+        questionCategory: getQuestionCategory('followup', lastMainKind),
+        followupIntent: qualityCheck.low!,
+        corePool: [],
+        mainQuestionsAsked,
+        mainQuestionsTarget: mainTarget,
+        resumeTarget,
+        coreTarget,
+        followupBudgetRemaining,
+        reason: 'per_question_followup',
+      };
   }
 
-  if (introAskedCount < 1) {
-    return {
-      kind: 'intro',
-      isInterviewOver: false,
-      questionCategory: getQuestionCategory('intro', lastKind),
-      corePool: [],
-      mainQuestionsAsked,
-      mainQuestionsTarget: MAIN_QUESTION_TARGET,
-      resumeTarget,
-      coreTarget,
-      followupBudgetRemaining,
-      reason: 'intro_required',
-    };
-  }
-
+  // 4. Resume-based technical questions (phase 2, after intro)
   if (resumeSequencePending) {
+    const preferType: ResumeAnchorType = resumeAsked % 2 === 0 ? 'experience' : 'project';
     const anchor =
-      (nextResumeType
-        ? selectUnusedAnchorByType(allowedResumeAnchors, historyQuestions, nextResumeType)
-        : undefined) ||
+      selectUnusedAnchorByType(allowedResumeAnchors, historyQuestions, preferType) ||
       selectUnusedAnchor(allowedResumeAnchors, historyQuestions);
     if (anchor) {
       return {
@@ -1727,7 +2025,7 @@ const orchestrateJobInterviewNextQuestion = (
         resumeAnchor: anchor,
         corePool: [],
         mainQuestionsAsked,
-        mainQuestionsTarget: MAIN_QUESTION_TARGET,
+        mainQuestionsTarget: mainTarget,
         resumeTarget,
         coreTarget,
         followupBudgetRemaining,
@@ -1736,15 +2034,19 @@ const orchestrateJobInterviewNextQuestion = (
     }
   }
 
-  const referencePool = filterUnusedReferenceQuestions(parseReferenceQuestions(referenceQuestions), historyQuestions);
+  // 5. Core / HR-generated questions (phase 3, after resume questions)
+  const referencePool = filterUnusedReferenceQuestions(
+    filterQuestionPool(parseReferenceQuestions(referenceQuestions), { allowSoftSkills: true }),
+    historyQuestions
+  );
 
   return {
     kind: 'core',
     isInterviewOver: false,
     questionCategory: getQuestionCategory('core', lastKind),
-    corePool: referencePool,
+    corePool: shuffleQuestions(referencePool),
     mainQuestionsAsked,
-    mainQuestionsTarget: MAIN_QUESTION_TARGET,
+    mainQuestionsTarget: mainTarget,
     resumeTarget,
     coreTarget,
     followupBudgetRemaining,
@@ -2102,6 +2404,9 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
             output.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
           }
+          if (output.nextQuestion) {
+            output.nextQuestion = sanitizeJobInterviewQuestion(output.nextQuestion, plan, flowInput);
+          }
           output.nextQuestion = enforceUniqueNextQuestion(
             output.nextQuestion || '',
             flowInput,
@@ -2117,6 +2422,10 @@ export async function interviewAgent(input: InterviewAgentInput): Promise<Interv
             flowInput,
             output.isInterviewOver
           );
+        }
+
+        if (output && isDeferralAnswer(flowInput.currentTranscript || '')) {
+          output.shouldRetryQuestion = false;
         }
         
         if (output && currentAffairsQuestion) {
@@ -3471,6 +3780,9 @@ const interviewAgentFlow = ai.defineFlow(
         const seed = (plan.mainQuestionsAsked || 0) + (plan.followupBudgetRemaining || 0);
         output.nextQuestion = buildFollowupQuestion(plan.followupIntent || 'specificity', seed);
       }
+      if (output.nextQuestion) {
+        output.nextQuestion = sanitizeJobInterviewQuestion(output.nextQuestion, plan, input);
+      }
       output.nextQuestion = enforceUniqueNextQuestion(
         output.nextQuestion || '',
         input,
@@ -3486,6 +3798,10 @@ const interviewAgentFlow = ai.defineFlow(
         input,
         output.isInterviewOver
       );
+    }
+
+    if (output && isDeferralAnswer(input.currentTranscript || '')) {
+      output.shouldRetryQuestion = false;
     }
     
     // If this was a current affairs question, add metadata to the output for tracking
