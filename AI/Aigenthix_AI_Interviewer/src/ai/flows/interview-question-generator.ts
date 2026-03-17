@@ -37,11 +37,40 @@ export async function generateRoleSpecificQuestions(input: GenerateRoleSpecificQ
   return generateRoleSpecificQuestionsFlow(input);
 }
 
+/**
+ * Strips personally identifiable information (PII) from resume text before passing to LLM.
+ * Removes emails, phone numbers, URLs (LinkedIn, GitHub, etc.), and physical addresses.
+ */
+function sanitizeResumePII(text: string): string {
+  if (!text) return text;
+  let sanitized = text;
+  // Remove email addresses
+  sanitized = sanitized.replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, '[EMAIL REDACTED]');
+  // Remove phone numbers (various formats)
+  sanitized = sanitized.replace(/(?:\+?\d{1,3}[\s\-]?)?(?:\(?\d{2,4}\)?[\s\-]?)?\d{3,5}[\s\-]?\d{3,5}/g, '[PHONE REDACTED]');
+  // Remove LinkedIn URLs
+  sanitized = sanitized.replace(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%]+\/?/gi, '[LINKEDIN REDACTED]');
+  // Remove GitHub URLs
+  sanitized = sanitized.replace(/(?:https?:\/\/)?(?:www\.)?github\.com\/[A-Za-z0-9\-_%]+\/?/gi, '[GITHUB REDACTED]');
+  // Remove general URLs
+  sanitized = sanitized.replace(/https?:\/\/[^\s]+/g, '[URL REDACTED]');
+  // Remove "Email:" or "Phone:" labels with their values
+  sanitized = sanitized.replace(/(?:Email|E-mail|Mail)\s*[:\-]\s*\S+/gi, '');
+  sanitized = sanitized.replace(/(?:Phone|Mobile|Tel|Cell)\s*[:\-]\s*\S+/gi, '');
+  return sanitized;
+}
+
 const prompt = ai.definePrompt({
   name: 'generateRoleSpecificQuestionsPrompt',
   input: {schema: GenerateRoleSpecificQuestionsInputSchema},
   output: {schema: GenerateRoleSpecificQuestionsOutputSchema},
   prompt: `You are an expert interview question generator.
+
+**CRITICAL PII RULE:** NEVER include the candidate's personal information in generated questions. This means:
+- Do NOT mention their email address, phone number, LinkedIn URL, GitHub URL, or personal website
+- Do NOT include their physical address or location details
+- You MAY reference their job titles, skills, projects, company names, and educational qualifications
+- Keep questions professional and focused on their expertise and experience, not their identity
 
 You will generate a set of interview questions tailored to the job role, company, and resume provided.
 The questions should be in the following language: {{{language}}}.
@@ -254,6 +283,7 @@ const generateRoleSpecificQuestionsFlow = ai.defineFlow(
     
     const promptInput = {
       ...input,
+      resumeText: hasResumeData ? sanitizeResumePII(input.resumeText) : input.resumeText,
       hasResumeData,
       referenceQuestions,
       catInsights,

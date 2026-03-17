@@ -3,8 +3,7 @@
 require('dotenv').config();
 const WebSocket = require('ws');
 const http = require('http');
-
-const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
+const { getAssemblyAIApiKeyManager } = require('./ws-proxy-server-key-manager');
 const PROXY_PORT = Number(process.env.PORT || process.env.WS_PROXY_PORT || 9003);
 
 const DEFAULT_SAMPLE_RATE = 16000;
@@ -15,9 +14,13 @@ const ASSEMBLYAI_STREAMING_ENCODING =
 const ASSEMBLYAI_FORMAT_TURNS =
   (process.env.ASSEMBLYAI_FORMAT_TURNS || 'false').toLowerCase() === 'true';
 
-if (!ASSEMBLYAI_API_KEY) {
-  console.error('ERROR: ASSEMBLYAI_API_KEY environment variable is not set.');
-  console.error('Set it in your environment before starting ws-proxy-server.js');
+// Initialize AssemblyAI API key manager
+let keyManager;
+try {
+  keyManager = getAssemblyAIApiKeyManager();
+} catch (error) {
+  console.error('❌ ERROR: Failed to initialize AssemblyAI API key manager:', error.message);
+  console.error('Please set at least ASSEMBLYAI_API_KEY in your .env file');
   process.exit(1);
 }
 
@@ -45,9 +48,17 @@ wss.on('connection', (clientWs, req) => {
     assemblyUrl.searchParams.set('format_turns', 'true');
   }
 
+  // Get API key using rotation
+  const apiKey = keyManager.getNextApiKey();
+  if (!apiKey) {
+    console.error('❌ ERROR: No available AssemblyAI API keys');
+    clientWs.close(1011, 'No available API keys');
+    return;
+  }
+
   const assemblyWs = new WebSocket(assemblyUrl.toString(), {
     headers: {
-      Authorization: ASSEMBLYAI_API_KEY,
+      Authorization: apiKey,
     },
   });
 
@@ -72,6 +83,7 @@ wss.on('connection', (clientWs, req) => {
 
   assemblyWs.on('open', () => {
     console.log('[WS Proxy] AssemblyAI upstream connected');
+    keyManager.markKeySuccess(apiKey);
     flushPending();
   });
 
@@ -93,6 +105,7 @@ wss.on('connection', (clientWs, req) => {
 
   assemblyWs.on('error', (err) => {
     console.error('AssemblyAI WS error:', err);
+    keyManager.markKeyFailed(apiKey, err);
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(JSON.stringify({
         type: 'error',

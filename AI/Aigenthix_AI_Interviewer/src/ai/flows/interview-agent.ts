@@ -870,7 +870,11 @@ const isDeferralAnswer = (answer: string): boolean => {
     /harder question/.test(text) ||
     /more complex/.test(text) ||
     /give me.*question/.test(text) ||
-    /move on/.test(text)
+    /move on/.test(text) ||
+    /don\'t want to answer/.test(text) ||
+    /do not want to answer/.test(text) ||
+    /refuse to answer/.test(text) ||
+    /won\'t answer/.test(text)
   );
 };
 
@@ -2505,7 +2509,7 @@ Your tasks are:
     - Answer their question naturally in 'nextQuestion' and transition back to the interview
     - Be warm, personal, and conversational
 
-4.  **Check for "Move to Next Question" Requests:** If the candidate explicitly asks to move to the next question (e.g., "please move to the next question", "next question", "move on", "skip this", "I want to move forward", etc.):
+4.  **Check for "Move to Next Question" Requests:** If the candidate explicitly asks to move to the next question or refuses to answer (e.g., "please move to the next question", "next question", "move on", "skip this", "I want to move forward", "I don't want to answer", "Proceed to next question", etc.):
     - Acknowledge their request positively in 'nextQuestion'
     - Set 'isCorrectAnswer' to true (since they're requesting to move forward)
     - Set 'shouldRetryQuestion' to false
