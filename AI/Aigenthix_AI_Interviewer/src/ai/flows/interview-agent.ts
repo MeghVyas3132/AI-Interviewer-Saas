@@ -322,6 +322,13 @@ const enforceUniqueNextQuestion = (
   if (!candidate) return proposedQuestion;
 
   const previousQuestions = input.conversationHistory.map(entry => (entry.question || '').trim()).filter(Boolean);
+  const activeQuestion = (input.currentQuestion || '').trim();
+  if (
+    activeQuestion &&
+    !previousQuestions.some(previous => normalizeQuestionForMatch(previous) === normalizeQuestionForMatch(activeQuestion))
+  ) {
+    previousQuestions.push(activeQuestion);
+  }
   const isDuplicate = previousQuestions.some(previous => {
     const prevKey = normalizeQuestionForMatch(previous);
     const candidateKey = normalizeQuestionForMatch(candidate);
@@ -943,7 +950,7 @@ const isIntroQuestion = (question: string): boolean => {
 };
 
 const isClosingQuestion = (question: string): boolean =>
-  /why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|why are you a good fit|why do you think you'?re a strong fit|fit for this role|strong fit/i.test(
+  /why (do|are) you (fit|a good fit|a strong fit)|why should we choose you|why are you a good fit|why do you think you'?re a strong fit|fit for this role|strong fit|strong match|right fit|what makes you a strong|how do your (strengths|skills) align|evidence that you(?:'re| are) a great fit/i.test(
     question || ''
   );
 
@@ -1873,6 +1880,18 @@ const orchestrateJobInterviewNextQuestion = (
     .map(entry => entry.question || '')
     .filter(text => isLikelyInterviewQuestion(text));
 
+  // Frontend turn timing can occasionally lag conversationHistory by one step.
+  // Include the actively displayed question so sequencing never regresses
+  // (e.g., repeating intro/resume/closing because the latest turn was not counted yet).
+  const currentQuestion = (flowInput.currentQuestion || '').trim();
+  if (
+    currentQuestion &&
+    isLikelyInterviewQuestion(currentQuestion) &&
+    !historyQuestions.some(question => normalizeForCompare(question) === normalizeForCompare(currentQuestion))
+  ) {
+    historyQuestions.push(currentQuestion);
+  }
+
   const resumeText = flowInput.resumeText || '';
   const resumeHasData = flowInput.hasResumeData ?? (resumeText.trim().length > 50);
   const resumeProfile = resumeHasData ? extractResumeProfile(resumeText) : null;
@@ -1906,9 +1925,14 @@ const orchestrateJobInterviewNextQuestion = (
   const lastQuestion = historyQuestions.length > 0 ? historyQuestions[historyQuestions.length - 1] : '';
   const lastIsClosing = isClosingQuestion(lastQuestion) || isCandidateQuestion(lastQuestion);
 
+  const explicitAnsweredCount = Number.isFinite(flowInput.realQuestionCount as number)
+    ? Math.max(0, Number(flowInput.realQuestionCount || 0))
+    : 0;
+  const effectiveMainAskedFloor = Math.max(historyQuestions.length, explicitAnsweredCount);
+
   // Intro is strictly a single opening turn. If any interview question already exists,
   // treat intro as already consumed to avoid duplicate intro loops.
-  const introAskedCount = historyQuestions.length > 0 ? 1 : 0;
+  const introAskedCount = effectiveMainAskedFloor > 0 ? 1 : 0;
   // Primary resume count from classifications
   const resumeAskedByClass = classifications.filter(kind => kind === 'resume').length;
   // Secondary resume count: count anchors whose generated question already appeared in history (more reliable)
@@ -1927,6 +1951,7 @@ const orchestrateJobInterviewNextQuestion = (
   const resumeAsked = Math.max(resumeAskedByClass, resumeAskedByAnchor);
   const coreAsked = classifications.filter(kind => kind === 'core').length;
   const closingAsked = classifications.filter(kind => kind === 'closing').length;
+  const nextMainOrdinal = effectiveMainAskedFloor + 1;
 
   const mainQuestionsAsked = introAskedCount + resumeAsked + coreAsked;
   const resumeTarget = resumeEnabled ? RESUME_QUESTION_TARGET : 0;
@@ -1950,7 +1975,7 @@ const orchestrateJobInterviewNextQuestion = (
   })();
   const followupBudgetRemaining = Math.max(0, FOLLOWUP_BUDGET_MAX - followupsForCurrentQuestion);
 
-  const resumeSequencePending = resumeEnabled && resumeAsked < resumeTarget;
+  const resumeSequencePending = nextMainOrdinal >= 2 && nextMainOrdinal <= 4;
 
   // --- STRICT ORDERING: intro → resume → core → closing → wrapup ---
 
@@ -1967,6 +1992,36 @@ const orchestrateJobInterviewNextQuestion = (
       coreTarget,
       followupBudgetRemaining,
       reason: 'intro_required',
+    };
+  }
+
+  // Strict ordinal guard: Q10 must be closing, Q11+ must wrap up.
+  if (nextMainOrdinal >= 10) {
+    if (closingAsked < 1) {
+      return {
+        kind: 'closing',
+        isInterviewOver: false,
+        questionCategory: getQuestionCategory('closing', lastKind),
+        corePool: [],
+        mainQuestionsAsked,
+        mainQuestionsTarget: mainTarget,
+        resumeTarget,
+        coreTarget,
+        followupBudgetRemaining,
+        reason: 'strict_turn_10_closing',
+      };
+    }
+    return {
+      kind: 'wrapup',
+      isInterviewOver: true,
+      questionCategory: getQuestionCategory('wrapup', lastKind),
+      corePool: [],
+      mainQuestionsAsked,
+      mainQuestionsTarget: mainTarget,
+      resumeTarget,
+      coreTarget,
+      followupBudgetRemaining,
+      reason: 'strict_turn_11_wrapup',
     };
   }
 
@@ -2061,7 +2116,8 @@ const orchestrateJobInterviewNextQuestion = (
 
   // 4. Resume-based technical questions (phase 2, after intro)
   if (resumeSequencePending) {
-    const preferType: ResumeAnchorType = RESUME_SEQUENCE_ORDER[resumeAsked % RESUME_SEQUENCE_ORDER.length] || 'experience';
+    const resumeOrdinal = Math.max(0, Math.min(RESUME_SEQUENCE_ORDER.length - 1, nextMainOrdinal - 2));
+    const preferType: ResumeAnchorType = RESUME_SEQUENCE_ORDER[resumeOrdinal] || 'experience';
     const anchor =
       selectUnusedAnchorByType(allowedResumeAnchors, historyQuestions, preferType) ||
       selectUnusedAnchor(allowedResumeAnchors, historyQuestions);
@@ -2091,7 +2147,12 @@ const orchestrateJobInterviewNextQuestion = (
   const referencePool = filterUnusedReferenceQuestions(
     filterQuestionPool(parseReferenceQuestions(referenceQuestions), { allowSoftSkills: true }),
     historyQuestions
-  );
+  ).filter(question => {
+    if (isIntroQuestion(question)) return false;
+    if (isClosingQuestion(question) || isFitQuestion(question)) return false;
+    if (isCandidateQuestion(question)) return false;
+    return true;
+  });
 
   return {
     kind: 'core',

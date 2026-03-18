@@ -1537,7 +1537,45 @@ export default function InterviewRoomPage() {
       return;
     }
 
-    const adaptiveNextQuestion = adaptiveFeedback.nextQuestion;
+    let adaptiveNextQuestion = (adaptiveFeedback.nextQuestion || '').trim();
+    if (adaptiveNextQuestion) {
+      const nextKey = normalizeQuestionKey(adaptiveNextQuestion);
+      let isDuplicateNext = Boolean(
+        nextKey && askedQuestionKeysRef.current.has(nextKey)
+      );
+
+      if (!isDuplicateNext && nextKey) {
+        for (const askedKey of askedQuestionKeysRef.current) {
+          if (questionSimilarity(nextKey, askedKey) >= 0.84) {
+            isDuplicateNext = true;
+            break;
+          }
+        }
+      }
+
+      if (!isDuplicateNext && currentQuestionTextRef.current) {
+        isDuplicateNext = questionSimilarity(adaptiveNextQuestion, currentQuestionTextRef.current) >= 0.84;
+      }
+
+      if (isDuplicateNext) {
+        const replacementQuestion = (session?.questions_generated || []).find((candidate) => {
+          const candidateKey = normalizeQuestionKey(candidate);
+          if (!candidateKey) return false;
+          if (askedQuestionKeysRef.current.has(candidateKey)) return false;
+          for (const askedKey of askedQuestionKeysRef.current) {
+            if (questionSimilarity(candidateKey, askedKey) >= 0.84) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (replacementQuestion) {
+          adaptiveNextQuestion = replacementQuestion;
+        }
+      }
+    }
+
     if (adaptiveFeedback.isInterviewOver) {
       const finalMessage = combineFeedbackWithQuestion(sanitizedFeedback, adaptiveNextQuestion || '');
       if (finalMessage) {
@@ -1566,6 +1604,10 @@ export default function InterviewRoomPage() {
 
     if (adaptiveNextQuestion) {
       currentQuestionTextRef.current = adaptiveNextQuestion;
+      const nextKey = normalizeQuestionKey(adaptiveNextQuestion);
+      if (nextKey) {
+        askedQuestionKeysRef.current.add(nextKey);
+      }
       questionRetryCountRef.current.delete(currentQuestionKey);
       const shouldCountMain = !adaptiveFeedback.nextQuestionKind ||
         ['intro', 'resume', 'core'].includes(adaptiveFeedback.nextQuestionKind);
@@ -1884,6 +1926,10 @@ export default function InterviewRoomPage() {
     }
 
     currentQuestionTextRef.current = firstQuestion;
+    const firstQuestionKey = normalizeQuestionKey(firstQuestion);
+    if (firstQuestionKey) {
+      askedQuestionKeysRef.current.add(firstQuestionKey);
+    }
     questionRetryCountRef.current.set(normalizeQuestionKey(firstQuestion), 0);
     const shouldCountMain = !startTurn.nextQuestionKind || ['intro', 'resume', 'core'].includes(startTurn.nextQuestionKind);
     if (shouldCountMain) {
