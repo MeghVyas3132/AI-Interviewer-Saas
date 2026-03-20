@@ -116,53 +116,56 @@ async def get_my_interviews(
     Get all interviews scheduled for the candidate.
     """
     try:
-        # Get candidate record by email
-        candidate_query = select(Candidate).filter(
-            and_(
-                Candidate.email == current_user.email,
-                Candidate.company_id == current_user.company_id
-            )
-        )
+        # A candidate email can exist in multiple companies.
+        # Return a merged schedule so candidates can see every active process.
+        candidate_query = select(Candidate).filter(Candidate.email == current_user.email)
         result = await db.execute(candidate_query)
-        candidate = result.scalars().first()
+        candidates = result.scalars().all()
 
-        if not candidate:
+        if not candidates:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Candidate profile not found"
             )
+        company_ids = {candidate.company_id for candidate in candidates}
+        companies_query = select(Company).filter(Company.id.in_(company_ids))
+        companies_result = await db.execute(companies_query)
+        companies = companies_result.scalars().all()
+        company_name_by_id = {company.id: company.name for company in companies}
 
-        # Get interviews
-        interviews_query = select(Interview).filter(
-            Interview.candidate_id == candidate.id
-        ).order_by(Interview.scheduled_time.asc())
+        candidate_by_id = {candidate.id: candidate for candidate in candidates}
+        candidate_ids = list(candidate_by_id.keys())
+
+        interviews_query = (
+            select(Interview)
+            .filter(Interview.candidate_id.in_(candidate_ids))
+            .order_by(Interview.scheduled_time.asc())
+        )
         interviews_result = await db.execute(interviews_query)
         interviews = interviews_result.scalars().all()
 
-        # Get mentor info if assigned
-        mentor_info = None
-        if candidate.assigned_to:
-            mentor_query = select(User).filter(User.id == candidate.assigned_to)
-            mentor_result = await db.execute(mentor_query)
-            mentor = mentor_result.scalars().first()
-            if mentor:
-                mentor_info = {
-                    "id": str(mentor.id),
-                    "name": mentor.name,
-                    "email": mentor.email,
-                }
-
-        # Get company info
-        company_query = select(Company).filter(Company.id == current_user.company_id)
-        company_result = await db.execute(company_query)
-        company = company_result.scalars().first()
-        company_name = company.name if company else "Unknown Company"
+        companies_payload = [
+            {
+                "id": str(candidate.company_id),
+                "name": company_name_by_id.get(candidate.company_id, "Unknown Company"),
+                "position": candidate.position,
+                "status": candidate.status.value if candidate.status else None,
+            }
+            for candidate in candidates
+        ]
 
         return {
             "interviews": [
                 {
                     "id": str(i.id),
-                    "company_name": company_name,
+                    "company_name": company_name_by_id.get(
+                        candidate_by_id[i.candidate_id].company_id,
+                        "Unknown Company",
+                    ),
+                    "company_id": str(candidate_by_id[i.candidate_id].company_id),
+                    "candidate_id": str(i.candidate_id),
+                    "candidate_email": current_user.email,
+                    "position": candidate_by_id[i.candidate_id].position,
                     "round": i.round.value if i.round else None,
                     "scheduled_time": i.scheduled_time.isoformat() if i.scheduled_time else None,
                     "timezone": i.timezone,
@@ -172,11 +175,8 @@ async def get_my_interviews(
                 }
                 for i in interviews
             ],
-            "mentor": mentor_info,
-            "company": {
-                "name": company_name,
-            } if company else None,
-            "position_applied": candidate.position,
+            "companies": companies_payload,
+            "total": len(interviews),
         }
     except HTTPException:
         raise
