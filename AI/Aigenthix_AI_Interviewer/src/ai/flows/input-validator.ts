@@ -29,12 +29,12 @@ const prompt = ai.definePrompt({
     name: 'validateInputPrompt',
     input: {schema: ValidateInputSchema},
     output: {schema: ValidateOutputSchema},
-    prompt: `You are a content moderator for a professional career application.
-Your task is to determine if the provided text is a plausible 'job role', 'exam aspirant', or 'company name'.
-The text must be a realistic job title, exam aspirant role (such as "NEET Aspirant", "JEE Aspirant", "UPSC Aspirant", etc.), or company name. It should not be gibberish, random characters, or nonsensical.
+    prompt: `You are a content moderator for a professional interview application.
+  Your task is to determine if the provided text is a plausible 'job role' or 'company name'.
+  The text must be a realistic job title or company name. It should not be gibberish, random characters, or nonsensical.
 The text must also be professional and not contain any profanity, hate speech, harassment, dangerous, or sexually explicit content.
 
-If the text is a plausible and appropriate job role, exam aspirant role, or company name, set 'isValid' to true.
+  If the text is a plausible and appropriate job role or company name, set 'isValid' to true.
 If the text is not plausible (e.g., "gvsjhvdf", "asdfasdf") or is inappropriate, set 'isValid' to false and provide a brief, user-friendly 'reason'.
 - For nonsensical input, a good reason is "Please enter a valid job role/company name."
 - For inappropriate input, a good reason is "This input contains inappropriate language."

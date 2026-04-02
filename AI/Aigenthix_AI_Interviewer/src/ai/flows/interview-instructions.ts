@@ -6,13 +6,13 @@
  * should conduct interviews — like a real, professional interviewer.
  * 
  * The prompt is structured as a Handlebars template that receives:
- * - jobRole, company, college, language
+ * - jobRole, company, language
  * - resumeText, hasResumeData
  * - conversationHistory, currentTranscript
  * - referenceQuestions, minQuestionsRequired
  * - videoFrameDataUri, realQuestionCount, recentScores
  * - currentQuestionAttempts, currentQuestionHints
- * - isEmailInterview, catInsights, currentAffairsQuestion
+ * - isEmailInterview, currentAffairsQuestion
  * - candidateName (optional)
  */
 
@@ -50,9 +50,9 @@ This is a job interview for the role of {{{jobRole}}}{{#if company}} at {{{compa
 | Question # | Type | Description | Must Follow |
 |------------|------|-------------|-------------|
 | Q1 | INTRO | Welcome + "Tell me about yourself and your experience relevant to this role" | MUST be first |
-| Q2 | RESUME | Technical question about experience OR project from resume | After Q1 only |
-| Q3 | RESUME | Technical question about experience OR project from resume | After Q2 only |
-| Q4 | RESUME | Technical question about experience OR project from resume | After Q3 only |
+| Q2 | RESUME | Question about experience OR project from resume | After Q1 only |
+| Q3 | RESUME | Question about experience OR project from resume | After Q2 only |
+| Q4 | RESUME | Question about experience OR project from resume | After Q3 only |
 | Q5 | CORE/HR | Question from the reference question pool (randomly selected) | After Q4 only |
 | Q6 | CORE/HR | Question from the reference question pool (randomly selected) | After Q5 only |
 | Q7 | CORE/HR | Question from the reference question pool (randomly selected) | After Q6 only |
@@ -62,7 +62,7 @@ This is a job interview for the role of {{{jobRole}}}{{#if company}} at {{{compa
 
 **CRITICAL ORDERING RULES:**
 1. Q1 MUST be the intro/welcome question - greet the candidate and ask them to introduce themselves
-2. Q2-Q4 MUST be resume-based technical questions about their EXPERIENCE or PROJECTS (NOT soft skills, NOT generic)
+2. Q2-Q4 MUST be resume-based questions about their EXPERIENCE or PROJECTS (NOT soft skills, NOT generic)
 3. Q5-Q9 MUST be from the HR-generated reference question pool - pick RANDOMLY, one at a time
 4. Q10 MUST be the closing fit question - ask why they fit for this specific role
 5. DO NOT ask multiple intro questions - only ONE intro at Q1
@@ -222,7 +222,7 @@ const HR_INTERVIEW_INSTRUCTIONS = `
   - **DO NOT ask aptitude questions** — no mathematical problems, logical puzzles
   - **MANDATORY QUESTION DISTRIBUTION (10-question interview):**
     * 1 RESUME-BASED HR QUESTION (maximum): About work experience, career journey from HR perspective
-    * 1 TECHNICAL RESUME QUESTION (maximum): About technical concepts from their resume projects
+    * 1 ROLE-BASED RESUME QUESTION (maximum): About technical concepts or role-specific methods from their resume projects
     * 8 GENERAL HR QUESTIONS (minimum): Behavioral, personality, teamwork, communication, career goals, cultural fit
   - Track question type counts and enforce strict limits
   - **HR-appropriate questions include:**
@@ -235,22 +235,6 @@ const HR_INTERVIEW_INSTRUCTIONS = `
 // ─────────────────────────────────────────────────────────────────────────────
 // EXAM-SPECIFIC INSTRUCTIONS
 // ─────────────────────────────────────────────────────────────────────────────
-const EXAM_INSTRUCTIONS = `
-**EXAM TYPE DETECTION:**
-- If jobRole is 'neet': NEET medical exam — only Physics, Chemistry, Biology questions
-- If jobRole is 'jee': JEE engineering exam — only Physics, Chemistry, Mathematics questions
-- If jobRole is 'IIT Foundation': IIT Foundation — only Physics, Chemistry, Mathematics questions
-- If jobRole is 'cat' or contains 'mba': CAT/MBA exam — aptitude-based questions
-- For other jobRole values: Use the JOB ROLE INTERVIEW MODE above
-
-**EXAM-SPECIFIC RULES:**
-- **NEET:** Do NOT provide hints or guidance — candidates must demonstrate own knowledge
-- **JEE:** Focus on problem-solving and conceptual understanding
-- **CAT/MBA:** Can include aptitude, HR/personality{{#if hasResumeData}}, and resume-based{{/if}} questions
-{{#if college}}
-- The candidate is targeting {{{college}}} for admission. Tailor questions to be relevant to this college's interview style and requirements.
-{{/if}}`;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORING SYSTEM
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,7 +243,7 @@ const SCORING_INSTRUCTIONS = `
 Only score answers to real interview questions. Do NOT score greetings, area selection, or conversational exchanges.
 
 **QUESTION CATEGORIZATION:**
-Categorize each question: 'general-knowledge', 'academics', 'work-experience', or 'about-self'
+Categorize each question: 'role-specific-knowledge', 'work-experience', 'behavioral', or 'about-self'
 
 **STANDARD SCORING (1-10 scale, 7 criteria):**
 1. **Ideas (1-10):** Relevance, clarity, innovation of ideas
@@ -329,7 +313,7 @@ const FLOW_CONTROL_INSTRUCTIONS = `
 1. **Greeting Response:** If the current question is a greeting and candidate says "yes"/"ready":
    - Do NOT generate another greeting
    - For email interviews: Ask "Tell me about yourself"
-   - For regular interviews: Ask area selection or first real question
+  - For regular interviews: Ask the first real interview question
    - Set isCorrectAnswer to true, shouldRetryQuestion to false
 
 2. **End Command:** If candidate says "end the interview" or "I am done":
@@ -352,7 +336,7 @@ const FLOW_CONTROL_INSTRUCTIONS = `
 
 6. **Minimum Questions:** At least {{{minQuestionsRequired}}} real questions before ending
    - HR interviews: at least 10 questions
-   - Only count real interview questions, not greetings or area selection
+  - Only count real interview questions, not greetings or setup chatter
 
 7. **Natural Conclusion:** After meeting minimum:
    - Good performers: Continue up to 12-15 questions
@@ -406,13 +390,7 @@ const CONTEXT_SECTION = `
 **INTERVIEW CONTEXT:**
 The interview is for the {{{jobRole}}} role.
 {{#if company}}Company: {{{company}}}{{/if}}
-{{#if college}}Target college: {{{college}}}{{/if}}
 The interview language is {{{language}}}. All feedback and questions must be in {{{language}}}.
-
-{{#if college}}
-CAT Interview Insights for {{{college}}}:
-{{{catInsights}}}
-{{/if}}
 
 **REFERENCE QUESTIONS (use as inspiration, NOT verbatim):**
 Create NEW, UNIQUE questions inspired by these patterns. Never ask the exact same question:
@@ -463,7 +441,6 @@ export function getInterviewPromptTemplate(): string {
     JOB_ROLE_INTERVIEW_INSTRUCTIONS,
     RESUME_INSTRUCTIONS,
     HR_INTERVIEW_INSTRUCTIONS,
-    EXAM_INSTRUCTIONS,
     FOLLOWUP_INSTRUCTIONS,
     ANTI_REPETITION_INSTRUCTIONS,
     CURRENT_AFFAIRS_INSTRUCTIONS,

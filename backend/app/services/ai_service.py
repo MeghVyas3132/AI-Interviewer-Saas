@@ -552,11 +552,11 @@ async def generate_ats_report(resume_text: str, max_output_tokens: int = 512, mo
 
 async def generate_questions(job_description: str, max_questions: int = 10, model: str | None = None) -> Dict[str, Any]:
     """
-    Generate a list of TECHNICAL interview questions given a job description.
+    Generate a list of role-specific interview questions given a job description.
     Uses Groq as primary provider with key rotation for rate limit mitigation.
     Returns: { "questions": ["q1", "q2", ...], "raw": <provider response> }
     """
-    prompt = f"""You are a senior professional interviewer preparing interview questions for a real job interview. You are NOT a quiz maker — you are a hiring manager crafting questions that test real competence.
+    prompt = f"""You are a senior professional interviewer preparing interview questions for a real job interview. You are not a quiz maker — you are a hiring manager crafting questions that test real-world competence.
 
 JOB DESCRIPTION/ROLE:
 {job_description}
@@ -566,7 +566,7 @@ Generate EXACTLY {max_questions} interview questions that a senior interviewer w
 QUESTION QUALITY RULES:
 1. Questions must sound like a REAL interviewer asking them — conversational, professional, and specific
 2. Each question must be directly relevant to the job description/role above
-3. Questions should test practical knowledge and real-world experience, not textbook knowledge
+3. Questions should test practical knowledge, role fit, and real-world experience, not textbook knowledge
 4. Use scenarios and situations, not definitions or lists
 
 REQUIRED QUESTION DISTRIBUTION (for {max_questions} questions):
@@ -1252,7 +1252,7 @@ async def generate_interview_verdict(
     
     position_context = f"Position: {position}\n" if position else ""
     
-    prompt = f"""You are an expert technical interview evaluator with 15+ years of hiring experience. Analyze this interview transcript and provide a comprehensive, production-ready evaluation.
+    prompt = f"""You are an expert professional interview evaluator with 15+ years of hiring experience. Analyze this interview transcript and provide a comprehensive, production-ready evaluation.
 {visual_obs_context}
 {position_context}{ats_context}{resume_context}
 
@@ -1261,11 +1261,11 @@ INTERVIEW TRANSCRIPT:
 
 EVALUATION CRITERIA:
 
-1. **TECHNICAL COMPETENCE** (40% weight)
-   - Accuracy of technical answers
-   - Depth of knowledge demonstrated
-   - Problem-solving approach
-   - Understanding of concepts
+1. **ROLE-SPECIFIC COMPETENCE** (40% weight)
+    - Accuracy of answers relevant to the role
+    - Depth of knowledge demonstrated
+    - Problem-solving approach
+    - Understanding of concepts
 
 2. **COMMUNICATION SKILLS** (25% weight)
    - Clarity of explanations
